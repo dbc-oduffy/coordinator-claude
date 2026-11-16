@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """
 coordinator/bin/workday-start-day-branch-resolve.py — native port of two genuine
 imperative fragments from `commands/workday-start.md` (coordinator-content-repo), Steps -1 and

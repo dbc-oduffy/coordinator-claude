@@ -287,7 +287,7 @@ was ported to naked Python.
 The engine-resident `coordinator/bin/reassess-goal-krs` reads **existing signal only** — no new
 instrumentation. Signal sources:
 
-- `bin/query-completions.py --since <week-start>`
+- `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/query-completions" --since <week-start>` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\query-completions.exe"`, same arguments)
 - `bin/query-records.js --type handoff`
 - the week-changelog header file
 

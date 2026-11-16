@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from __future__ import annotations
 # verify-snippet-registry-consistency — CLI trampoline over claude-klabauter
 # coordinator_core.snippet_sync.verify_registry_consistency.

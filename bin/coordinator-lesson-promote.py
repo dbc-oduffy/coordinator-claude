@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 coordinator-lesson-promote — write a universal lesson to the local lessons-outbox
 for drain by the central /learn-lessons --central procedure.

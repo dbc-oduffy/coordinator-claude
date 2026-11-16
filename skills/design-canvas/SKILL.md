@@ -1,6 +1,6 @@
 ---
 name: design-canvas
-description: "Design it on the canvas / design the page: Claude Design canvas route, design system, render-and-look."
+description: "Design it on the canvas / design the page: Claude Design, design system, render-and-look."
 description-budget: 135
 version: 1.0.0
 triggers:
@@ -71,6 +71,10 @@ nothing says so.
 unreachable-original reason. A harvested record or local render is never its proxy. Tripwire:
 `A-DESIGN-VERIFY-READS-THE-EXTERNAL-ORIGINAL`.
 
+**A run that names a canvas board, or touches files under a design-registry glob, shows a rendered
+side-by-side with the harvested frames before commit.** A single-tier UI (web-only or desktop-only)
+states how it was rendered. Tripwire: `A-CANVAS-BOUND-RUN-SHOWS-A-RENDERED-SIDE-BY-SIDE-BEFORE-COMMIT`.
+
 ## Review
 
 - **Reviewers read the committed source**, never the link: `staff-ux` for flow, `senior-front-end` for
@@ -106,6 +110,11 @@ record is the source for execution; the link is never read. Token:
    or the repo's `design_registry_path`), with `sources` covering the page and the component dirs it renders.
    A plan touching those files then cites the record or a ratified deviation. Contract:
    `coordinator/docs/wiki/schema-and-validation-contracts/design-registry.md`; token `A-REGISTERED-DESIGN-IS-CITED-NEVER-RE-DERIVED`.
+7. **Check:** planner `click_paths` and `workflow.revise` notes are checked against the record's frames and
+   `SETTLED.md`, not only for reachability. Token: `CLICK-PATHS-AND-REVISE-NOTES-ARE-CHECKED-AGAINST-THE-CANVAS`.
+
+**Every design spec the PM asked for (canvas board, `docs/design` path) is carried across compaction and
+handoff, bound to the slice it governs.** Token: `A-PM-REQUESTED-DESIGN-SPEC-IS-CARRIED-BOUND-TO-ITS-SLICE`.
 
 ## Boundaries
 

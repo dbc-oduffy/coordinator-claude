@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """engine-provenance-inventory.py — the per-carrier divergence inventory,
 built from C6's counter and a fresh static scan.
 

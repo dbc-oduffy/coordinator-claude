@@ -50,7 +50,6 @@ commits on a tree this busy would be worse than the bug it prevents.
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -63,7 +62,6 @@ from _phantom_staged_deletion import (  # noqa: E402
     render_report,
 )
 
-OVERRIDE_ENV = "COORDINATOR_OVERRIDE_PHANTOM_STAGED_DELETION"
 
 
 def _git(*args: str) -> "subprocess.CompletedProcess[bytes]":
@@ -83,10 +81,29 @@ def _git(*args: str) -> "subprocess.CompletedProcess[bytes]":
         return subprocess.CompletedProcess(cmd, 124, b"", b"")
 
 
-def main() -> int:
-    if os.environ.get(OVERRIDE_ENV):
-        return 0
+def _ignored_by_staged_rules(rows, deleted) -> set[str]:
+    """Deleted paths ignored by a `.gitignore` this commit stages. The rules are
+    read from disk by `check-ignore --no-index`, so a staged `.gitignore` with
+    unstaged edits is not trusted: disk would not be the rule the commit lands."""
+    staged_ignores = [
+        p for s, p in rows if s in ("M", "A") and p.rsplit("/", 1)[-1] == ".gitignore"
+    ]
+    if not staged_ignores or not deleted:
+        return set()
+    if _git("diff", "--quiet", "--", *staged_ignores).returncode != 0:
+        return set()
+    probe = subprocess.run(
+        ["git", "--no-optional-locks", "check-ignore", "--no-index", "--stdin", "-z"],
+        input="\0".join(deleted).encode("utf-8", "surrogateescape"),
+        capture_output=True,
+        check=False,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        timeout=30,
+    )
+    return {p for p in probe.stdout.decode("utf-8", "surrogateescape").split("\0") if p}
 
+
+def main() -> int:
     staged = _git("diff", "--cached", "--name-status", "-z")
     if staged.returncode != 0:
         # An unreadable staged set is not evidence of a phantom. Fail open: a
@@ -105,7 +122,7 @@ def main() -> int:
     def exists_on_disk(path: str) -> bool:
         return Path(path).exists()
 
-    def disk_matches_head(path: str):
+    def disk_matches_head(path: str) -> bool | None:
         """None when the path is not in HEAD -- then this commit cannot be
         removing it from HEAD, whatever the index says."""
         head = _git("cat-file", "blob", f"HEAD:{path}")
@@ -116,10 +133,12 @@ def main() -> int:
         except OSError:
             return None
 
+    untracked = _ignored_by_staged_rules(rows, [p for s, p in rows if s == "D"])
     findings = classify(
         rows,
         exists_on_disk=exists_on_disk,
         disk_matches_head=disk_matches_head,
+        untracked_by_staged_ignore=untracked.__contains__,
     )
     if not findings:
         return 0

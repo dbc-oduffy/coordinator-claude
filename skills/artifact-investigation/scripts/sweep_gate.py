@@ -22,7 +22,7 @@ import run_folder  # noqa: E402
 SWEEP_FILE = "sweep.json"
 
 
-def sweep_stage(run, stage):
+def sweep_stage(run, stage) -> dict:
     """Gate entry for `stage`: {stage, status, blockers[, coverage, provisional]}."""
     if not run_folder.is_landed(stage):
         return {
@@ -58,7 +58,7 @@ def sweep_stage(run, stage):
     return {"stage": stage, "status": "blocked" if blockers else "clean", "blockers": blockers}
 
 
-def _record(run, entry):
+def _record(run, entry) -> None:
     path = Path(run) / SWEEP_FILE
     doc = {}
     if path.is_file():
@@ -74,7 +74,7 @@ def _record(run, entry):
     path.write_text(json.dumps({"stages": stages}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def main(argv=None):
+def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Sweep gate for one stage of a run folder.")
     parser.add_argument("run", help="run folder")
     parser.add_argument("stage", help="stage id from the run_folder registry")

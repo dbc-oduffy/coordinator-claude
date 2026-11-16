@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Seed DoE doctrine and skills into the Codex and agy host surfaces.
 
 One managed-block implementation serves every marker pair (`split_block`, `seed_block`,
@@ -21,10 +22,12 @@ DOCTRINE_END = "<!-- END coordinator-doctrine -->"
 CODEX_CAP_BYTES = 32768
 AGY_CAP_BYTES = 24000
 MANAGED_SUFFIX = ".coordinator-managed"
+PROJECT_STEER = "<!-- PROJECT-RAG-STEER: wording owned by project-rag; placeholder until its surface supplies it -->"
+PER_PROJECT_STEER = "Project-specific rules belong in that repo's own AGENTS.md, never in this global file."
 DOCTRINE_SOURCES = ("global-doctrine/CLAUDE.md", "global-doctrine/rules/rules.md")
 
 
-def main(argv):
+def main(argv) -> int:
     """Library module with no run work: report that and exit 2 (unimatrix-install.py imports it)."""
     print("unimatrix-doctrine-seed: library module imported by unimatrix-install.py; nothing to run", file=sys.stderr)
     return 2
@@ -44,7 +47,7 @@ def split_block(text, begin, end):
     return text[:start], text[stop:]
 
 
-def seed_block(path, block, begin, end):
+def seed_block(path, block, begin, end) -> str:
     """Write the managed block into a rules file; return "created", "added", "updated" or "present"."""
     path = Path(path)
     if not path.exists():
@@ -64,7 +67,22 @@ def seed_block(path, block, begin, end):
     return "updated"
 
 
-def unseed_block(path, begin, end):
+def unmanaged_extent(path, *blocks):
+    """Return (non-blank lines, UTF-8 bytes) outside every managed (begin, end) block; read-only."""
+    path = Path(path)
+    if not path.exists():
+        return 0, 0
+    outside = path.read_text(encoding="utf-8")
+    for begin, end in blocks:
+        parts = split_block(outside, begin, end)
+        if parts is not None:
+            outside = parts[0] + parts[1]
+    if not outside.strip():
+        return 0, 0
+    return sum(1 for ln in outside.splitlines() if ln.strip()), len(outside.encode("utf-8"))
+
+
+def unseed_block(path, begin, end) -> str:
     """Remove only the managed block (deleting a file left empty); return "removed" or "absent"."""
     path = Path(path)
     if not path.exists():
@@ -84,11 +102,11 @@ def unseed_block(path, begin, end):
     return "removed"
 
 
-def render_coordinator_doctrine(plugin_root, cap_bytes):
+def render_coordinator_doctrine(plugin_root, cap_bytes) -> str:
     """Return the managed block of global-doctrine CLAUDE.md then rules.md; ValueError above cap_bytes UTF-8 bytes."""
     root = Path(plugin_root)
     body = "\n\n".join((root / rel).read_text(encoding="utf-8").strip("\n") for rel in DOCTRINE_SOURCES)
-    block = f"{DOCTRINE_BEGIN}\n{body}\n{DOCTRINE_END}\n"
+    block = f"{DOCTRINE_BEGIN}\n{body}\n\n{PER_PROJECT_STEER}\n{PROJECT_STEER}\n{DOCTRINE_END}\n"
     size = len(block.encode("utf-8"))
     if size > cap_bytes:
         raise ValueError(f"coordinator doctrine block is {size} bytes, over the {cap_bytes}-byte host cap")
@@ -120,7 +138,7 @@ def seed_agy_skills(skills_json, skills_root):
     return "added" if existed else "created"
 
 
-def unseed_agy_skills(skills_json, skills_root):
+def unseed_agy_skills(skills_json, skills_root) -> str:
     """Remove only our path entry (deleting a file left with no entries and no other keys); return "removed" or "absent"."""
     path = Path(skills_json)
     if not path.exists():
@@ -150,7 +168,7 @@ def _marker(dest):
     return dest.with_name(dest.name + MANAGED_SUFFIX)
 
 
-def _remove_entry(dest):
+def _remove_entry(dest) -> None:
     if dest.is_symlink() or dest.is_file():
         dest.unlink()
     elif dest.is_dir():
@@ -204,4 +222,7 @@ def unseed_codex_skills(agents_skills_dir):
 
 
 if __name__ == "__main__":
+    if any(_a in ("-h", "--help") for _a in __import__("sys").argv[1:]):
+        print("usage: unimatrix-doctrine-seed [-h]\nseed doctrine into a host tree")
+        raise SystemExit(0)
     sys.exit(main(sys.argv[1:]))

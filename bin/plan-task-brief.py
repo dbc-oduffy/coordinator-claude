@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """plan-task-brief.py — lift one task's brief out of a plan's `## Tasks` spine
 into `fan-out-dispatch.py`'s `@file` brief shape.
 

@@ -231,7 +231,7 @@ Step Zero runs BEFORE Phase 1 of `/coordinator:install`. It gates the install on
 Step Zero  →  Phase 1 (environment probes)  →  Phase 2 (operator identity)  →  …
 ```
 
-Step Zero is the only phase that calls `scripts/setup.py --preflight` and `scripts/normalize-env`. All subsequent phases assume Step Zero completed without hard failures (Python probe passed). Advisory WARNs from Step Zero are surfaced in the Phase 7 status table but do not block the install chain.
+Step Zero is the only phase that calls `python3 scripts/setup.py --preflight` and `scripts/normalize-env`. All subsequent phases assume Step Zero completed without hard failures (Python probe passed). Advisory WARNs from Step Zero are surfaced in the Phase 7 status table but do not block the install chain.
 
 ### Probe-lib / fixer / gate contract
 
@@ -241,7 +241,7 @@ Three components, three roles — never conflated:
 |---|---|---|
 | `coordinator_core.install.prereq_probe` (native Python port, the engine repo) | SSOT functional probe lib — executes minimal runtime checks for the prereq set; `probe_all()` emits NDJSON; `inconclusive` is first-class | **Never mutates** |
 | `scripts/normalize-env` | Sole writer for fixable env conditions; consent/backup/restore shape; blast-radius-last ordering — Python trampoline over the engine repo's `coordinator_core.ops.normalize_env` | **Sole mutation surface** |
-| `scripts/setup.py --preflight` | Gate — reads probe lib, tables results, exits non-zero on hard failures only (Python) | **Never mutates** |
+| `python3 scripts/setup.py --preflight` | Gate — reads probe lib, tables results, exits non-zero on hard failures only (Python) | **Never mutates** |
 
 Separating probe from fixer from gate is load-bearing: a probe that mutates state is a vacuous-pass hazard (it fixes the condition it was testing, then reports clean). See `install-surface-completeness.md § Step Zero Preflight and Env-Normalization Shape § FB-2 rule`.
 
@@ -266,7 +266,7 @@ The env-prerequisite probe layer (`coordinator_core.install.prereq_probe`,
 `coordinator_core.install.step_zero_emit`) is **cross-platform Python** as of the 2026-07-21
 de-bash cutover — no bash dependency on any platform, including Windows.
 
-**How it works on Windows:** `scripts/setup.py --preflight` is the canonical Step Zero entry
+**How it works on Windows:** `python3 scripts/setup.py --preflight` is the canonical Step Zero entry
 point on every platform, including Windows; it calls `prereq_probe.probe_all()` in-process and
 fires the semi-hard `clone_auth` gate through the same code path that macOS and Linux use. The
 bash-only requirement (git-bash/WSL on Windows) applies only to the retired
@@ -281,14 +281,14 @@ create a second SSOT for probe logic, breaking the probe-fixer separation descri
 / fixer / gate contract above.
 
 **No Windows-native bypass.** There is no documented Windows-native install path that skips
-Step Zero. `scripts/setup.py --preflight` is the canonical Step Zero entry point on Windows same
+Step Zero. `python3 scripts/setup.py --preflight` is the canonical Step Zero entry point on Windows same
 as macOS/Linux (per § "How it works on Windows" above) — the env-probe layer is cross-platform
 Python, so there is no bash preflight left to skip on any platform. The Windows setup wrapper's
 header documents 1:1 parity with its POSIX counterpart as the mirror constraint, and that parity
 now holds for env probes too, post-cutover.
 
 _Follow-up note:_ if a future Windows install wrapper invokes `setup.ps1` without also invoking
-`scripts/setup.py --preflight`, `clone_auth` and the other env prereqs will be silently
+`python3 scripts/setup.py --preflight`, `clone_auth` and the other env prereqs will be silently
 unverified on that path. Flag any such wrapper to the coordinator maintainer for a
 preflight-invocation step.
 

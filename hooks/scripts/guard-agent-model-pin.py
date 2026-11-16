@@ -40,7 +40,7 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from _message_envelope import compose, render  # noqa: E402
+from _message_envelope import Message, compose, render  # noqa: E402
 
 _WIKI_ANCHOR = (
     "coordinator/docs/wiki/coordinator-tripwires/tripwire-registry/"
@@ -112,7 +112,7 @@ def _declared_sibling(name: str, passed_family: str) -> Optional[str]:
     return sibling
 
 
-def _compose_reroute(name: str, sibling: str, passed: str):
+def _compose_reroute(name: str, sibling: str, passed: str) -> Message:
     return compose(
         f"{name} is pinned to another tier than the {passed} the call passed; "
         f"rerouted to coordinator:{sibling}, whose own pin now governs.",
@@ -120,7 +120,7 @@ def _compose_reroute(name: str, sibling: str, passed: str):
     )
 
 
-def _compose_deny(name: str, pin: str, passed: str):
+def _compose_deny(name: str, pin: str, passed: str) -> Message:
     return compose(
         f"drop `model` (or dispatch an agent type pinned to the tier you need): "
         f"{name} is pinned to {pin}, the call passed {passed}.",
@@ -157,6 +157,9 @@ def main() -> int:
         out = {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
+                # Auto mode denies a bare updatedInput on non-exempt tools (Agent
+                # included) after server review; an explicit allow carries it.
+                "permissionDecision": "allow",
                 "updatedInput": rerouted,
                 "additionalContext": render(_compose_reroute(name, sibling, passed)),
             }

@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 # workday-complete-backfill-scan.py — CLI trampoline over claude-klabauter
 # coordinator_core.ops.workday_complete_backfill_scan (skipped-workday
 # backfill detector — TSV rows of days with commits but no daily-summary

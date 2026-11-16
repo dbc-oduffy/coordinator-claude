@@ -69,6 +69,7 @@ import re
 import subprocess
 import datetime
 import difflib
+from collections.abc import Iterator
 from pathlib import Path
 
 # Read-path exit-code contract: an operational failure must be distinguishable
@@ -1555,7 +1556,7 @@ def cmd_dir(args: argparse.Namespace) -> int:
     return 0
 
 
-def _build_header_pats(prefix_parts):
+def _build_header_pats(prefix_parts) -> tuple[re.Pattern[str], re.Pattern[str]]:
     table_path = ".".join(prefix_parts)
     quoted_segs = r'\s*\.\s*'.join(f'"{re.escape(p)}"' for p in prefix_parts)
     h_pat = re.compile(
@@ -2968,7 +2969,7 @@ _MUTATING_COMMANDS = frozenset({"set", "unset", "array-append", "array-set", "mi
 
 
 @contextlib.contextmanager
-def _registry_write_lock(timeout_s: float = 10.0):
+def _registry_write_lock(timeout_s: float = 10.0) -> Iterator[None]:
     """Serialize registry read-modify-write across processes.
 
     Trap: every mutating verb reads the whole file, edits, and os.replace()s it. Two sessions
@@ -3262,5 +3263,112 @@ def main() -> int:
     return dispatch[parsed.command](parsed)
 
 
+_DEPTH_ENV = "MACHINE_LOCAL_DEPTH"
+# Load per CPU above which a read refuses rather than adds a process to the pile.
+_LOAD_PER_CPU_LIMIT = 8.0
+
+# Box-wide in-flight cap. Each invocation holds an OS lock on one of N slot files for its
+# whole life; when every slot is held it exits at once. The OS drops the lock when the
+# process exits or is killed, so an orphan holds a slot only while it is actually alive and
+# a crash never leaks one. Engine-side callers read the same directory and format.
+_SLOT_DIR_ENV = "MACHINE_LOCAL_SLOT_DIR"
+_MAX_INFLIGHT_ENV = "MACHINE_LOCAL_MAX_INFLIGHT"
+_DEFAULT_MAX_INFLIGHT = 16
+_held_slot: int | None = None  # kept open until exit: closing it would release the slot
+
+
+def _slot_dir() -> str:
+    override = os.environ.get(_SLOT_DIR_ENV)
+    if override:
+        return override
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA")
+    else:
+        base = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
+    return os.path.join(base or os.path.expanduser("~"), "coordinator", "machine-local-slots")
+
+
+def _max_inflight() -> int:
+    try:
+        return max(1, int(os.environ.get(_MAX_INFLIGHT_ENV, _DEFAULT_MAX_INFLIGHT)))
+    except ValueError:
+        return _DEFAULT_MAX_INFLIGHT
+
+
+def _try_lock(fd: int) -> bool:
+    try:
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return False
+    return True
+
+
+def _claim_inflight_slot() -> bool:
+    """Hold one slot for this process's life; False only when every slot is held by another.
+
+    Fails open: a slot directory that cannot be created or opened must cost the cap, never
+    the read.
+    """
+    global _held_slot
+    n = _max_inflight()
+    d = _slot_dir()
+    try:
+        os.makedirs(d, exist_ok=True)
+    except OSError:
+        return True
+    contended = False
+    start = os.getpid() % n
+    for i in range(n):
+        try:
+            fd = os.open(os.path.join(d, f"slot-{(start + i) % n}.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+        except OSError:
+            continue
+        if _try_lock(fd):
+            _held_slot = fd
+            return True
+        os.close(fd)
+        contended = True
+    return not contended
+
+
+def _spawn_storm_breaker() -> int | None:
+    """Refuse a nested or overloaded invocation; return an exit code, or None to proceed.
+
+    Trap: nothing this CLI does legitimately re-enters it, yet a descendant (a git
+    hook, a BASH_ENV-sourced profile calling `machine-local get`) can, and each
+    level fans out again: one such loop put 842 processes, 10+ deep, on a box in
+    3 s and took it down. The depth var is inherited by every child we spawn, so
+    any descendant that calls back in sees it and stops. Many unrelated top-level
+    callers (hooks across a dozen sessions) never nest, so the slot cap bounds them.
+    """
+    depth = os.environ.get(_DEPTH_ENV, "0")
+    if depth != "0":
+        print(f"machine-local: refused nested invocation ({_DEPTH_ENV}={depth}); "
+              f"a descendant of a machine-local call re-entered it. Find the caller "
+              f"from the parent process chain.", file=sys.stderr)
+        return EXIT_OPERATIONAL
+    os.environ[_DEPTH_ENV] = "1"
+    if not _claim_inflight_slot():
+        print(f"machine-local: refused, {_max_inflight()} invocations already in flight "
+              f"box-wide (slots under {_slot_dir()}); retry once they drain.", file=sys.stderr)
+        return EXIT_OPERATIONAL
+    try:
+        load1 = os.getloadavg()[0]  # absent on Windows; the slot cap above is the Windows bound
+    except (AttributeError, OSError):
+        return None
+    limit = _LOAD_PER_CPU_LIMIT * (os.cpu_count() or 1)
+    if load1 > limit:
+        print(f"machine-local: refused under load {load1:.0f} (limit {limit:.0f}); "
+              f"the box is saturated, retry once it drains.", file=sys.stderr)
+        return EXIT_OPERATIONAL
+    return None
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    _refused = _spawn_storm_breaker()
+    sys.exit(_refused if _refused is not None else main())

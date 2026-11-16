@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # tier-u-grant-cli — CLI trampoline over claude-klabauter
 # coordinator_core.session.grant (the Tier-U full-suite authorization-grant
 # writer/reader — DR-088 layer 5: "Authorization grant — Tier U requires a

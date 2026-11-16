@@ -34,7 +34,7 @@ _TEMPLATE = _PLUGIN_ROOT / "templates" / "general-work-home" / "home-CLAUDE.md"
 class RootRefused(Exception):
     """The root lands in a checkout or overlaps the group-em home; `.conflict` names it."""
 
-    def __init__(self, root: str, conflict: str):
+    def __init__(self, root: str, conflict: str) -> None:
         self.root = root
         self.conflict = conflict
         super().__init__(f"general-work root {root} conflicts with {conflict}")
@@ -177,7 +177,7 @@ def _git(
     stdin: bytes | None = None,
     timeout: float = 30,
     env: dict[str, str] | None = None,
-):
+) -> subprocess.CompletedProcess[bytes] | None:
     """Run git in `root`, feeding `stdin` when given; None when git is missing, fails to spawn or
     times out, so callers stay non-fatal."""
     try:

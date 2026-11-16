@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """uhura-mode.py -- who holds the PM comms channel for a repo, and since when.
 
 Uhura is a MODE an EM session enters, the same shape as `/group-em`, not an agent

@@ -63,7 +63,7 @@ export const meta = {
   phases: [
     { title: 'Size', detail: 'One sonnet sizing-scout per unsized baton — substrate read, touchpoint inventory, prior art, and a proposed t-shirt with its evidence. Skipped for a baton that already cites a sizing-object. Then one Opus blitz-em over the whole wave interrogates every proposed size (revising down by default), finalises the route via sizing-assemble, and emits the per-baton dispatch spec the Plan phase reads; it is skipped in single-plan mode and when every baton already carries an accepted sizing.' },
     { title: 'Plan', detail: 'One Opus planner per baton, on every route and at every size — authoring is not a lane the wave economises on. Writes the plan doc through coordinator:plan / scaffold-plan; never hand-authors frontmatter. In single-plan mode the prior-art pre-flight starts beside the planner and is awaited before the premise check. Once the plan path is trusted, a haiku host runs plan.prep_gate over it and the script reads the verdict: a plan that is not PREPPED goes back to the planner with the gate findings quoted, up to three repairs, and a plan still refused after that is blocked with a "prep-gate:" reason before any checker or reviewer reads it. A host that cannot answer is an incident, never a pull reason.' },
-    { title: 'Premise check', detail: 'One sonnet pass per drafted L-or-above plan (below L it does not fire), dispatched once its plan path is trusted and before any reviewer fires. Resolves the load-bearing citations in that plan against the tree — paths, symbols, refs, whether its falsifier can report red, and whether a named thing means what the plan says. It reports per-class ROWS and never a plan-level verdict; the seam after it translates those rows onto REVIEW_SCHEMA so they reach the reviewers that already apply every finding themselves. A premise miss routes BLOCKED; the class-5 rows with no writable fix are NAMED for the reviewers, who own the separating test.' },
+    { title: 'Premise check', detail: 'A haiku rag pre-vet gates one sonnet pass per drafted L-or-above plan (below L it does not fire); the sonnet pass spawns only when the pre-vet escalates, and zero hits or a failed rag lookup always escalate. Dispatched once its plan path is trusted and before any reviewer fires. Resolves the load-bearing citations in that plan against the tree — paths, symbols, refs, whether its falsifier can report red, and whether a named thing means what the plan says. It reports per-class ROWS and never a plan-level verdict; the seam after it translates those rows onto REVIEW_SCHEMA so they reach the reviewers that already apply every finding themselves. A premise miss routes BLOCKED; the class-5 rows with no writable fix are NAMED for the reviewers, who own the separating test.' },
     { title: 'Review', detail: 'Reviewers resolved per baton from the EM dispatch spec and the plan_review block (the `parallelReview` arg, else coordinator/contract/review-roster-fragment.json), then fixed by the finalised size. Fires unconditionally. Default: every tier reviewer runs in ONE parallel wave and applies its own findings by exact-text Edit, a post-wave ledger verify re-dispatches any row whose after text is absent, and a readiness host runs the op. Sequential and chatty-wave fallbacks exist. A PIVOT/REJECTED verdict applies nothing and routes to a replan baton. A prep-gate enricher repairs what the engine marks mechanical; a judgment verdict buys one sonnet resolver and one op re-ask. The script maps the op verdict to ready, pulled or replan. Host availability on the executing box is never a pull reason.' },
     { title: 'Adjudicate', detail: 'ONE sonnet agent rules every entry of the wave that would reach the PM (`surfacedToPm`, `routedElsewhere` with route pm-decision), writing a `pm_ruling:` line on each baton. A plan-weight matter is spun out as its own baton, not ruled. Only an entry it marks `pm_only` (important AND urgent AND no clear right answer, or an external or irreversible action) stays in `surfacedToPm`; the rest move to `adjudicated`. An entry it returns no ruling for fails closed.' },
   ],
@@ -141,7 +141,7 @@ const RETURN_TLDR_SCHEMA = {"type":"object","additionalProperties":false,
 
 const SIZING_SCHEMA = {
   type: 'object',
-  required: ['verdict', 'sidecarPath', 'counts', 'tldr'],
+  required: ['verdict', 'sidecarPath', 'counts'],
   properties: {
     // The scout's t-shirt read. Evidence, touchpoints, unknown mechanisms, prior art and the
     // cross-team dependency live in the sidecar; the blitz-em reads them from sidecarPath.
@@ -161,7 +161,7 @@ const SIZING_SCHEMA = {
 
 const WAVE_DISPATCH_SCHEMA = {
   type: 'object',
-  required: ['decisions', 'tldr'],
+  required: ['decisions'],
   properties: {
     decisions: {
       type: 'array',
@@ -196,7 +196,7 @@ const WAVE_DISPATCH_SCHEMA = {
 
 const PLAN_SCHEMA = {
   type: 'object',
-  required: ['batonId', 'planPath', 'status', 'tldr'],
+  required: ['batonId', 'planPath', 'status'],
   properties: {
     batonId: { type: 'string' },
     planPath: { type: 'string' },
@@ -213,7 +213,7 @@ const PLAN_SCHEMA = {
 // whose truth no check could settle; it never blocks.
 const PREMISE_SCHEMA = {
   type: 'object',
-  required: ['batonId', 'planPath', 'rows', 'sidecarPath', 'tldr'],
+  required: ['batonId', 'planPath', 'rows', 'sidecarPath'],
   properties: {
     batonId: { type: 'string' },
     planPath: { type: 'string' },
@@ -255,7 +255,7 @@ const PREMISE_SCHEMA = {
 
 const REVIEW_SCHEMA = {
   type: 'object',
-  required: ['batonId', 'reviewer', 'verdict', 'sidecarPath', 'tldr'],
+  required: ['batonId', 'reviewer', 'verdict', 'sidecarPath'],
   properties: {
     batonId: { type: 'string' },
     reviewer: { type: 'string' },
@@ -313,7 +313,7 @@ const REVIEW_SCHEMA = {
 
 const PLAN_PREP_GATE_SCHEMA = {
   type: 'object',
-  required: ['verdict', 'findings', 'message', 'tldr'],
+  required: ['verdict', 'findings', 'message'],
   properties: {
     verdict: { type: 'string', enum: ['PREPPED', 'NOT-PREPPED', 'REFUSED', 'ENGINE-ERROR'] },
     findings: { type: 'array', items: { type: 'string' } },
@@ -329,7 +329,7 @@ const PLAN_STAGE_PREP_GATE_ROUNDS = 3
 
 const PREP_GATE_REVISE_SCHEMA = {
   type: 'object',
-  required: ['batonId', 'before', 'after', 'tldr'],
+  required: ['batonId', 'before', 'after'],
   properties: {
     batonId: { type: 'string' },
     before: { type: 'string', enum: ['PREPPED', 'NOT-PREPPED', 'REFUSED', 'ENGINE-ERROR'] },
@@ -351,7 +351,7 @@ const PREP_GATE_REVISE_SCHEMA = {
 
 const JUDGMENT_RESOLVE_SCHEMA = {
   type: 'object',
-  required: ['batonId', 'resolved', 'unresolved', 'touched', 'tldr'],
+  required: ['batonId', 'resolved', 'unresolved', 'touched'],
   properties: {
     batonId: { type: 'string' },
     resolved: { type: 'array', items: { type: 'string' } },
@@ -372,7 +372,7 @@ const JUDGMENT_RESOLVE_SCHEMA = {
 
 const PREMISE_RECHECK_SCHEMA = {
   type: 'object',
-  required: ['batonId', 'rows', 'retired', 'tldr'],
+  required: ['batonId', 'rows', 'retired'],
   properties: {
     batonId: { type: 'string' },
     rows: PREMISE_SCHEMA.properties.rows,
@@ -388,7 +388,7 @@ const PREMISE_RECHECK_SCHEMA = {
 
 const PRIOR_ART_SCHEMA = {
   type: 'object',
-  required: ['verdict', 'sidecarPath', 'tldr'],
+  required: ['verdict', 'sidecarPath'],
   properties: {
     verdict: { type: 'string', enum: ['COMPATIBLE', 'WARN', 'BLOCKED-SURFACE-TO-PM', 'DEGRADED'] },
     sidecarPath: { type: 'string' },
@@ -400,7 +400,7 @@ const PRIOR_ART_SCHEMA = {
 
 const ADJUDICATION_SCHEMA = {
   type: 'object',
-  required: ['batonId', 'verdict', 'pmOnly', 'ruling', 'sidecarPath', 'tldr'],
+  required: ['batonId', 'verdict', 'pmOnly', 'ruling', 'sidecarPath'],
   properties: {
     batonId: { type: 'string' },
     verdict: { type: 'string', enum: ['ruled', 'pm-only'] },
@@ -414,7 +414,7 @@ const ADJUDICATION_SCHEMA = {
 
 const PLAN_COVERAGE_SCHEMA = {
   type: 'object',
-  required: ['verdict', 'sidecarPath', 'tldr'],
+  required: ['verdict', 'sidecarPath'],
   properties: {
     verdict: { type: 'string', enum: ['COMPLETE', 'INCOMPLETE', 'BLOCKED-SURFACE-TO-PM', 'SCOPE-MISMATCH', 'DEGRADED'] },
     sidecarPath: { type: 'string' },
@@ -1077,6 +1077,99 @@ ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'planning-report'))}`,
   ))
 }
 
+// L13 pre-vet: a haiku agent runs the rag lookups and the script alone decides whether the sonnet
+// leg spawns. Every unproven state escalates: an empty search is not evidence of no conflict.
+const PREVET_SCHEMA = {
+  type: 'object',
+  required: ['escalate', 'ragOk', 'hits', 'hint', 'reason', 'sidecarPath'],
+  properties: {
+    escalate: { type: 'boolean' },
+    ragOk: { type: 'boolean' },
+    hits: { type: 'integer' },
+    hint: { type: 'boolean' },
+    claimsChecked: { type: 'integer' },
+    reason: { type: 'string' },
+    sidecarPath: { type: 'string' },
+  },
+}
+
+const PREVET_PHASES = { premise: 'Premise check', 'prior-art': 'Plan' }
+
+const RAG_REPO =
+  typeof parsedArgs.ragRepo === 'string' && parsedArgs.ragRepo.trim()
+    ? parsedArgs.ragRepo.trim()
+    : (REPO_ROOT ? REPO_ROOT.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || null : null)
+
+// Returns the reason the sonnet leg must run, or null when the pre-vet cleared the baton.
+function prevetEscalation(result, kind) {
+  if (!result || typeof result !== 'object') return 'the pre-vet returned nothing'
+  if (result.ragOk !== true) return 'rag_ok is not true'
+  if (!(Number(result.hits) > 0)) return 'the rag lookup returned zero hits'
+  if (result.escalate !== false) return 'the pre-vet did not clear the baton'
+  if (result.hint !== false) return `the pre-vet hinted at, or did not rule out, a ${kind === 'premise' ? 'PIVOT/REJECTED' : 'conflict'}`
+  if (kind === 'premise' && /\b(PIVOT|REJECTED)\b/i.test(String(result.reason || ''))) {
+    return 'the pre-vet reason names PIVOT/REJECTED'
+  }
+  if (!String(result.sidecarPath || '').trim()) return 'the pre-vet wrote no sidecar'
+  return null
+}
+
+function ragPrevet(kind, baton, sidecarPath, task) {
+  return trackAgent(`${kind}-prevet`, agent(
+    `phase: ${kind}-prevet
+
+You are a cheap pre-vet in front of a sonnet ${kind} check. You decide only whether that check must run;
+you never edit anything and never judge architecture.
+
+${task}
+
+Every project-rag call (\`project_semantic_search\`, \`project_symbol\`, \`project_file\`; load each with
+ToolSearch \`select:mcp__project-rag__<name>\` first) MUST pass \`repo="${RAG_REPO}"\`. A call without it
+fails with \`missing_index\` or \`source_unspecified\`.
+
+Return:
+- \`ragOk\`: true only if every rag call you made returned ok. A \`missing_index\`, \`source_unspecified\`,
+  error or timeout is false.
+- \`hits\`: the total number of hits your lookups returned. Zero is a legitimate answer; do not pad it.
+- \`hint\`: true if ANY hit or citation suggests a conflict, an unresolved or contradicted citation, a
+  rejected or superseded approach, or you are unsure. When in doubt it is true.
+- \`escalate\`: false only if \`ragOk\` is true, \`hits\` is above zero, \`hint\` is false and you found nothing
+  that needs the full check. Otherwise true.
+- \`reason\`: one sentence. \`claimsChecked\`: how many claims or citations you examined.
+${NO_EXECUTION_RULE}
+${REPO_ROOT_RULE}
+${TRAIL_RULE(sidecarPath)}`,
+    { model: 'haiku', label: `prevet:${kind}:${baton.id}`, // census family: `prevet:`
+      phase: PREVET_PHASES[kind],
+      effort: 'low',
+      schema: PREVET_SCHEMA,
+    },
+  ))
+}
+
+// `runLeg` spawns the sonnet premise leg; it runs only when the pre-vet does not clear the baton.
+async function premiseGate(baton, planResult, trailDir, runLeg) {
+  if (RAG_REPO) {
+    const pointer = sidecarFor(trailDir, baton.id, 'review-premise-check-pointer')
+    const vet = await ragPrevet('premise', baton, pointer,
+      `Read the plan at ${planResult.planPath} (baton ${baton.id}). Pick up to 5 load-bearing citations
+(paths, symbols, refs) and confirm each resolves against this tree with the rag tools or
+\`git cat-file -e HEAD:<path>\`. Any citation that does not resolve, any hint of PIVOT or REJECTED, or
+any falsifier you cannot confirm can report red, sets \`hint\` true.`)
+    if (prevetEscalation(vet, 'premise') === null) {
+      return {
+        batonId: baton.id,
+        planPath: planResult.planPath,
+        rows: [],
+        sidecarPath: vet.sidecarPath,
+        falsifierVerdict: '(haiku pre-vet cleared the baton: the premise-checker and plan-coverage lenses did not run)',
+        prevet: true,
+      }
+    }
+  }
+  return runLeg()
+}
+
 function premiseChecker(baton, planResult, trailDir, withCoverage) {
   // Function-form replacement: a `$` in the CLI path must not be read as a replacement pattern.
   const renderedClassList = PREMISE_CLASS_LIST.split('${ARMING_CHECK_CLI}').join(ARMING_CHECK_CLI)
@@ -1112,7 +1205,7 @@ ${ROLE_CONTRACTS['plan-coverage-checker']}
 The coverage sidecar is a second sidecar: its path is \`coverage.sidecarPath\`, and the top-level
 \`sidecarPath\` stays the premise one provisioned above.
 ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'plan-coverage-check')).replace('return it verbatim as \`sidecarPath\`', 'return it verbatim as \`coverage.sidecarPath\`')}` : ''
-  return trackAgent('planner', agent(
+  return premiseGate(baton, planResult, trailDir, () => trackAgent('planner', agent(
     `${refireBrief}
 
 ${renderedClassList}
@@ -1145,7 +1238,7 @@ ${REVIEW_SIDECAR_RULE(
       effort: 'low',
       schema: withCoverage ? PRE_REVIEW_SCHEMA : PREMISE_SCHEMA,
     },
-  ))
+  )))
 }
 
 const CITATION_CLASSES = [1, 2, 3, 4, 5]
@@ -1276,7 +1369,27 @@ function planCoverageAsReview(baton, coverage) {
   }
 }
 
-function priorArtPreflight(baton, waveIndex, trailDir) {
+async function priorArtPreflight(baton, waveIndex, trailDir) {
+  if (RAG_REPO) {
+    const sidecar = sidecarFor(trailDir, baton.id, 'prior-art-check')
+    const vet = await ragPrevet('prior-art', baton, sidecar,
+      `Cross-reference this baton's sizing intent and exit criterion against prior art: one
+\`project_semantic_search\` per distinct claim, at most 3, over wikis, decisions and lessons.
+
+Baton: ${baton.id} — "${baton.title}"
+Record: ${baton.path}
+Sizing object: ${baton.sizingObject || '(none)'}
+Exit criterion: ${baton.exitCriterion || '(none stated on the baton)'}`)
+    if (prevetEscalation(vet, 'prior-art') === null) {
+      return {
+        verdict: 'COMPATIBLE',
+        sidecarPath: vet.sidecarPath,
+        claimsChecked: Number(vet.claimsChecked) || 0,
+        conflicts: 0,
+        prevet: true,
+      }
+    }
+  }
   return trackAgent('prior-art-checker', agent(
     `phase: prior-art-preflight
 
@@ -1512,7 +1625,7 @@ function chattyWavePick(reviewerList) {
 
 const SURVEY_SCHEMA = {
   type: 'object',
-  required: ['continuations', 'tldr'],
+  required: ['continuations'],
   properties: {
     continuations: {
       type: 'array',
@@ -1530,7 +1643,7 @@ const READINESS_HOST_SCHEMA = {
   ),
 }
 READINESS_HOST_SCHEMA.properties.tldr = RETURN_TLDR_SCHEMA
-READINESS_HOST_SCHEMA.required = ['tldr']
+READINESS_HOST_SCHEMA.required = []
 
 // An engine-op result the caller supplied in `args.opResults.<key>`: keyed by baton id, or the bare
 // result when the fire carries exactly one baton and `leafKey` shows the value is a result.
@@ -1716,7 +1829,7 @@ function signalsFor(plan) {
 
 const ROSTER_BLOCK_SCHEMA = {
   type: 'object',
-  required: ['tiers', 'signal_reviewers', 'tldr'],
+  required: ['tiers', 'signal_reviewers'],
   properties: {
     tiers: { type: 'object' },
     signal_reviewers: { type: 'object' },
@@ -1727,7 +1840,7 @@ const ROSTER_BLOCK_SCHEMA = {
 
 const LEDGER_VERIFY_SCHEMA = {
   type: 'object',
-  required: ['entries', 'tldr'],
+  required: ['entries'],
   properties: {
     entries: {
       type: 'array',
@@ -1743,7 +1856,7 @@ const LEDGER_VERIFY_SCHEMA = {
 
 const LEDGER_REAPPLY_SCHEMA = {
   type: 'object',
-  required: ['unapplied', 'tldr'],
+  required: ['unapplied'],
   properties: {
     unapplied: { type: 'array', items: { type: 'string' } },
     tldr: RETURN_TLDR_SCHEMA,
@@ -2461,7 +2574,7 @@ const chains = await pipeline(
     const preReview = checkersOwed ? await premiseChecker(baton, plan, trailDir, true) : null
     const { coverage = null, ...premiseOnly } = preReview ?? {}
     const premise = preReview ? premiseOnly : null
-    if (checkersOwed && !coverage) {
+    if (checkersOwed && !coverage && !(preReview && preReview.prevet)) {
       agentIncidents.push({
         role: 'premise',
         kind: 'missing-coverage',
@@ -3442,7 +3555,7 @@ const IRREVERSIBLE_GATE = /\b(merge[ds]? (to|into) main|push(ed|ing)? to main|fo
 
 const ADJUDICATION_BATCH_SCHEMA = {
   type: 'object',
-  required: ['rulings', 'sidecarPath', 'tldr'],
+  required: ['rulings', 'sidecarPath'],
   properties: {
     rulings: { type: 'array', items: ADJUDICATION_SCHEMA },
     sidecarPath: { type: 'string' },

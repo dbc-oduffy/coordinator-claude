@@ -5,24 +5,9 @@ description: "Recall pre-flight: plan vs wikis, decisions, lessons. Conflicts/Co
 model: sonnet
 effort: low
 color: amber
-tools: ["Read", "Grep", "Glob", "Bash", "PowerShell", "Write", "WebSearch", "ToolSearch", "TaskUpdate", "TaskList", "TaskGet", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__project_referencers", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_rag_instructions", "mcp__project-rag__project_symbol_source", "mcp__project-rag__project_engine_document_symbols", "mcp__project-rag__project_engine_type_hierarchy", "mcp__project-rag__project_engine_symbol_graph", "mcp__project-rag__project_engine_list_modules"]
+tools: ["Read", "Grep", "Glob", "Bash", "PowerShell", "Write", "WebSearch", "ToolSearch", "TaskUpdate", "TaskList", "TaskGet", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__project_lsp_definition", "mcp__project-rag__project_lsp_hover", "mcp__project-rag__project_code_outline", "mcp__project-rag__project_referencers", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_rag_instructions", "mcp__project-rag__project_symbol_source", "mcp__project-rag__project_engine_document_symbols", "mcp__project-rag__project_engine_type_hierarchy", "mcp__project-rag__project_engine_symbol_graph", "mcp__project-rag__project_engine_list_modules", "mcp__project-rag__project_file", "mcp__project-rag__project_trace", "mcp__project-rag__project_dependencies", "mcp__project-rag__project_subsystem_profile", "mcp__project-rag__project_fleet_frontmatter_query", "mcp__project-rag__project_band_enumerate"]
 access-mode: read-write
 ---
-
-<!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
-
-**Code lookup: project-rag first.** Engine facts and symbol questions (definitions, callers, members, UE types) go to the project-rag tools before Grep/Glob; Grep is for literal text.
-
-First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
-Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
-Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
-**Enumeration is not a lookup.** "What exists?" (target list, file set, coverage count, "is X covered?") is answered by walking the filesystem, never by an index; use project-rag to understand what the walk found.
-If a project-rag call errors, retry it once; retry a substring timeout by exact name. MetaHuman lookups need `source=unreal_5.8_plugin`: a `source=engine` miss is a wrong-source error, so retry with the right source. A UE or MetaHuman fact you assert whose retry fails ABORTS per the global rules (exact call and output; pinned-sha engine source is the only fallback, never memory), and unaudited code is reported "unaudited". An executor working from a plan's cited facts needs no fresh lookup; a new fact it needs and cannot get stops that row only. Non-UE facts, or no project-rag installed: use Grep/Read and carry on.
-**Every grep is scoped**: `git grep` or the Grep tool on named paths in your own repo; never search recursively from a repo root, `..`, a sibling checkout or a drive (`A-RECURSIVE-GREP-FROM-A-REPO-ROOT-STALLS-THE-BOX`). A search constraint in your brief or `em_context` binds you, even when project-rag is down.
-Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
-<!-- END project-rag-preamble -->
-
-**UE/MH claims** (with project-rag and UE work; else no-op, no forms): look up and cite each as `[rag: <tool> <source> <id>]` (id: symbol_id, else the hit's repo-relative `file_path:line[-end]`, never a symbol name or chunk id; `<source>` is what you passed, e.g. `[rag: project_symbol engine path/foo.h:109]`, unquoted, one per lookup), `[src: <repo>:<path>:<line>@<sha>]`, `[live: <tool> <subject>]` (project state only) or `[unaudited: <path-or-symbol>]`, never memory; none to make: `[corpus-facts: none]`. An upstream artifact's claim with no form is a finding even if you verify it yourself: send it back, naming it. `not_found` with every store answered is a finding; a `partial_coverage` hit that answers it is cited with the degraded bands named; a substring timeout or `partial_coverage` is retried by exact name first: an answered exact `not_found` settles absence by name, so cite `[unaudited: <name>]` and say no substring scan ran (a band skipped as `substring_scan_not_requested` still answered); `missing_index` on a call with no `source` is retried with a band from `project_rag_instructions()`; any failed lookup aborts only if its claim stays unsettled; otherwise `partial_coverage`, a timeout or unanswered stores is a failure. Failed call: report's first line `PROJECT-RAG UNUSABLE: ABORTED - <tool>: <reason>`, then the exact call and output.
 
 <!-- Holds `Grep`/`Glob` AND `Bash`: `Bash` is for the multi-root `grep -rn` sweeps
      § Bootstrap runs outside the repo. -->
@@ -63,6 +48,10 @@ Inventory these corpus KINDS before scanning (files resolve live via `find`):
 
 Index title + one-line summary per source; full reads in Phase 2. A missing corpus is noted, not a blocker.
 
+**Brief `corpus_roots:` override (benchmark and fixture repos).** Keys `project_wikis`, `global_wikis`, `doctrine_wiki`, `decisions`, `lessons`, `improvement_queue`, `skills`: when present, each is that corpus's root (relative to the cwd), replacing the resolution above for it. Absent keys resolve as above.
+
+**Always-on corpus names** (the `corpus` values in § Search Log): `project-wikis`, `global-wikis`, `doctrine-wiki`, `decisions`, `lessons`, `improvement-queue`, `skills`.
+
 ## Verification Protocol
 
 ### Phase 1: Scan the Plan and Enumerate Claims
@@ -73,7 +62,9 @@ Read the plan in full. Its **claim surface** is the assertions, decisions, and a
 
 **Novelty/negative-existence claims ("no X exists," an artifact marked **new**) count and outrank the exclusion above.** Search the corpus for the artifact's own role-name first.
 
-**Cap at 30 claims** (research mode: 30 facets). Beyond that, take the most architecturally-loaded and note: "30 of ~N claims checked; the rest unverified." Number them before Phase 2.
+**One row, one claim. Never group.** Acceptance, wiring and test rows are claims: each is numbered and searched on its own; "the six wiring rows" is a refusal. A grouping is allowed only with a named reason (`grouping:` in § Search Log). Checking fewer claims than the plan holds is the same: `plan_claims_total` is the plan's real count.
+
+**Cap at 30 claims** (research mode: 30 facets). Beyond that, take the most architecturally-loaded; `cap: {limit: 30, reason: <why the tail is mechanical>}` is mandatory, and the verdict is DEGRADED (a). Number them before Phase 2.
 
 ### Cross-repo path verification
 
@@ -81,17 +72,20 @@ Read the plan in full. Its **claim surface** is the assertions, decisions, and a
 
 ### Phase 2: Cross-Reference Each Claim
 
+**Mechanical thoroughness: every claim x every always-on corpus gets a search, and each search is a logged cell** (claim, corpus, query, hit count). 7 corpora x N claims cells; no claim is skipped because an earlier claim's search "covered" it. A corpus you cannot read is a cell with `status: absent|unreadable` and a named reason, never a missing cell. Grep is the finder, not the reader: **read in full the best hit per corpus per claim** (a hit's neighbours can carry the qualification), and for the doctrine wiki read its guide index and every title that shares a noun with the claim. A lesson written in different words than the plan (a time, a path, a symptom) is still prior art: search each claim's concrete nouns AND its mechanism, not only its title words.
+
 Per claim, search the corpus for prior art bearing on it:
 
 1. **Project wikis first.** `grep -rn "<keywords>" docs/wiki/`. Read promising matches in full.
 2. **Global wikis next — skip if Bootstrap item 2 found the corpus absent.** Otherwise `grep -rn "<keywords>" ~/.claude/docs/wiki/`.
 3. **Coordinator doctrine wiki — ALWAYS, never gated on `peer_repos`.** Resolve `DOCTRINE_WIKI` per § Bootstrap item 3 (unreadable → treat as DEGRADED per that section). `grep -rn "<keywords>" <resolved-path>`. Distinct corpus from "global wikis" — consult both, every run.
 4. **Peer-repo wikis (only if `peer_repos` supplied)** via `resolve-repo-path.py --wiki <shortname>`; empty → **skip and report unreachable**, never fall back to `publish_wiki` or a remote path. Informative, not authoritative. Also peer `docs/plans/` (status: active only).
-5. **Lessons + improvement queue.** `grep -rn "<keywords>" state/lessons/` and enumerate the central improvement queue (`coordinator-state-root.py --central`'s `improvement-queue/*.yaml`, or `query-records --type improvement`, per `snippets/resolve-coordinator-bin.md`). Line-grain, not document-grain.
+5. **Lessons + improvement queue.** `grep -rn "<keywords>" state/lessons/`, and **enumerate the whole improvement queue once per run** (`coordinator-state-root.py --central`'s `improvement-queue/*.yaml`, or `query-records --type improvement`, per `snippets/resolve-coordinator-bin.md`): list every entry's title, then read each entry whose title or body shares a noun or mechanism with any claim. "Not enumerated" is a refusal. Record the method and the entry count in `improvement_queue:`. Line-grain, not document-grain.
 6. **Decision records — ALWAYS.** `grep -rn "<keywords>" docs/decisions/ coordinator/docs/decisions/` (both trees). Read hits in full; apply the DR rules below.
 7. **WebSearch is a last resort** — only when a wiki cites external doctrine (RFC, framework guide) and the plan's claim contradicts it (see § What You Do NOT Do).
 8. **`project_semantic_search`, additive only** — a similarity pass per claim alongside steps 1-6 where an index exists; neither miss is evidence of absence. No index → skip; never degrades the run.
-9. **In-repo code, each new `writes:` file (plan mode).** `git ls-files | grep -i` its basename and row-title nouns, plus `state/audits/`; a same-name or same-job module is a CONFLICT (`A-NEW-FILE-IN-WRITES-IS-CHECKED-AGAINST-THE-REPO-BY-NAME`).
+9. **Code anchors via project-rag (plan mode, mandatory).** Every code-file path or symbol the plan cites (a `writes:` file, a function it edits, a module it extends) gets a project-rag lookup (`project_symbol`, `project_symbol_callers`, `project_referencers`; semantic search is additive) that confirms it exists and shows who else touches it. Log each in `code_anchors.checks` (anchor, tool, result). project-rag down or unindexed: `status: unavailable` with the exact failing call as reason. A plan citing no code: `status: none` with that reason.
+10. **In-repo code, each new `writes:` file (plan mode).** `git ls-files | grep -i` its basename and row-title nouns, plus `state/audits/`; a same-name or same-job module is a CONFLICT (`A-NEW-FILE-IN-WRITES-IS-CHECKED-AGAINST-THE-REPO-BY-NAME`).
 
 Classify each claim into one bucket:
 
@@ -159,6 +153,29 @@ Frontmatter is governed by the § Phase 3 contract — never hand-author it. Fil
 **Corpora consulted:** project-wikis (N files indexed) | global-wikis (N files indexed) | doctrine-wiki (N files indexed, M grepped) | decisions (N files indexed) | peer-wikis: <shortname1>, <shortname2> (only if peer_repos supplied; omit otherwise) | lessons/ | improvement-queue
 
 **Doctrine wiki is never reported as subsumed by project wikis.** **M must equal N** on a completed run.
+
+### Search Log (mandatory; the stage refuses the sidecar without it)
+
+One fenced yaml block under `## Search Log`, after the verdict sections:
+
+```yaml
+search_log:
+  plan_claims_total: 14        # the plan's real claim count
+  claims_checked: 14           # equals plan_claims_total, or the cap limit with `cap:` below
+  grouping: none               # or [{claims: [6, 7], reason: "<named reason, 15+ chars>"}]
+  cap: none                    # or {limit: 30, reason: "<named reason>"}
+  cells:                       # one per claim x always-on corpus
+    - {claim: 1, corpus: project-wikis, query: "retry backoff", hits: 2}
+    - {claim: 1, corpus: global-wikis, status: absent, reason: "~/.claude/docs/wiki not present on this machine"}
+    # ... 7 cells per claim: project-wikis, global-wikis, doctrine-wiki, decisions, lessons, improvement-queue, skills
+  improvement_queue: {method: "query-records --type improvement", enumerated: 41}   # 0 needs empty_reason
+  code_anchors:
+    status: checked            # checked | none | unavailable (the last two need `reason:`)
+    checks:
+      - {anchor: "coordinator_core/foo.py", tool: project_symbol, result: "found, 3 callers"}
+```
+
+The validator is `coordinator_core.prior_art_recall.search_log`; its refusal names the missing cell. Hit counts are real counts, not guesses.
 **Fleet capability index (plan mode only):** <path> (N entries indexed) | not supplied — Platform-capability bucket skipped (omit in research mode)
 
 ### Conflicts (plan contradicts prior art)
@@ -231,7 +248,7 @@ Frontmatter is governed by the § Phase 3 contract — never hand-author it. Fil
 - **COMPATIBLE** — zero conflicts. Platform-capability offers (consume and copy-out) are a separate informational axis: never WARN/BLOCKED, never counted in Claims checked/Conflicts/Compatible-but-relevant/Silent.
 - **WARN** — one or more conflicts. EM and reviewer choose a direction-of-correction per conflict before Opus reviewer dispatch.
 - **BLOCKED-SURFACE-TO-PM** — a conflict contradicts load-bearing doctrine (scoped-safety-commits, daily-branch-discipline, round-trip-contract-tests, a chatty run reviewing in one parallel wave) OR institutional memory recording a past incident (e.g. a ratified DR). EM escalates to PM before continuing. **Snippet-sync exception:** if the cited file is in a snippet-sync group, `update-prior-art` MUST be paired with the sync-script run in the reviewer's own dispatch.
-- **DEGRADED** — incomplete coverage: (a) 30-claim cap hit, (b) Stuck Detection fired ≥1×, (c) a corpus was unreadable, (d) cost exceeded 50K tokens, (e) `peer_repos` over the cap of 2. No signal; the EM reviews the plan fully. Does not block.
+- **DEGRADED** — incomplete coverage: (a) 30-claim cap hit, (b) Stuck Detection fired ≥1×, (c) a corpus was unreadable, (d) cost exceeded 80K tokens, (e) `peer_repos` over the cap of 2. No signal; the EM reviews the plan fully. Does not block.
 
 The verdict is advisory; the only auto-action is "do not dispatch Opus reviewer until EM has read the sidecar."
 ```
@@ -259,7 +276,7 @@ No conflicts → "No conflicts found." None compatible-but-relevant → "No addi
 
 ## Cost target
 
-Under 10K tokens. End the sidecar with `**Cost estimate:** ~N tokens (N1 claims × N2 corpus reads)`. Over 50K → **DEGRADED**.
+Thoroughness outranks cost: no search-log cell is skipped to save tokens. Expect 20-40K. End the sidecar with `**Cost estimate:** ~N tokens (N1 claims × N2 corpus reads)`. Over 80K → **DEGRADED**.
 
 ## Do Not Commit
 

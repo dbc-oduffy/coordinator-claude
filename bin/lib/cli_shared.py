@@ -1,10 +1,10 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import subprocess
 import sys
-import tempfile
 
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 if _LIB_DIR not in sys.path:
@@ -78,7 +78,6 @@ def managed_temp_root(repo_root=None) -> str:
     Stdlib mirror of ``coordinator_core.temp_layout.managed_tempdir``; pinned equal by
     ``tests/test_cli_shared_managed_temp_root.py``.
     """
-    root = os.path.join(tempfile.gettempdir(), "coordinator")
     if repo_root is None:
         leaf = "_fleet"
     else:
@@ -87,15 +86,37 @@ def managed_temp_root(repo_root=None) -> str:
             raise ValueError(f"repo_root has no directory name: {repo_root!r}")
         if leaf == "_fleet":
             raise ValueError("repo directory name '_fleet' is reserved for host-scoped Temp")
-    path = os.path.join(root, leaf)
-    os.makedirs(path, exist_ok=True)
-    return path
+    return str(_coordinator_temp_for(leaf))
+
+
+def _load_by_path(name: str, path: str):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _coordinator_temp_for(leaf: str):
+    """``<Temp>/coordinator/<leaf>``, created, through the tree's single Temp-root owner.
+
+    A tree shipping ``hooks/scripts/_coordinator_temp.py`` (the DoE mirror) places through
+    that seam; the engine tree places through its own ``coordinator_core/temp_layout.py``.
+    Both are stdlib-only and loaded by file path, so no directory joins ``sys.path``.
+    """
+    coordinator_dir = os.path.dirname(_LIB_DIR)
+    coordinator_dir = os.path.dirname(coordinator_dir)
+    seam = os.path.join(coordinator_dir, "hooks", "scripts", "_coordinator_temp.py")
+    if os.path.isfile(seam):
+        return _load_by_path("_coordinator_temp", seam).coordinator_temp_root(leaf)
+    layout = os.path.join(os.path.dirname(coordinator_dir), "coordinator_core", "temp_layout.py")
+    module = _load_by_path("_coordinator_temp_layout", layout)
+    return module.managed_tempdir(None if leaf == "_fleet" else leaf)
 
 
 def _is_swept_tmp_root(path: str) -> bool:
     try:
         real = os.path.realpath(path)
-        tmp = os.path.realpath(tempfile.gettempdir())
+        tmp = os.path.realpath(os.path.dirname(os.path.dirname(managed_temp_root())))
     except OSError:
         return False
     under_tmp = real == tmp or real.startswith(tmp + os.sep)

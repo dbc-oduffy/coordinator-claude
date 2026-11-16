@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """claude-home.py — door-eligible engine entrypoint for `claude-home`.
 
 Spec backlink: docs/plans/2026-08-30-twenty-one-bin-names-reach-the-door-or-

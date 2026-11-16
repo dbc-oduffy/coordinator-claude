@@ -142,7 +142,7 @@ slow-moving docs ("have we done this before") and exists only where indexed.
 
 ## Content-agnostic preamble — single-source discipline
 
-The project-RAG preamble for agent/skill dispatch lives at `coordinator/snippets/project-rag-preamble.md` (~40 words, language-neutral, index-gated via `project_staleness_check`, and carries a `ToolSearch("select:...")` bootstrap naming the eight structural/SCIP/semantic tools a consuming agent needs). Each consuming agent/skill file inlines it verbatim, fenced by:
+The project-RAG preamble for agent/skill dispatch lives at `coordinator/snippets/project-rag-preamble.md` (language-neutral, index-gated via `project_staleness_check`, and carries a `ToolSearch("select:...")` bootstrap naming the tier-1 tools: `project_symbol_brief`, `project_lsp_definition`/`project_lsp_hover`, `project_code_outline`, `project_symbol`). It teaches `repo=<repos.* key>` on every call (an answer from the wrong repo is a miss), the tool per question shape, and the verdict-to-action rules. Agent definitions do not inline it: the coordinator hooks deliver the nudge, and every agent granting any project-rag tool declares the tier-1 set. Each consuming skill/wiki file inlines it verbatim, fenced by:
 
 ```
 <!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->

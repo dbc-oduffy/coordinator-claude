@@ -1,12 +1,15 @@
 ---
 name: quick-wrap
-description: "Short session close: commit, loose ends, stop. Not workstream-complete."
+description: "Short session close: commit, loose ends. Not workstream-complete."
 version: 1.0.0
 allowed-tools: ["Read", "Edit", "Bash", "Grep", "Glob", "Skill"]
 argument-hint: "[optional context]"
 ---
 
 # Quick Wrap — the Light End-of-Work Close
+
+**Non-Claude EM:** this skill is the Claude-native path; a non-Claude EM takes the engine-op path at
+`coordinator/docs/wiki/non-claude-workers/non-claude-em-path.md`.
 
 <!-- Negative-spec: NOT a cheaper workstream-complete. Reconciles no plan (bar the spec-dispatch
      micro-step), opens no review trail, writes no handoff or spinoff. A lesson does NOT

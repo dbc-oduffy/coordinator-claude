@@ -154,10 +154,10 @@ except Exception:
     # Defensive fallback — a hook script copied/deployed WITHOUT its sibling
     # _engine_root.py (e.g. an isolated test harness, or a partial deploy)
     # must still fail-open rather than crash on import.
-    def _engine_registry_value(reg_dir, key):  # type: ignore[no-redef]
+    def _engine_registry_value(reg_dir, key) -> None:  # type: ignore[no-redef]
         return None
 
-    def _settings_home_registry_dir():  # type: ignore[no-redef]
+    def _settings_home_registry_dir() -> None:  # type: ignore[no-redef]
         return None
 
 try:
@@ -172,7 +172,7 @@ try:
 except Exception:
     # Partial-deploy defence, same shape as the _engine_root import above: a
     # hook script without its sibling write seam must no-op, never crash.
-    def _machine_local_set(key, value):  # type: ignore[no-redef]
+    def _machine_local_set(key, value) -> None:  # type: ignore[no-redef]
         return None
 
 

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """mise-certify -- Phase 0 fire-time certification, one command. Writes nothing.
 
 Per plan, ONE `plan.mise_certify_probe` op (a client loop, so a full set is N short ops), in the

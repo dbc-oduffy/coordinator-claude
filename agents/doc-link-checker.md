@@ -1,7 +1,7 @@
 ---
 name: doc-link-checker
 executes-rows: false
-description: "Validates doc links and anchors; external URLs only on opt-in. Returns a status table."
+description: "Validates doc links and anchors; external URLs opt-in. Status table."
 model: haiku
 effort: low
 color: blue

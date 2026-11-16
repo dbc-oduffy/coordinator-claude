@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # learn-lessons-reconcile-candidates — CLI trampoline over claude-klabauter
 # coordinator_core.learn_lessons_assemble (the candidate-restatement
 # generator for a doctrine-wiki edit: surfaces places in a target wiki file
@@ -15,6 +16,8 @@
 # Usage:
 #   learn-lessons-reconcile-candidates <target-wiki-path> <incoming-text>
 #   learn-lessons-reconcile-candidates <target-wiki-path> --text-file <path>
+#   ... optionally `--repo <path>`: relative target/--text-file paths resolve
+#   against it instead of cwd.
 #
 # Computes and returns the 8-key decision object (artifact/preflight/gates/
 # directives/judgment_points/decisions/narration/next_move). READ-ONLY —
@@ -52,7 +55,28 @@ def _import_module():
     return _mod
 
 
+def _apply_repo(argv: list[str]) -> list[str]:
+    """Strip `--repo <path>` and resolve the relative target path and `--text-file`
+    path against it; argv without `--repo` is returned unchanged."""
+    if "--repo" not in argv:
+        return argv
+    i = argv.index("--repo")
+    if i + 1 >= len(argv):
+        return argv
+    repo = argv[i + 1]
+    rest = argv[:i] + argv[i + 2 :]
+    out = list(rest)
+    if out and not out[0].startswith("-"):
+        out[0] = os.path.join(repo, out[0])
+    if "--text-file" in out:
+        j = out.index("--text-file")
+        if j + 1 < len(out):
+            out[j + 1] = os.path.join(repo, out[j + 1])
+    return out
+
+
 def main(argv: list[str]) -> int:
+    argv = _apply_repo(argv)
     try:
         mod = _import_module()
     except RuntimeError as exc:

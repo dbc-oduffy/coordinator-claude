@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """check-gitignore-template-drift — flag `~/.claude/.gitignore` rules missing from the template.
 
 WHY THIS EXISTS. `/coordinator:install` Phase 4 derives its `~/.claude/.gitignore` propagation

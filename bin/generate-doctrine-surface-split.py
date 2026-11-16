@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """coordinator/bin/generate-doctrine-surface-split.py — the sanctioned
 split mechanism for an over-ceiling doctrinal-surface file in coordinator-content-repo
 (D4, A15, A16 of `docs/plans/2026-08-13-doctrinal-surface-weight-ratchet.md`).

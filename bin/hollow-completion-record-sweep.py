@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """hollow-completion-record-sweep.py — CLI trampoline for
 completion_record_sweep.sweep_repos, plus an opt-in --repair mode backed by
 completion_record_repair.repair_repos.

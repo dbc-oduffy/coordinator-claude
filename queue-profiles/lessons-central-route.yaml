@@ -27,13 +27,13 @@ graph:
   triage:
     kind: triage
     edges:
-      route: verify-routing-pm
+      route: verify-routing
       duplicate: verify-routing-duplicate
-      unknown-target: verify-routing-pm
+      unknown-target: verify-routing
     on_fail: needs-judgment
 
   
-  verify-routing-pm:
+  verify-routing:
     kind: verify
     verify:
       default: agent
@@ -78,7 +78,7 @@ triage_policy: |
 
   mechanical_contract_evidence:
     - "A mechanical-contract lesson (an env-var value, a path rule, an API signature, an exit code) needs an executable witness: a passing test, live tool behaviour, or official docs."
-    - "With none, or with a witness that contradicts it, the row does not route -- it hands back pm-decision naming the missing witness."
+    - "With none, or with a witness that contradicts it, the row does not route -- it hands back (type pm-decision) naming the missing witness; the EM writes pm_decision itself: reject when the lesson is already covered or unwitnessed, apply when the witness lands, and an adjudicator agent rules a needs-judgment row, never the PM."
 
   reachable_target:
     - "A wiki-append/wiki-new target must be reachable from a surface an agent traverses (a wiki index, a skill step, a dispatch preamble)."

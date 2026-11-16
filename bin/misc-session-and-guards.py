@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """misc-session-and-guards.py — small-guard-and-resolver grab-bag, ported off
 Coordinator-content-repo instruction-file bash fences (M3 chunk C-MISC).
 

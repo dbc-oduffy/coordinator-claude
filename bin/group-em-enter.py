@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 group-em-enter.py — CLI trampoline over the engine's registered op
 "groupem.enter" (`coordinator_core.ops.group_em_enter`).

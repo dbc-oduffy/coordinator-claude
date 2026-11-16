@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 from __future__ import annotations
 # promote-shipped-in-flight-stubs.py — interim /workday-start closer: CLI
 # trampoline over claude-klabauter coordinator_core.ops.promote_shipped_in_flight_stubs.

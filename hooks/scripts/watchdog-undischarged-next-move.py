@@ -149,16 +149,21 @@ from _posture import resolve_posture  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "lib"))
 from frontmatter_scan import read_text, scan_mapping  # noqa: E402
 import _next_move_ledger as _ledger  # noqa: E402
-from _touch_record import _touch_lines, _touch_record_jsonl_paths, _touched_txt_paths  # noqa: E402
+from _touch_record import (  # noqa: E402
+    _touch_lines,
+    _touch_record_jsonl_paths,
+    _touched_txt_paths,
+    session_dir_for,
+)  # noqa: E402
 
 try:
     from _git_root_walk import git_root_walk  # noqa: E402
     from _git_common_dir import resolve_git_common_dir  # noqa: E402
 except Exception:  # import failure degrades to the "cannot evaluate" path
-    def git_root_walk(start=None):  # type: ignore[misc]
+    def git_root_walk(start=None) -> None:  # type: ignore[misc]
         return None
 
-    def resolve_git_common_dir(git_root):  # type: ignore[misc]
+    def resolve_git_common_dir(git_root) -> str:  # type: ignore[misc]
         return ""
 
 
@@ -171,12 +176,15 @@ _SEAM_PICKUP_NEXT_MOVE = "pickup->next-move"
 # Skill identity is a set of accepted skills (see `_matches_next_action`).
 # `pm-decision` and `goal-setting` are deliberately absent -- see module
 # docstring "ROUTE TERMINALS".
+_RESEARCH_TERMINAL = "Skill|Workflow(coordinator:research|pipeline-research-*.workflow.mjs)"
+
 _ROUTE_TERMINAL = {
     "dispatch": "Agent(coordinator:executor)",
     "spec-dispatch": "Skill(coordinator:plan|coordinator:execute-plan)",
     "plan": "Skill|Workflow(coordinator:plan|fire-*.mjs)",
     "shape": "Skill(coordinator:plan)",
     "roadmap": "Skill(coordinator:plan)",
+    "research": _RESEARCH_TERMINAL,
 }
 
 _REVIEW_NEXT_ACTION = "Agent(<named Opus reviewer>)"
@@ -224,18 +232,18 @@ def _record_fire(repo_root: str, session_id: str, guard: str, reason: str) -> st
     return record_fire(repo_root, session_id, guard, reason)
 
 
-def _repo_root(payload: dict):
+def _repo_root(payload: dict) -> str | None:
     cwd = payload.get("cwd") or os.getcwd()
     if not isinstance(cwd, str):
         return None
     return git_root_walk(cwd)
 
 
-def _is_null_scalar(value):
+def _is_null_scalar(value) -> bool:
     return value is None or value in ("null", "~", "None", "")
 
 
-def _newest_touched_sizing_path(repo_root: str, session_id: str):
+def _newest_touched_sizing_path(repo_root: str, session_id: str) -> str | None:
     """Return the most-recently-touched state/sizings/*.yaml path this session wrote, or
     None.
 
@@ -251,7 +259,7 @@ def _newest_touched_sizing_path(repo_root: str, session_id: str):
     git_dir = resolve_git_common_dir(repo_root) or None
     if not git_dir:
         return None
-    session_dir = os.path.join(git_dir, "coordinator-sessions", session_id)
+    session_dir = session_dir_for(git_dir, session_id)
 
     candidate = None
     for rel in _touch_record_jsonl_paths(session_dir):
@@ -266,7 +274,7 @@ def _newest_touched_sizing_path(repo_root: str, session_id: str):
     return candidate
 
 
-def _sizing_route_and_exemption(repo_root: str, rel_path: str):
+def _sizing_route_and_exemption(repo_root: str, rel_path: str) -> tuple[str | None, bool]:
     """Return (route, exempt) for the sizing object at rel_path. Any read failure returns
     (None, True) -- "cannot prove the exemption doesn't apply" fails toward silence."""
     text = read_text(os.path.join(repo_root, rel_path))
@@ -291,7 +299,7 @@ def _sizing_route_and_exemption(repo_root: str, rel_path: str):
     return route, (fork_open or xl_open)
 
 
-def _split_call(next_action: str):
+def _split_call(next_action: str) -> tuple[str | None, str | None]:
     """"Skill(coordinator:review)" -> ("Skill", "coordinator:review")."""
     if not next_action or "(" not in next_action or not next_action.endswith(")"):
         return None, None

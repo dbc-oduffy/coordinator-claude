@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """coordinator-current-branch.py — output the canonical (on-disk) branch name.
 
 Naked-Python port of coordinator-current-branch (2026-07-22 Windows de-bash

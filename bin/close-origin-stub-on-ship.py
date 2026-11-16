@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """close-origin-stub-on-ship.py — close the origin spinoff/spinoff-roadmap stub
 whose work just shipped, joining on (roadmap_id, stub_id) from the governing
 plan / consumed handoff.

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # workstream-complete-assemble — CLI trampoline over claude-klabauter
 # coordinator_core.workstream_complete (the computed-skill assembler for
 # `/workstream-complete`'s ceremony spine). Direct-import variant (template-

@@ -4,4 +4,6 @@
 <!-- BEGIN persona-dispatch-contract (synced from snippets/persona-dispatch-contract.md) -->
 ## Shared ReviewOutput Envelope
 
-Return a `ReviewOutput` JSON block (`reviewer`, `verdict`, `summary`, `findings[]`) with verdict exactly one of `APPROVED`, `APPROVED_WITH_NOTES`, `REQUIRES_CHANGES`, `REJECTED`.<!-- END persona-dispatch-contract -->
+Return a `ReviewOutput` JSON block (`reviewer`, `verdict`, `summary`, `findings[]`) with verdict exactly one of `APPROVED`, `APPROVED_WITH_NOTES`, `REQUIRES_CHANGES`, `REJECTED`.
+
+A lookup in your brief is your start: when the EM knows the symbol it hands you the lookup (tool, `repo=`); run it first, then go on from its hit.<!-- END persona-dispatch-contract -->

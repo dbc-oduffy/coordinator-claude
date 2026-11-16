@@ -150,11 +150,11 @@ try:
     from _forwarder_resolve import forwarder_argv as _forwarder_argv
     from _forwarder_resolve import resolve_forwarder as _resolve_forwarder
 except Exception:
-    def _resolve_forwarder(bin_dir, name):  # type: ignore[misc]
+    def _resolve_forwarder(bin_dir, name) -> Path | None:  # type: ignore[misc]
         candidate = bin_dir / name
         return candidate if candidate.is_file() else None
 
-    def _forwarder_argv(script_path, tail=()):  # type: ignore[misc]
+    def _forwarder_argv(script_path, tail=()) -> list[str]:  # type: ignore[misc]
         raise OSError("forwarder resolution unavailable -- import fallback declined to guess a launch decision")
 
 # Every consumer of _skill_invocation lives in this same directory, so a

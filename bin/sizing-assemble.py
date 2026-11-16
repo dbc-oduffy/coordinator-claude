@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # sizing-assemble — CLI trampoline over claude-klabauter
 # coordinator_core.sizing_assemble (the computed-skill assembler for
 # `/sizing`'s route table). Direct-import variant (template-variant #1,

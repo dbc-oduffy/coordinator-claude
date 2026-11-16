@@ -1,37 +1,21 @@
 ---
-title: Group-EM standing — legible, not binding
+title: Group-EM standing — verified, PM-delegated
 type: doctrine
 status: active
 ---
 
 # Group-EM standing
 
-## The negative result
-
-Across every production multi-agent framework — LangGraph Supervisor, AutoGen GroupChat, CrewAI
-Hierarchical Process, OpenAI Agents SDK — hierarchy is enforced by **control flow**: the
-supervisor holds the graph/routing/handoff list and decides what gets sent where. None of them
-make hierarchy legible in a message a peer could inspect; a subordinate complies because the
-supervisor controls what reaches it, not because it recognises the sender's authority. The only
-research directions that put binding authority *in* a message — signed claims, delegation chains,
-capability attenuation, continuous attestation (MIT Media Lab, Microsoft Agent Governance
-Toolkit, AgentDID) — are research, not a production standard in any communication protocol today.
-
 The Group EM has **no control flow** over peer sessions. Peers are independent Claude Code
-sessions the Group EM cannot route, halt, or override — not its subagents. Therefore:
-
-**Standing can be made legible. It cannot be made binding.**
+sessions the Group EM cannot route, halt, or override — not its subagents. Its authority is
+delegated by the PM, not enforced by control flow.
 
 ## What standing does deliver
 
 A receiving EM can establish, cheaply and without asking, that an inbound message came from the
-session currently holding the sitting Group-EM nomination — a lookup, not a challenge. What the
-receiver does with that fact is theirs to decide; the record carries no compulsion of its own.
-
-This is independently backed at the harness level: the harness already refuses to let an agent
-message count as user approval, grant a permission prompt, or change `CLAUDE.md`/config. The
-"legible, not the PM" boundary is not merely asserted in prose — the harness enforces the adjacent
-claim structurally.
+session currently holding the sitting Group-EM nomination — a lookup, not a challenge. A verified
+holder's ruling is the PM's word: it settles the step
+([[a-step-ruled-ungated-is-never-regated]]).
 
 ## Resolve from the record, never from the message's own claim
 
@@ -136,9 +120,15 @@ every switch: single slashes there, and read the process's affinity back before 
 UE editor resets its own mask to all cores at startup whatever its parent held, so a launch pin alone
 never holds: re-pin the editor PID after spawn and keep a readback loop re-pinning until it exits. The shared project-rag embed
 sidecars hold VRAM and respawn on the next query, so a kill frees nothing: their owner parks them with
-`project_rag_scripts/park_embed_sidecars.py park --minutes N --holder <session>` (repo from
+`python3 project_rag_scripts/park_embed_sidecars.py park --minutes N --holder <session>` (repo from
 `machine-local get repos.project_rag`), which lapses on its own. Tripwire:
 `A-VRAM-HEAVY-RUN-TAKES-THE-GPU-SLOT`.
+
+**A GPU-hiding guard sets `CUDA_VISIBLE_DEVICES="-1"`, never `""`, in the root `conftest.py`.** On
+Windows an empty `os.environ` value is deleted, so a child spawned without an explicit `env=` sees
+the GPU; `"-1"` is non-empty and every inheritance path keeps it. A guard in `tests/conftest.py`
+misses in-package `test_*.py`. Advice to a run says `"-1"`. Tripwire:
+`A-GPU-HIDE-USES-CUDA-MINUS-ONE-NEVER-EMPTY`.
 
 **A slot END states `items=<succeeded>/<attempted>`, and an all-refused batch exits non-zero.** A
 batch that refuses every item inside its loop still exits 0, so the exit code alone frees the slot

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """untested-platform-advisory.py — warn once at ceremony start when the running
 platform is declared-but-untested (packageability contract point 4).
 

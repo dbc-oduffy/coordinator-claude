@@ -117,7 +117,7 @@ const RETURN_TLDR_SCHEMA = {"type":"object","additionalProperties":false,
 
 const DRAFT_SCHEMA = {
   type: 'object',
-  required: ['seedId', 'draftPath', 'status', 'tldr'],
+  required: ['seedId', 'draftPath', 'status'],
   properties: {
     seedId: { type: 'string' },
     draftPath: { type: 'string' },
@@ -129,7 +129,7 @@ const DRAFT_SCHEMA = {
 
 const CRITIQUE_SCHEMA = {
   type: 'object',
-  required: ['seedId', 'setVerdict', 'critiquePath', 'sidecarPath', 'tldr'],
+  required: ['seedId', 'setVerdict', 'critiquePath', 'sidecarPath'],
   properties: {
     seedId: { type: 'string' },
     setVerdict: { type: 'string', enum: ['GO', 'REVISE', 'REFRAME'] },
@@ -143,7 +143,7 @@ const CRITIQUE_SCHEMA = {
 
 const INTEGRATE_SCHEMA = {
   type: 'object',
-  required: ['seedId', 'draftPath', 'unresolvedRejects', 'sidecarPath', 'tldr'],
+  required: ['seedId', 'draftPath', 'unresolvedRejects', 'sidecarPath'],
   properties: {
     seedId: { type: 'string' },
     draftPath: { type: 'string' },
@@ -155,7 +155,7 @@ const INTEGRATE_SCHEMA = {
 
 const READINESS_SCHEMA = {
   type: 'object',
-  required: ['verdicts', 'tldr'],
+  required: ['verdicts'],
   properties: {
     verdicts: {
       type: 'array',

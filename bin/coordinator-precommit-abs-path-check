@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""
+coordinator-precommit-abs-path-check — pre-commit gate for any repo: refuse a
+commit whose STAGED blobs add a concrete machine path (drive letter, POSIX
+home, UNC) that the shared detector flags and no carve-out or
+`abs-path-ok: <reason>` marker covers.
+
+Detect-only. Reads the HEAD and index blobs of every added/copied/modified
+file and reports only the citations the commit INTRODUCES
+(`new_violations`), so a pre-existing citation in an untouched line never
+blocks an unrelated edit. Two git spawns total: one `diff --cached`, one
+`cat-file --batch` for every HEAD and index blob.
+
+Runs from the repo root (git runs pre-commit hooks there); carve-outs load
+from `<cwd>/.abs-path-carve-outs.toml`. Not scoped to the meta-repo.
+
+Exit contract:
+  0 — clean, nothing staged, or engine unimportable (fail-open, never blocks git).
+  1 — at least one new violation; `file:line rule matched` lines on stderr.
+
+Invoked via an explicit interpreter, never shebang-exec.
+"""
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+_BIN_DIR = os.path.dirname(os.path.abspath(__file__))
+_CLAUDE_KLABAUTER_ROOT = os.path.abspath(os.path.join(_BIN_DIR, "..", ".."))
+_MAX_BLOB_BYTES = 2 * 1024 * 1024
+_CHEAP_MARKERS = ("/Users/", "/home/", ":\\", ":/", "\\\\", "claude/machine-local", "claude/plugins")
+
+
+def _flags() -> dict:
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)} if os.name == "nt" else {}
+
+
+def _staged_paths(cwd: str) -> list:
+    """Added/copied/modified staged paths (one git spawn)."""
+    proc = subprocess.run(
+        ["git", "diff", "--cached", "--name-only", "-z", "--diff-filter=ACM"],
+        cwd=cwd,
+        capture_output=True,
+        **_flags(),
+    )
+    if proc.returncode != 0:
+        return []
+    return [p.decode("utf-8", "replace") for p in proc.stdout.split(b"\0") if p]
+
+
+def _read_blobs(cwd: str, specs: list) -> dict:
+    """`{spec: bytes | None}` for each `<rev>:<path>` spec via one
+    `git cat-file --batch`; None means missing."""
+    stdin = b"".join(s.encode("utf-8") + b"\n" for s in specs)
+    proc = subprocess.run(
+        ["git", "cat-file", "--batch"],
+        cwd=cwd,
+        input=stdin,
+        capture_output=True,
+        **_flags(),
+    )
+    out = proc.stdout
+    result: dict = {}
+    pos = 0
+    for spec in specs:
+        nl = out.find(b"\n", pos)
+        if nl == -1:
+            result[spec] = None
+            continue
+        header = out[pos:nl].split(b" ")
+        pos = nl + 1
+        if len(header) < 3 or header[1] == b"missing" or header[-1] == b"missing":
+            result[spec] = None
+            continue
+        size = int(header[2])
+        result[spec] = out[pos : pos + size]
+        pos += size + 1
+    return result
+
+
+def _text(blob) -> str:
+    if blob is None or len(blob) > _MAX_BLOB_BYTES or b"\0" in blob:
+        return ""
+    return blob.decode("utf-8", "replace")
+
+
+def main() -> int:
+    cwd = os.getcwd()
+    paths = _staged_paths(cwd)
+    if not paths:
+        return 0
+
+    if _CLAUDE_KLABAUTER_ROOT not in sys.path:
+        sys.path.insert(0, _CLAUDE_KLABAUTER_ROOT)
+    try:
+        from coordinator_core.ops.session.abs_path_carve_outs import (
+            CARVE_OUTS_FILENAME,
+            load_carve_outs,
+        )
+        from coordinator_core.ops.session.guard_concrete_path_citations import new_violations
+    except Exception as exc:  # noqa: BLE001 -- fail-open, never blocks git
+        print(f"pre-commit: abs-path check skipped (engine unimportable: {exc}).", file=sys.stderr)
+        return 0
+
+    paths = [p for p in paths if p != CARVE_OUTS_FILENAME]
+    if not paths:
+        return 0
+    specs = [f"HEAD:{p}" for p in paths] + [f":{p}" for p in paths]
+    blobs = _read_blobs(cwd, specs)
+    carve_outs = load_carve_outs(Path(cwd))
+
+    lines: list = []
+    hit_files: list = []
+    for rel in paths:
+        after = _text(blobs.get(f":{rel}"))
+        if not any(m in after for m in _CHEAP_MARKERS):
+            continue
+        before = _text(blobs.get(f"HEAD:{rel}"))
+        found = new_violations(before, after, rel, carve_outs)
+        if found:
+            hit_files.append(rel)
+            lines.extend(f"{f.file}:{f.line} {f.rule} {f.matched}" for f in found)
+
+    if not lines:
+        return 0
+    print("pre-commit: BLOCKED — commit adds machine-path citations:", file=sys.stderr)
+    for ln in lines:
+        print(ln, file=sys.stderr)
+    for rel in dict.fromkeys(hit_files):
+        print(f"fix-concrete-path-citations --apply {rel}", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

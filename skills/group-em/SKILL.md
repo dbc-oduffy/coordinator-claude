@@ -1,6 +1,6 @@
 ---
 name: group-em
-description: "PM-GATED. Box-wide: monitor peers; never plan or author for them."
+description: "PM-GATED. Box-wide: monitor peers; never plan or author."
 allowed-tools: ["Read", "Bash", "Glob", "Grep", "Agent", "SendMessage", "Monitor", "TaskStop"]
 argument-hint: "[no arguments — invoke from the group-em home to take box-wide G-EM standing]"
 ---
@@ -9,24 +9,17 @@ argument-hint: "[no arguments — invoke from the group-em home to take box-wide
 
 `/group-em`, run from the machine-local group-em home, switches this session into box-wide G-EM
 standing: monitoring other sessions and moving them along; a **mode, not an operation**. There is
-one network-wide G-EM, last writer wins: `/group-em` on any box displaces the holder on any other,
-and the displaced holder gets its release message over Unimatrix (`references/multibox.md`). Cockpit
-contract: `coordinator/docs/wiki/cross-repo-communication/gem-cockpit-contract.md`.
+one network-wide G-EM, last writer wins: `/group-em` on any box displaces the holder on any other
+(`references/multibox.md`; `coordinator/docs/wiki/cross-repo-communication/gem-cockpit-contract.md`). **Outside the home, `/group-em` renders NOT ENTERED** (`group-em-home ensure`).
 
-**Outside the home, `/group-em` renders NOT ENTERED** (`group-em-home ensure`).
+**THIS BODY IS A FROZEN SNAPSHOT, UNVERSIONED.** Read anything MECHANICAL (a signature, flag, refusal vocabulary) from disk before citing it.
 
-**THIS BODY IS A FROZEN SNAPSHOT, UNVERSIONED.** Read anything MECHANICAL (a signature, module
-path, flag, refusal vocabulary) from disk before citing it.
-
-**PM-GATED, never EM-initiated:** the PM gates by booting a session in the home; that boot is the
-entry evidence and enters on its own (`A-SESSION-STARTED-IN-THE-GROUP-EM-HOME-ENTERS-GROUP-EM`), so
-the PM need not type `/group-em`. Typing it only re-enters a home session already open. A resume
-or restart instruction says "open a session in the group-em home", never "type `/group-em`".
+**PM-GATED, never EM-initiated:** the PM gates by booting a session in the home; that boot enters on its own (`A-SESSION-STARTED-IN-THE-GROUP-EM-HOME-ENTERS-GROUP-EM`).
+A resume instruction says "open a session in the group-em home", never "type `/group-em`".
 
 **Invoking this skill IS the dispatch request, for three dispatches only:** the approvability
 judge (§ Delegated approve-for-execution, step 4), `coordinator:group-em-assistant` at entry, and
-§ Fleet inbox grind's saved `fleet-inbox-blitz` workflow with its assistants. Each covers raising
-that named role or firing that named script, nothing else. **None touches the peer-session send
+§ Fleet inbox grind's saved `fleet-inbox-blitz` workflow with its assistants; nothing else. **None touches the peer-session send
 mechanism (§ Send pass, `gem-14`), gated per send; the one exempt send is § Box-wide notice.**
 Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
 
@@ -34,153 +27,102 @@ Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
 
 **Starting a session in the home fires entry** (`session-start-group-em-autoenter.py`), as does
 typing `/group-em` (`group-em-autofire.py`); **context absent = entry did not happen**.
-Read `references/entry.md` at entry: the fallback op, exit 5, and the sends owed this turn (a
-displaced holder's message, the introduction to every live session).
+Read `references/entry.md` at entry (fallback op, exit 5, sends owed).
 
 ## Box-wide notice
 
-Every live named session is told when the standing begins (`BOX NOTICE OWED`) and ends. Read
-`references/notice.md` when sending it, and before this session ends.
+Every live named session is told when the standing begins (`BOX NOTICE OWED`) and ends; read
+`references/notice.md` to send it.
 
-An engine swap or a box hold needs no quiet window: tell each owning session to pause its
-in-flight runs in place and resume them with `resumeFromRunId` after the clear. Resume is
-same-session only, so you never pause or resume a peer's run yourself
+An engine swap or box hold needs no quiet window: each owning session pauses and resumes its own runs; you never pause or resume a peer's
 (`workflow-orchestration.md` § Pause in place, then resume).
 
 ## What this skill does and does not do
 
-**Does NOT plan or author on anyone's behalf** — no plan bodies, stub content, or roadmap
-decisions for watched sessions. **DOES coordinate execution waves and cross-session sequencing**.
+**Does NOT plan or author on anyone's behalf** (plan bodies, stubs, roadmap
+decisions). **DOES coordinate execution waves and cross-session sequencing**.
 
 ## Entry dispatches both standing watchers
 
 **ENTRY DISPATCHES BOTH STANDING WATCHERS — `group-em-assistant` AND THE WATCH IT ARMS ARE
-MANDATORY.** **Raise the pair yourself, from this session** (a watcher belongs to whoever raised
-it) — as you, on entering the mode, not the entry op. In this order, as your first act:
+MANDATORY.** **Raise the pair yourself, from this session**, on entering the mode, not the entry op. In this order, as your first act:
 
-1. **`coordinator:group-em-assistant`** — dispatch it, unnamed. Your standing reader: transcript
-   tails, baton claimants, what landed on a path since a SHA, **park-spool triage**, read-and-report
-   asks. It arms nothing and holds no timer. Remit:
+1. **`coordinator:group-em-assistant`** — dispatch it, unnamed. Your standing reader (**park-spool triage**, read-and-report
+   asks); it arms nothing and holds no timer. Remit:
    `coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-assistant-remit.md`.
-   **DISPATCH IT WITHOUT A `name`:** a named `Agent` call spawns an in-process teammate, never
-   re-invoked by a `Monitor` it armed; unnamed, it wakes on your `SendMessage`. Tripwire:
-   `A-MONITOR-ARMED-BY-A-TEAMMATE-WAKES-NOBODY`.
+   **DISPATCH IT WITHOUT A `name`:** a named teammate is never re-invoked by a `Monitor` it armed; unnamed, it wakes on your `SendMessage` (`A-MONITOR-ARMED-BY-A-TEAMMATE-WAKES-NOBODY`).
 
-2. **The watch and its background run — yours, launched from this main conversation** (a subagent
-   missed 4 of 4 expiries). Arm it through the Bash tool with `run_in_background: true`:
+2. **The watch and its background run — yours, launched from this main conversation**, never a subagent. Arm it via Bash with `run_in_background: true`:
 
        "$COORDINATOR_SETTINGS_HOME/bin/group-em-watch" --repo-root <root> --group-em-session-id <your sid> --until-event --tick-interval-seconds 30
 
-   Read `references/watch.md` when arming the watch, checking its liveness, or handling a wake.
+   Read `references/watch.md` to arm, check liveness, or handle a wake.
 
-2a. **Cross-box link:** the home-start hook has already run `bin/unimatrix-autolink.py`; run it once
-   more, fire-and-forget, after a far box restarts (idempotent, silent when multibox is unconfigured). See
-   `coordinator/docs/wiki/unimatrix-mechanism.md` § Auto-arm.
+3. **Events wake you; no cron tick exists** (`A-CRON-TICK-IS-A-POLL-WHEN-EVENTS-EXIST`). Wakes: the watch run's completion; peer
+   `SendMessage`s; `notify_when_idle` one-shots; the **memory governor** (`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/group-em-memory-governor"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\group-em-memory-governor.exe"`) once, then wait on `group-em-memory-governor-wait.py <its log>`; `group-em-residue.md` § Memory governor). On PAUSED, tell its owner. Admit a heavy command by `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/box-memory-snapshot" --admit-peak <GiB>` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\box-memory-snapshot.exe"`, same arguments; HOLD is exit 4), naming that gate in a pre-clearance (`group-em-residue.md` § Memory tools; `A-SPAWNED-TEST-RUNNER-CARRIES-A-DEPTH-SENTINEL-AND-A-PROCESS-CAP`). **Freeing memory is your core duty:** trim, re-measure, then admit or deny; never a PM ask or a HOLD before the trim (`THE-G-EM-FREES-BOX-MEMORY-ITSELF-BEFORE-IT-HOLDS-OR-ASKS-THE-PM`). The GPU is one slot (`A-GPU-IS-ONE-SLOT-EMBED-SIDECARS-AND-UE-GPU-WORK-NEVER-OVERLAP`). Embed and index builds (project-rag, project-rag-ue-addon) run on the Windows box, never a Mac slot: `references/multibox.md`.
 
-3. **Events wake you; no cron tick exists.** Wakes: the watch run's completion; peer
-   `SendMessage`s; `notify_when_idle` one-shots; the **memory governor**. Run
-   `python -u <plugin-root>/bin/group-em-memory-governor.py` once; it detaches itself and prints
-   `DETACHED ... log=<path>`, and that printed path is the log (not your redirect); the wake is a second background run,
-   `<plugin-root>/bin/group-em-memory-governor-wait.py <that log>`, which exits only on an actionable
-   line (LOW, PAUSED, RUNAWAY, CACHE-TRIM result, EXIT); DISK/DISK-STAT telemetry never wakes you.
-   Relaunch only the waiter; never filter its line yourself (the waiter filters); both are plain background runs, no `Monitor` between. On a
-   PAUSED line, tell its owner. `WARN` and swap-out hold nothing; send no hold/clear messages. Admit a heavy command when declared peak + cushion (`min(25% of peak, 8 GiB)`) + the reservation <= kernel-available. The reservation is the sum, over jobs you GO-admitted with a declared peak and that still run, of `max(0, declared peak - current tree RSS)`; it covers no other box process and lapses when the job exits. `box-memory-snapshot.py --reservation` prints the per-job `reserved_gib` and the total; `--admit-peak` nets it in. The commit-limit leg is unchanged. Gate with
-   `<plugin-root>/bin/box-memory-snapshot.py --admit-peak <GiB>` (HOLD is exit 4); a pre-clearance names its gate in these terms, never a bare available figure. Launch via `box-launch-windowless.py`. Trim tools, copy rules: `group-em-residue.md` § Memory tools. Tripwires:
-   `A-BOX-MEMORY-IS-THE-KERNEL-VERDICT-NOT-A-FREE-PAGES-FLOOR`;
-   `A-SPAWNED-TEST-RUNNER-CARRIES-A-DEPTH-SENTINEL-AND-A-PROCESS-CAP` (count processes by name first). **Freeing memory is your core duty, in order:** low Available with commit fine and a large file cache: (1) `trim-file-cache --apply` (fires `BoxCacheTrim`, no admin) or `box-memory-trim-ws <pid>`; (2) re-measure with `box-memory-snapshot.py`; (3) only then admit or deny. Never a PM ask, never a HOLD before the trim: `THE-G-EM-FREES-BOX-MEMORY-ITSELF-BEFORE-IT-HOLDS-OR-ASKS-THE-PM`. The GPU is one slot: embedding writes
-   and UE GPU work never overlap (`A-GPU-IS-ONE-SLOT-EMBED-SIDECARS-AND-UE-GPU-WORK-NEVER-OVERLAP`).
-   A `CronCreate` poll over an event surface is a poll where an event exists
-   (`A-CRON-TICK-IS-A-POLL-WHEN-EVENTS-EXIST`).
-
-   **You sequence box capacity.** Contended work (test suites, builds, reindexes, UE editor/cook
-   runs, large workflows, memory-heavy agents) and any queue where peers take turns (a suite
-   mutex, a shared-tree merge, a publish) is yours to order: peers ask for a slot; you release
-   them in order as headroom allows. **Cap what agents run, not how many:** GO terms name command
-   classes, **never** a workflow's width, concurrent rows or agent count
-   (`A-BOX-CAP-COUNTS-COMMANDS-NOT-AGENTS`). A slot is occupied only by a live PID, named in the
+   **You sequence box capacity.** Contended work and any queue where peers take turns is yours to order: peers ask for a slot; you release
+   them in order as headroom allows. **Cap what agents run, not how many** (`A-BOX-CAP-COUNTS-COMMANDS-NOT-AGENTS`; `group-em-residue.md` § GO terms). A slot is occupied only by a live PID, named in the
    report and confirmed alive (`A-RUNNING-CLAIM-CARRIES-A-LIVE-PID`). **A deploy slot names its
-   commit set, never `HEAD`**; a prod-migrate GO names every migration the command applies; an
-   install rewriting live plugin/config state needs your GO. Contents: `group-em-residue.md`
-   § GO terms; tripwires `A-DEPLOY-THAT-BUILDS-FROM-DISK-SHIPS-PEERS-UNCOMMITTED-EDITS`,
-   `A-DEPLOY-GO-ON-A-TREE-SUITE-SHIPS-A-COMMIT-THE-SUITE-NEVER-SAW`,
-   `A-PROD-MIGRATE-GO-NAMES-LESS-THAN-THE-COMMAND-APPLIES`,
-   `A-FULL-INSTALL-SUBSTRATE-RUN-FOR-ONE-FORWARDER-HAS-MACHINE-WIDE-BLAST-RADIUS`.
+   commit set, never `HEAD`**; prod-migrate and install GO terms: `group-em-residue.md`
+   § GO terms (`A-DEPLOY-GO-ON-A-TREE-SUITE-SHIPS-A-COMMIT-THE-SUITE-NEVER-SAW`).
 
 **YOU ARE WHERE "UP" ENDS.** Every gate a peer surfaces up (a slot, a prod write, a deploy, a
-release, a publish, a ruling, a doctrine-adjacent call) is decided by you, under the PM's
-delegation ("publish", "release", "merge" in the external-facing list name what is gated, not who
-holds the gate). Never hand one to the PM. A direction call you cannot make goes to the APM. The
-PM gets only an act needing the human's own hands, such as an interactive login, stated as the
-act (`! firebase login --reauth`). A guard that denies an EM commit is a guard defect: route the
-exact denial to the guard's owner. The G-EM fixes and pushes routine problems itself, in fleet
-repos it owns: fetch, confirm a fast-forward, push, report one line; never park them for the PM.
-Force-push, history rewrite and non-owned remotes stay held.
+publish, a ruling) is decided by you, under the PM's delegation; never hand one to the PM. A direction call you cannot make goes to the APM. The
+PM gets only an act needing the human's own hands (an interactive login). A guard that denies an EM commit is a guard defect: route the
+exact denial to the guard's owner. The G-EM fixes and pushes routine problems itself in fleet
+repos it owns; force-push, history rewrite and non-owned remotes stay held.
 Tripwires: `A-GROUP-EM-IS-WHERE-UP-ENDS`, `A-GUARD-DENYING-AN-EM-COMMIT-IS-A-GUARD-DEFECT`.
 
-### Arming the watch — every refusal and every false green
+### Arming, liveness, declinations
 
 **Before arming either party, read `holder_session_id` from `state/group-em-watch.json`.**
 
-### Liveness instruments
-
 **`ListAgents`' `busy`/`idle` is banned as an input to any liveness, reachability, or claim
-verdict** (`idle` means unknown, never quiet). Tripwire: `LISTAGENTS-BUSY-IS-A-BANNED-LIVENESS-INPUT`.
+verdict** (`LISTAGENTS-BUSY-IS-A-BANNED-LIVENESS-INPUT`).
 
-### Every wake declines in writing, and stamps it to disk
-
-**Each wake records a DECLINATION for every roster entry it does not message** (which gate failed,
-why) **and STAMPS them to disk** via the engine's `coordinator_core/group_em/watch_heartbeat.py ::
-stamp`, not this skill's local `watch_heartbeat.stamp` (signatures differ); remit § Stamping the
-heartbeat.
+**Each wake records a DECLINATION for every roster entry it does not message** (which gate failed)
+**and STAMPS them to disk** via the engine's `coordinator_core/group_em/watch_heartbeat.py ::
+stamp`; remit § Stamping the heartbeat.
 
 ## The drive loop — what you are driving peers TOWARD
 
 You own four of five steps; **step 4's clear is the PM's act.** Only a completed ceremony
-establishes out-of-work, never a peer's "I'm done".
+establishes out-of-work, never a peer's "I'm done". Read `references/drive-loop.md` to steer a peer toward execute, close or clear.
 
-Read `references/drive-loop.md` when steering a peer toward execute, close or clear.
+## Roll call fills the goal board
 
-## Persistence, Driver frame, stale reads; gating granularity
+Each roll call fills the fleet goal board and surfaces its drift (stale rows, ownerless goals,
+unmapped tasks). Read `references/goal-board.md` for the step
+(`A-GOAL-BOARD-ROW-WITH-NO-MEASURED-DISTANCE-READS-UNMEASURED`).
+
+## Persistence; Read pass (gem-13) and Send pass (gem-14)
 
 Entry is PM-gated and each send is gated separately. Read `references/persistence.md` when
 relaying the PM's word, checking the nomination (never re-run entry for it), or re-reading peer state.
 
-## Read pass (gem-13) and Send pass (gem-14)
-
 `send_pass.py` selects and throttles one digest per invocation; **it does not send.** Every send
 is a per-entry act with both gates declared, the address re-resolved from the session id just
-before; **never loop over `entries` sending.** `roster` is the shortlist, not the population.
-
-Read `references/passes.md` when reading the roster or working a send digest.
-Read `references/multibox.md` when a job or session targets a box other than this one.
+before; **never loop over `entries` sending.** Read `references/passes.md` for the roster or a send digest,
+`references/multibox.md` for a job or session on another box.
 
 ## The escalation screen — a claimed PM item is presumed yours until it survives
 
 **A session's claimed PM item is wrong 19 times in 20.** Test it.
 
-- **"Next: review."** The next step of a procedure the session owns. Push it.
-- **"Variable `x` or `xy`?"** Engineering, decided by whoever holds the file. Push it.
 - **"Do I execute?"** A real question; answer it (below).
-- **"Where is file X?"** Never the PM's: `machine-local store`, provenance records, then a scoped
-  search. An undeclared outside-repo data root is a break: declare it.
 - **"This is irreversible."** Only a publish to a server the fleet does not own is; push a local
-  write back as the session's own (`A-LOCAL-WRITE-IS-RECOVERABLE-ONLY-PUBLISHING-IS-IRREVERSIBLE`).
+  write back (`A-LOCAL-WRITE-IS-RECOVERABLE-ONLY-PUBLISHING-IS-IRREVERSIBLE`).
 
-Run the altitude test on the way out of a turn too: an idle peer is not a reason to message.
-
-**Answer engineering calls yourself**, or dispatch `coordinator:staff-eng`. Route scope and
+Idle is no reason to message. **Answer engineering calls yourself**, or dispatch `coordinator:staff-eng`. Route scope and
 direction to the APM. Pass the PM only what survives this screen, in plain words: what happens, to
-which server, why it cannot be undone. Steer by win rate, not hygiene
+which server, why it cannot be undone
 (`coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-escalation-threshold.md`).
 
 ### Push, do not nudge
 
-**"Do you need anything?" is a failure** ("want me to...?" likewise): it hands the decision back
-to the session that froze on it.
-
-A push **names the act, names its owner, and closes**: *"That is yours. Do X."* No question mark,
-offer or conditional; one clause of reason. Never push a peer past a gate its own skill names (a
-gate is a considered refusal with a named reason).
+**"Do you need anything?" is a failure** ("want me to...?" likewise). A push **names the act, names its owner, and closes**: *"That is yours. Do X."* No question mark,
+offer or conditional; one clause of reason. Never push a peer past a gate its own skill names.
 
 ### "Do I execute?" — yours to answer, with a viability read
 
@@ -189,40 +131,32 @@ read. A plan needing the `execution_authorized_by` stamp takes § Delegated appr
 
 ## Delegated approve-for-execution procedure
 
-The Group EM may take the PM's execute-plan turn only if the plan is reversibility-eligible and a
-rubric-scored judgment against its prime exit criterion clears a locked threshold (8 of 8, no
-dimension scoring 0).
-
-Read `references/approve.md` when taking the PM's execute-plan turn for a plan.
+The Group EM takes the PM's execute-plan turn only if the plan is reversibility-eligible and a
+rubric-scored judgment against its prime exit criterion clears 8 of 8, no dimension 0.
+Read `references/approve.md` when taking that turn.
 
 ## Fleet inbox grind
 
 **On entry, with `coordinator.feature.cross_repo_memos` on, fire the saved workflow — not a
-decision.** The autofire hook prints `FLEET INBOX GRIND, FIRE NOW`:
+decision** (the autofire hook prints `FLEET INBOX GRIND, FIRE NOW`). Read `references/inbox.md` when firing it.
 
-Read `references/inbox.md` when firing the fleet inbox grind.
-
-**Apply rule:** re-read each memo's status (manifest `guard`) immediately before its stamp or send; not open/in_progress means drop its lines. The manifest carries it as `apply_rule`, so the live EM that applies it by path gets the rule too.
+**Apply rule:** re-read each memo's status (manifest `guard`) just before its stamp or send; not open/in_progress means drop it.
 
 ## Cross-repo commit authority
 
 **With the standing and `coordinator.feature.gem_cross_repo_commit` on, commit in any fleet repo
 without PM assent:** scoped commits, no destructive git ops, never leave a sibling red, memo
-engine work. Off: ask that repo's EM in its own session (same `--plugin-dir`), else memo.
-Tripwires: `GEM-CROSS-REPO-COMMIT-IS-A-BOX-SETTING`,
-`A-BARE-CLAUDE-BG-SPAWN-LOADS-THE-WRONG-PLUGIN-TREE`.
+engine work. Off: ask that repo's EM, else memo (`GEM-CROSS-REPO-COMMIT-IS-A-BOX-SETTING`,
+`A-BARE-CLAUDE-BG-SPAWN-LOADS-THE-WRONG-PLUGIN-TREE`).
 
 **Doctrine is yours to change; no fleet fan-out:** `GEM-MAY-CHANGE-DOCTRINE`.
 
 ## Anti-scope
 
-- **No auto-send.** `send_pass.py` holds no transport. Every send is an explicit per-send act with
-  both gates declared. An unattended sender, a loop that messages each digest entry, or any
+- **No auto-send.** `send_pass.py` holds no transport; an unattended sender, a per-entry message loop or any
   `Stop`-registered trigger is out of scope.
 - **Mandating that the watcher EXISTS is not mandating that it sends unattended.** A nudge on an
-  observed registry transition is preserved; a tick that messages everyone it can see, or a
-  timing predicate re-deriving `runtime-tripwire-stop-watcher.py` (681 fires / 26 days / ~99.4%
-  wrong), is forbidden. The ban is on
-  AUTOMATION: a holder judging the roster each turn is preserved.
+  observed registry transition and a holder judging the roster each turn are preserved; a tick that
+  messages everyone it can see, or a timing predicate re-deriving `runtime-tripwire-stop-watcher.py` (681 fires / 26 days / ~99.4% wrong), is forbidden.
 - Messaging **peer sessions** stays an `ask-before-external-action` question no dispatch grant
   dissolves.

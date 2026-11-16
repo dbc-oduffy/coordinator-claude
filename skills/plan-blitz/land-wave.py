@@ -68,6 +68,7 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 EXIT_OK = 0
@@ -628,7 +629,7 @@ def _repo_relative(value: str, repo_root: Path) -> str | None:
 _NOT_THIS_WAVE = frozenset({"next_wave"})
 
 
-def _strings(node):
+def _strings(node) -> Iterator[str]:
     if isinstance(node, str):
         yield node
     elif isinstance(node, dict):

@@ -32,6 +32,7 @@ Negative-spec:
 
 
 from __future__ import annotations
+from types import ModuleType
 
 import contextlib
 import importlib.util
@@ -79,7 +80,7 @@ def _is_content_root(root: Path) -> bool:
     return False
 
 
-def _load_installer(root: Path):
+def _load_installer(root: Path) -> ModuleType:
     path = root / _INSTALLER_REL
     spec = importlib.util.spec_from_file_location(_PRIVATE_MODULE_NAME, path)
     if spec is None or spec.loader is None:

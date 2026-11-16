@@ -119,34 +119,39 @@ def is_wrapped(command) -> bool:
     return _MARKER in command
 
 
-#: The native-door entrypoint a door registration runs, and the op namespace it accepts.
-NATIVE_DOOR_ENTRYPOINT = "/bin/hook-run"
+#: The launcher script a door registration runs, and the op namespace it accepts.
+NATIVE_DOOR_LAUNCHER = "door_launch.py"
 NATIVE_DOOR_OP_PREFIX = "hooks."
 
 
-def is_native_door(hook) -> bool:
-    """True when ``hook`` is a native-door registration: shell form, pinned to bash, running
-    ``<settings-bin>/hook-run hooks.<op>``.
+def native_door_op(hook) -> str | None:
+    """The ``hooks.<op>`` token of a native-door registration, else ``None``.
 
-    A door registration is fail-open by a different route than ``wrap_command_exec``, and is
-    NOT a bypass of it. There is no script to wrap -- the door is a compiled binary and the op
-    runs in the resident engine -- and the property this module exists for (an unresolvable
-    target never removes the tools needed to repair it) holds because the harness only has to
-    resolve ``bash``. A missing ``hook-run`` is bash's exit 127, which the harness treats as a
-    non-blocking error. Exec form would lose that: the harness itself would have to resolve the
-    binary before any of our code, or bash, runs.
+    A native door is a ``wrap_command_exec`` registration of ``door_launch.py`` (args index 2)
+    whose arguments carry a ``hooks.<op>`` token. No shell is in the path: ``door_launch.py``
+    resolves ``hook-run``, declares stdin hook mode, applies ``--quiet`` / ``--pass-2``, and
+    fails OPEN (exit 0 + banner) when the binary is absent, so the harness only has to resolve
+    ``python3``.
     """
-    if not isinstance(hook, dict) or hook.get("type") != "command" or hook.get("args"):
-        return False
-    command = hook.get("command") or ""
-    return (
-        hook.get("shell") == "bash"
-        and NATIVE_DOOR_ENTRYPOINT in command
-        and f" {NATIVE_DOOR_OP_PREFIX}" in command
-    )
+    if not isinstance(hook, dict) or hook.get("type") != "command" or hook.get("shell"):
+        return None
+    args = hook.get("args")
+    if hook.get("command") != "python3" or not isinstance(args, list) or len(args) < 4:
+        return None
+    if not is_wrapped(hook) or str(args[2]).rsplit("/", 1)[-1] != NATIVE_DOOR_LAUNCHER:
+        return None
+    for token in args[3:-1]:
+        if isinstance(token, str) and token.startswith(NATIVE_DOOR_OP_PREFIX):
+            return token
+    return None
 
 
-def _split_python3_command(command: str):
+def is_native_door(hook) -> bool:
+    """True when ``hook`` is a native-door registration (see ``native_door_op``)."""
+    return native_door_op(hook) is not None
+
+
+def _split_python3_command(command: str) -> tuple[str, list[str]]:
     """Shared parse for both emitters: ``python3 <script> [args...]`` -> ``(script, args)``.
     Raises ``ValueError`` on any other shape."""
     parts = command.split()

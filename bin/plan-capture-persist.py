@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 plan-capture-persist.py — CLI trampoline over the engine repo's
 coordinator_core.ops.plan_capture_persist.

@@ -1,6 +1,6 @@
 ---
 name: roadmap-blitz
-description: "PM-GATED. Turns an xl_exit: roadmap sizing into staged roadmap batons in one wave with one Approve gate, then plan-blitz."
+description: "PM-GATED. An xl_exit: roadmap sizing into roadmap batons, one Approve gate, then plan-blitz."
 description-budget: 320
 version: 1.0.0
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "Skill", "Workflow", "AskUserQuestion", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList"]

@@ -1,6 +1,6 @@
 ---
 name: box-onboarding
-description: "Admit a new macOS box to the multibox fleet: Homebrew python3, Remote Login, install, engine, keys, Unimatrix, home repo, verify."
+description: "Admit a macOS box to the multibox fleet: Homebrew python3, Remote Login, Unimatrix, home repo."
 allowed-tools: ["Read", "Bash", "Glob", "Grep"]
 argument-hint: "[box role: secondary | tertiary | headless]"
 ---
@@ -25,6 +25,13 @@ is `coordinator/docs/wiki/unimatrix-mechanism.md`, "Transport". `<klabauter-clon
 from `machine-local get repos.claude_klabauter`; `<home-repo>` is the owner's private home repo.
 
 ## Steps
+
+**Steps run over non-interactive ssh** (a controller driving the new box, the Mac-switch runbook) call the
+box interpreter by absolute path, never bare `python3`: a non-interactive sshd PATH resolves `python3`
+to the Xcode Command Line Tools stub. The path is the box's own (`$(brew --prefix)/bin/python3`, e.g.
+`/opt/homebrew/bin/python3` on Apple silicon; the pyenv shim path on a pyenv box). The same rule binds
+the forced command in an `authorized_keys` line (step 5), and every `python3 ...` command below when
+run over ssh.
 
 1. **Homebrew python3.** Install Homebrew if absent, then python3 and git.
    - `command -v brew || /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`
@@ -68,6 +75,10 @@ from `machine-local get repos.claude_klabauter`; `<home-repo>` is the owner's pr
      `op read "op://<team-vault>/<role>: <from> → <to>/private key?ssh-format=openssh" > ~/.ssh/<key-file>; chmod 600 ~/.ssh/<key-file>`.
      Read the public half the same way (`.../public key`). No key body, fingerprint or vault content
      enters a tracked file.
+   - **Relay (Unimatrix-Zero) membership joins by pairing, not a hand-installed line:** step 6's
+     `unimatrix-pair.py request` on the new box and `unimatrix-pair.py approve` on a member box.
+     `Unimatrix-01` and `Unimatrix-02` keys still mint as above. The hand-installed relay line below
+     is the fallback, for a member box that cannot reach a signer.
    - The far-side `authorized_keys` line is installed by that box's EM or G-EM (a SendMessage over the
      existing Unimatrix, or a pasted line), never by the PM by hand. `unimatrix-install.py`
      prints the exact line, absolute interpreter included. Both directions of every box pair get the
@@ -79,7 +90,7 @@ from `machine-local get repos.claude_klabauter`; `<home-repo>` is the owner's pr
      forced command names absolute paths (`command="<absolute python.exe> <absolute path>\\unimatrix-relay.py"`).
    - A re-minted key replaces the old line on the far side. Before testing, compare
      `ssh-keygen -lf` on both ends; delete the superseded private key.
-     (`A-UNIMATRIX-KEY-IS-MINTED-IN-1PASSWORD-AND-VERIFIED-BY-FINGERPRINT`.)
+     `A-UNIMATRIX-KEY-IS-PASSPHRASE-ENCRYPTED-AND-VERIFIED-BY-FINGERPRINT`.
    - DHCP reservation uses the box's private Wi-Fi MAC with the private address set to "Fixed" for
      that network, not the hardware MAC (`docs/fleet/unimatrix-fleet.md` carries the addresses).
    - This box's own engine key: `box_key.ensure_key` mints it; pin each peer's key with op
@@ -99,8 +110,19 @@ from `machine-local get repos.claude_klabauter`; `<home-repo>` is the owner's pr
    - The relay key follows the custody page (`A-UNIMATRIX-KEY-IS-A-FORCED-COMMAND-RELAY-KEY`). On
      macOS its forced command names Homebrew's `$(brew --prefix)/bin/python3` by absolute path: sshd's PATH
      `python3` is the Command Line Tools stub.
+   - **Join by pairing** (`unimatrix-mechanism.md`, "Joining by pairing"); run `unimatrix-pair.py`
+     through the same ladder:
+     1. Member box, once: `unimatrix-pair.py pin <signer-pubfile>` (pin the signer first); the new box
+        pins the same signer.
+     2. New box: `unimatrix-pair.py request --box <box> --cidr <LAN /24> --cidr <tunnel /24>` prints a
+        join request; send it to a member box (SendMessage or paste).
+     3. Member box: `unimatrix-pair.py approve <request-file|->`. Read the printed box, host, user,
+        `from_cidrs` and key fingerprint, then approve the 1Password prompt. It signs, adopts and
+        pushes the snapshot; the relay reconciles `authorized_keys`.
+     4. New box: `unimatrix-pair.py fetch <member-host>` to verify the signed snapshot.
+     5. Removal: `unimatrix-pair.py revoke <box>` on a member box.
    - `unimatrix-install.py --pair <alias>` pairs this box with the peer alias; it prints the line
-     the far side installs.
+     the far side installs (the fallback when pairing is unavailable).
    - **Existing-box backfill:** admitting a box means installing and verifying both directions
      against every box already on the roster, not only the new box's own. A pair holding only one
      direction gets the missing key and line now, then step 8 probes it.

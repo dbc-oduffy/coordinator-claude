@@ -20,7 +20,7 @@ try:
     from _engine_root import _settings_home_registry_dir  # noqa: E402
 except Exception:
     # Partial deploy without the sibling: no settings-home leg, never a crash.
-    def _settings_home_registry_dir():  # type: ignore[no-redef]
+    def _settings_home_registry_dir() -> None:  # type: ignore[no-redef]
         return None
 
 

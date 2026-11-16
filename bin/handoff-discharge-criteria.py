@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """handoff-discharge-criteria — CLI trampoline over the engine-repo's
 `handoff.discharge_criteria` op.
 

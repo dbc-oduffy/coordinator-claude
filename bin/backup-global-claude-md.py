@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """backup-global-claude-md: keep the first pre-coordinator copy of the global CLAUDE.md.
 
 Copies `<claude-home>/.claude/CLAUDE.md` to `CLAUDE.md.pre-coordinator.bak` when the file is

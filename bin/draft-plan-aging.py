@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 # draft-plan-aging.sh — CLI trampoline over claude-klabauter
 # coordinator_core.ops.draft_plan_aging (mechanized draft-plan staleness
 # detector: status:draft + age>=14d + no real-work commit on scope + no

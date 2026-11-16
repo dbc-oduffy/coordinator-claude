@@ -32,5 +32,8 @@ Intermediate/
 .project-rag-corpus-artifacts/
 .project-rag-corpus-store/
 
-# warp leg prompts are working files; the engine prunes them for finished runs
-state/warp/*/prompts/
+# engine run state is never tracked; the engine prunes it on retention
+state/warp/
+
+# Tool caches (clangd writes .cache/clangd); machine state, never authored
+.cache/

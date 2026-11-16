@@ -31,5 +31,7 @@ You are the NotebookLM claims-gate stage. Decide whether the workers produced a 
 
 **Write to:** {{scratch_dir}}/claims-gate.json
 
-Write exactly one JSON object {"ok": boolean, "remedy": [string], "checks": object} and return the same object, unchanged from the script's output. Copy remedy strings verbatim. Do not retry a failing script more than once.
+The script's `checks` carry `usable_sources` and `confident_not_found` per notebook and fail a near-empty notebook; add nothing to them.
+
+Write exactly one JSON object {"ok": boolean, "remedy": [string], "checks": object} and return the same object, unchanged from the script's output. Copy the remedy strings verbatim. Do not retry a failing script more than once.
 ```

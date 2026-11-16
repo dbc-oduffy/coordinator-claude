@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """bin/check-multi-event-hook-hardcoded-event.py — Tripwire: prevent a hook
 script registered on MORE THAN ONE event in hooks.json from hardcoding the
 `hookEventName` value it emits in its `hookSpecificOutput` envelope.

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """coordinator/bin/coordinator-publish.py — namespaced canonical alias for
 `coordinator/bin/publish.py` (the percolate publish driver).
 
@@ -28,9 +29,21 @@ Negative-spec: do NOT reimplement or re-import `publish.py`'s `main()` here and 
 signature changes. `runpy.run_path(..., run_name="__main__")` re-executes the target module's own
 `if __name__ == "__main__":` block verbatim, so this alias is always byte-identical in behavior to
 invoking `publish.py` directly.
+
+The hand-off target is a commit clone of this tree at the round's commit
+(`lib/commit_clone.py`), never the live working tree; an invoking checkout that carries its own
+`publish.py` is still honoured.
+
+The other addition: before the hand-off, a default klabauter publish is refused when its source
+lacks the live publish's source head (`--allow-source-rollback` admits a deliberate rollback;
+the flag is consumed here and never reaches `publish.py`).
 """
 
+import argparse
+import importlib
+import importlib.util
 import runpy
+import subprocess
 import sys
 from pathlib import Path
 
@@ -53,9 +66,135 @@ def _invoking_clone_bin(own_bin: Path) -> Path | None:
     return None
 
 
+_ALLOW_ROLLBACK_FLAG = "--allow-source-rollback"
+
+
+def _parse_guard_args(argv: list[str]) -> argparse.Namespace:
+    """The few `publish.py` arguments the regression guard reads. Value-taking flags are
+    declared so a flag's value is never mistaken for the target."""
+    ap = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+    ap.add_argument("target", nargs="?", default="")
+    ap.add_argument("--dry-run", action="store_true")
+    for flag in (
+        "--commit", "--source-ref", "--withheld-paths-json", "--progress-file", "--percolate-root",
+        "--dest-root-override", "--dest-root-live",
+    ):
+        ap.add_argument(flag, default=None)
+    ap.add_argument("--swap-over-mid-stage-runs", default=None)
+    return ap.parse_known_args(argv[1:])[0]
+
+
+def _regression_refusal(argv: list[str], source_root: Path) -> str | None:
+    """Refusal text when this default publish ships a source lacking the live klabauter
+    publish's source head, else None. Runs from this file's own tree before any hand-off, so
+    an older invoking clone's `publish.py` cannot skip it. Admits (with a stderr note) when it cannot judge."""
+    args = _parse_guard_args(argv)
+    if args.dry_run or (args.target and "klabauter" not in args.target):
+        return None
+    preloaded = set(sys.modules)
+    own_root = str(Path(__file__).resolve().parents[2])
+    # `sys.path[0]` is `coordinator/bin`; without this the import fails off PYTHONPATH and the guard goes silent.
+    sys.path.insert(0, own_root)
+    try:
+        # Dynamic on purpose: a static import would make the allowlist's import walk derive this
+        # driver as shippable to a mirror that withholds `coordinator_core`.
+        _settings_home = importlib.import_module("coordinator_core._settings_home")
+        registry_get = importlib.import_module("coordinator_core.machine_resolver").registry_get
+        check_publish_source_regression = importlib.import_module(
+            "coordinator_core.percolate.source_preflight"
+        ).check_publish_source_regression
+
+        mirror = registry_get("repos.claude_klabauter")
+        if not mirror:
+            return None
+        try:
+            provenance = _settings_home.settings_home() / "machine-local" / "publish-provenance.json"
+        except Exception:
+            provenance = None
+        return check_publish_source_regression(
+            source_root,
+            Path(mirror),
+            source_ref=args.commit or args.source_ref or "",
+            provenance_path=provenance,
+        )
+    except Exception as _exc:
+        print(f"coordinator-publish: source-regression guard unjudgeable: {type(_exc).__name__}: {_exc}", file=sys.stderr)
+        return None
+    finally:
+        try:
+            sys.path.remove(own_root)
+        except ValueError:
+            pass
+        # The invoking clone's driver must import its own coordinator_core, not this tree's.
+        for name in [m for m in sys.modules if m not in preloaded and m.split(".")[0] == "coordinator_core"]:
+            del sys.modules[name]
+
+
+class _CloneRefused(RuntimeError):
+    """The round's commit clone could not be materialised; the door refuses."""
+
+
+def _publish_ref_note() -> str:
+    return "A published source head is fetchable from origin as refs/heads/publish/<sha>."
+
+
+def _round_commit_clone_bin(own_bin: Path, argv: list[str]) -> Path | None:
+    """`coordinator/bin` of a commit clone of this tree at the round's commit (`--commit`/
+    `--source-ref`, else HEAD), or None when this tree is already a clone. Any failure to
+    materialise raises `_CloneRefused`: the door never runs the live tree."""
+    own_root = own_bin.parents[1]
+    ref = "HEAD"
+    try:
+        spec = importlib.util.spec_from_file_location("_cwp_commit_clone", own_bin / "lib" / "commit_clone.py")
+        cc = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cc)
+        if cc.is_commit_clone(own_root):
+            return None
+        args = _parse_guard_args(argv)
+        ref = args.commit or args.source_ref or "HEAD"
+        proc = subprocess.run(
+            ["git", "-C", str(own_root), "rev-parse", "--verify", f"{ref}^{{commit}}"],
+            capture_output=True, text=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        sha = proc.stdout.strip()
+        if proc.returncode != 0 or not sha:
+            raise RuntimeError(f"{ref!r} does not resolve to a commit in {own_root}")
+        clone = cc.materialise_commit_clone(own_root, sha, cc.default_cache_root())
+        return clone / "coordinator" / "bin"
+    except Exception as _exc:
+        _fix = (
+            f'python "{own_bin / "lib" / "commit_clone.py"}" materialise <full-sha> --repo "{own_root}"'
+            f' (sha: git -C "{own_root}" rev-parse {ref})'
+        )
+        raise _CloneRefused(
+            f"{type(_exc).__name__}: {_exc}; nothing ran from the live tree. Retry: {_fix}"
+        ) from _exc
+
+
 def main(argv: list[str]) -> int:
     _own_bin = Path(__file__).resolve().parent
-    _clone_bin = _invoking_clone_bin(_own_bin)
+    try:
+        _clone_bin = _invoking_clone_bin(_own_bin) or _round_commit_clone_bin(_own_bin, argv)
+    except _CloneRefused as _exc:
+        print(f"coordinator-publish: refused -- commit clone failed: {_exc}", file=sys.stderr)
+        return 1
+    _allow_rollback = _ALLOW_ROLLBACK_FLAG in argv
+    argv = [a for a in argv if a != _ALLOW_ROLLBACK_FLAG]
+    if not _allow_rollback:
+        _refusal = _regression_refusal(argv, (_clone_bin or _own_bin).parents[1])
+        if _refusal:
+            print(f"coordinator-publish: refused: {_refusal} {_publish_ref_note()}", file=sys.stderr)
+            return 1
+    _run_bin = _clone_bin or _own_bin
+    _runner = _run_bin / "lib" / "commit_clone.py"
+    if _runner.is_file():
+        _spec = importlib.util.spec_from_file_location("_cwp_clone_runner", _runner)
+        _cc = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_cc)
+        if _cc.is_commit_clone(_run_bin.parents[1]):
+            # A commit clone holds only the publisher seed: run_entry_from_clone installs the
+            # filler (here and in every child) that writes the rest of the engine from the commit.
+            return _cc.run_entry_from_clone(_run_bin.parents[1], "coordinator/bin/publish.py", ["publish.py", *argv[1:]])
     if _clone_bin is not None:
         _own_root = _own_bin.parents[1]
         _drop = {str(_own_bin), str(_own_root)}

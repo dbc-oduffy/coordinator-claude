@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # session-reachability-cli — CLI trampoline over claude-klabauter
 # coordinator_core.session.reachability / peer_roster / artifact_owner (the
 # live UUID -> SendMessage-address resolver, the cwd-filtered peer roster,

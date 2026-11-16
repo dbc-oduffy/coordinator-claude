@@ -4,12 +4,20 @@ A failed call, or a retrieval call that returned nothing, injects one ABORT `add
 banner: the agent stops and reports the exact call and output instead of answering from Grep or
 memory. Sibling to the in-file rule (tripwire A-PROJECT-RAG-MISS-ON-A-UE-FACT-ABORTS-NEVER-FALLS-BACK).
 
-Exemptions, each silent:
+Exemptions, each silent except the semantic advisory:
   - MetaHuman wrong-source: a MetaHuman lookup whose `source` is not `unreal_5.8_plugin` is a
     wrong-source error, not an outage; the agent retries with the right source.
+  - Semantic-only failure: `project_semantic_search`, or a non-structural call whose output names only
+    the embed/semantic band, gets a one-line advisory (use structural lookups, name the semantic gap),
+    never an ABORT. A structural tool (symbol, referencers, callers, graph, type hierarchy) always aborts.
   - example-game-repo stand-down: when the example-game-repo-control plugin (or a settings file) already registers
     its own `project_rag_abort_banner` hook, that hook speaks and this one stays silent, so the
     banner never fires twice.
+  - Timeout under load: a structural call whose envelope says `verdict == "timeout"` gets a TIMEOUT UNDER
+    LOAD retry-once message (stage, source, retry_after advisory); the same call timing out again
+    within ten minutes gets the ABORT banner. Only `verdict == "warming"` means warming.
+  - Non-UE miss: a call that names no engine/unreal/MetaHuman source, repo, tool or type gets a
+    retry-then-Grep advisory that reports the gap, never an ABORT. Only a UE/MetaHuman miss aborts.
   - Non-retrieval tools (health, staleness, instructions) and non-project-rag tools.
 
 Never blocks; always exits 0; every failure degrades to silence.
@@ -19,7 +27,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -34,6 +44,10 @@ _NON_RETRIEVAL = frozenset({
     "project_health", "project_staleness_check", "project_rag_instructions",
     "project_rag_status", "project_index_status",
 })
+SEMANTIC_TOOLS = frozenset({"project_semantic_search"})
+_STRUCTURAL_MARKERS = ("symbol", "referencer", "caller", "reference", "type_hierarchy", "graph",
+                       "trace", "dependenc", "scip", "lsp")
+_SEMANTIC_WORDS = ("embed", "semantic")
 _LIST_KEYS = frozenset({
     "results", "matches", "hits", "items", "symbols", "references", "referencers", "callers",
     "files", "chunks", "documents", "nodes", "edges", "examples", "modules", "rows",
@@ -50,6 +64,134 @@ BANNER = (
     "then Grep, and report the fallback. (A MetaHuman lookup needs source={source}; a "
     "source=engine miss is a wrong-source error, retry with the right source.)"
 )
+
+
+ADVISORY = (
+    "project-rag semantic search is unavailable: {tool} {outcome} ({output}). This does NOT abort the "
+    "task: use the structural lookups (project_symbol, project_referencers, project_symbol_callers, "
+    "type hierarchy), Grep for literal text, and name the semantic-search gap in your report."
+)
+
+
+TIMEOUT_BANNER = (
+    "TIMEOUT UNDER LOAD: project-rag is up and loaded but {tool} timed out (stage: {stage}; source: {source}). "
+    "This is NOT an outage and NOT warming. Back off {wait} and retry this exact call ONCE: "
+    "Call: {call}\n"
+    "Output: {output}\n"
+    "Abort only if the retry also times out; then the ABORT rule applies (an Unreal Engine fact never "
+    "falls back to Grep, memory or training data)."
+)
+_TIMEOUT_TTL_SECONDS = 600
+_TIMEOUT_STATE_FILE = "project-rag-banner-timeouts.json"
+
+
+def timeout_envelope(output) -> Optional[dict]:
+    """The `verdict == "timeout"` envelope inside a tool response or failure text, else None."""
+    text = _response_text(output).strip()
+    candidates = [text]
+    brace = text.find("{")
+    if brace > 0:
+        candidates.append(text[brace:])
+    for cand in candidates:
+        try:
+            parsed = json.loads(cand)
+        except ValueError:
+            continue
+        if isinstance(parsed, dict):
+            if parsed.get("verdict") == "timeout":
+                return parsed
+            for value in parsed.values():
+                if isinstance(value, dict) and value.get("verdict") == "timeout":
+                    return value
+    return None
+
+
+def _timeout_key(tool_name: str, tool_input) -> str:
+    return f"{tool_name}|{json.dumps(tool_input, sort_keys=True, default=str)}"
+
+
+def _is_repeat_timeout(key: str) -> bool:
+    """Record this timeout; True when the same call already timed out within the TTL (the retry failed).
+
+    Trap: the read-modify-write is not atomic; a concurrent hook can lose an update, which only costs one extra retry message."""
+    path = _claude_home() / _TIMEOUT_STATE_FILE
+    now = time.time()
+    try:
+        seen = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(seen, dict):
+            seen = {}
+    except (OSError, ValueError):
+        seen = {}
+    seen = {k: t for k, t in seen.items() if isinstance(t, (int, float)) and now - t < _TIMEOUT_TTL_SECONDS}
+    repeat = key in seen
+    if repeat:
+        del seen[key]
+    else:
+        seen[key] = now
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(seen), encoding="utf-8")
+    except OSError:
+        return False
+    return repeat
+
+
+def _timeout_text(tool_name: str, tool_input, envelope: dict, output) -> str:
+    retry_after = envelope.get("retry_after")
+    wait = (f"{retry_after:g} seconds" if isinstance(retry_after, (int, float)) and not isinstance(retry_after, bool)
+            and retry_after > 0 else "a few seconds (no retry_after given; it is advisory)")
+    source = envelope.get("backpressure_source") or _input_source(tool_input) or "unknown"
+    return TIMEOUT_BANNER.format(
+        tool=tool_name, stage=envelope.get("stalled_stage") or "unknown", source=source, wait=wait,
+        call=f"{tool_name}({_short(tool_input)})", output=_short(output))
+MISS_ADVISORY = (
+    "project-rag returned no data for a non-Unreal lookup: {tool} {outcome} ({output}). This does NOT "
+    "abort the task: retry the call once (pass repo=<the repo's registry key> if it was omitted), "
+    "then Grep for literal text, and report the fallback to project-rag as a gap."
+)
+
+_UE_WORDS = ("unreal", "metahuman", "engine", "example-game-repo", "ue_addon", "ue-addon")
+_UE_TYPE_NAME = re.compile(r"\b[AUFEI][A-Z][a-z]{2,}[A-Za-z]*\b")
+
+
+def _field(tool_input, *keys) -> str:
+    if not isinstance(tool_input, dict):
+        return ""
+    parts = []
+    for key in keys:
+        value = tool_input.get(key)
+        if isinstance(value, str):
+            parts.append(value)
+        elif isinstance(value, list):
+            parts.extend(v for v in value if isinstance(v, str))
+    return " ".join(parts).lower()
+
+
+def is_ue_miss(short: str, tool_input) -> bool:
+    """True when the call targets Unreal Engine or MetaHuman content: an engine tool, a `source` or
+    `repo` naming an engine/unreal/example-game-repo band, or a UE-shaped type name in the arguments."""
+    if short.startswith("project_engine_"):
+        return True
+    scope = _field(tool_input, "source", "sources", "repo", "repos")
+    if any(w in scope for w in _UE_WORDS):
+        return True
+    text = _short(tool_input, 4000)
+    return "metahuman" in text.lower() or bool(_UE_TYPE_NAME.search(text))
+
+
+def _is_structural(short: str) -> bool:
+    return any(m in short for m in _STRUCTURAL_MARKERS)
+
+
+def is_semantic_only(short: str, output) -> bool:
+    """True when the failing call is semantic-only: the semantic tool itself, or a non-structural tool
+    whose output names the embed/semantic band and no structural store."""
+    if short in SEMANTIC_TOOLS:
+        return True
+    if _is_structural(short):
+        return False
+    text = _response_text(output).lower()
+    return any(w in text for w in _SEMANTIC_WORDS) and not any(m in text for m in _STRUCTURAL_MARKERS)
 
 
 def _short(value, limit: int = 400) -> str:
@@ -194,7 +336,7 @@ def banner_for(payload: dict) -> str:
         outcome = "FAILED"
     else:
         response = payload.get("tool_response")
-        if not _is_empty(response):
+        if not _is_empty(response) and timeout_envelope(response) is None:
             return ""
         output = _response_text(response).strip() or "<empty result>"
         outcome = "returned an EMPTY result"
@@ -202,6 +344,15 @@ def banner_for(payload: dict) -> str:
         return ""
     if example_game_repo_banner_registered(payload.get("cwd") or ""):
         return ""
+    if is_semantic_only(short, output):
+        return ADVISORY.format(
+            tool=tool_name, outcome=outcome, output=_short(output if output not in (None, "") else "<no output>"))
+    envelope = timeout_envelope(output)
+    if envelope is not None and not _is_repeat_timeout(_timeout_key(tool_name, tool_input)):
+        return _timeout_text(tool_name, tool_input, envelope, output)
+    if not is_ue_miss(short, tool_input):
+        return MISS_ADVISORY.format(
+            tool=tool_name, outcome=outcome, output=_short(output if output not in (None, "") else "<no output>"))
     return BANNER.format(
         tool=tool_name, outcome=outcome, call=f"{tool_name}({_short(tool_input)})",
         output=_short(output if output not in (None, "") else "<no output>"), source=METAHUMAN_SOURCE)

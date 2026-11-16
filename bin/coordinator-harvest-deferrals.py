@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 coordinator-harvest-deferrals — PM-gated deferral harvest from a plan's
 machine-parseable ## Tasks task-spine into the improvement queue / lessons-outbox.
@@ -156,6 +157,8 @@ coordinator-queue-append / coordinator-lesson-promote.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import contextvars
 import glob
 import os
 import re
@@ -715,7 +718,32 @@ _resolved_claude_klabauter_root_cache: dict[str, str | None] = {}
 _UNSET = "<unset>"
 
 
+_repo_root_override: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "harvest_deferrals_repo_root_override", default=None
+)
+
+
+@contextlib.contextmanager
+def scoped_repo_root(root: "str | os.PathLike[str]"):
+    """Pin the repo this module resolves, searches and spawns against, for the
+    calling thread/task only.
+
+    An in-process caller (the warm engine) has the daemon's cwd, never the
+    caller's repo; the process-wide memo below would serve the first repo
+    forever. The standalone CLI never enters this scope and keeps its
+    cwd-derived root.
+    """
+    token = _repo_root_override.set(os.fspath(root))
+    try:
+        yield
+    finally:
+        _repo_root_override.reset(token)
+
+
 def _repo_root() -> str | None:
+    override = _repo_root_override.get()
+    if override:
+        return override
     if _UNSET not in _repo_root_cache:
         from coordinator_core.git.repo_root import show_toplevel
 
@@ -976,6 +1004,7 @@ def _run_queue_append(row: dict, key: str, dry_run: bool) -> bool:
             text=True,
             timeout=_SUBPROCESS_TIMEOUT_SECS,
             env=_child_identity_env(),
+            cwd=_repo_root_override.get(),
             **_no_console_kw(),
         )
     except subprocess.TimeoutExpired:
@@ -1038,6 +1067,7 @@ def _run_lesson_promote(row: dict, key: str, dry_run: bool) -> bool:
             text=True,
             timeout=_SUBPROCESS_TIMEOUT_SECS,
             env=_child_identity_env(),
+            cwd=_repo_root_override.get(),
             **_no_console_kw(),
         )
     except subprocess.TimeoutExpired:

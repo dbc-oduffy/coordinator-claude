@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """query-commit-closures.py -- the porter over `sections/commit_closures.py:collect(ctx)`.
 
 No shebang line, no exec bit. The `.cmd`/`.ps1` siblings beside this file

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 coordinator-configure-git — CLI trampoline over claude-klabauter
 coordinator_core.ops.configure_git.

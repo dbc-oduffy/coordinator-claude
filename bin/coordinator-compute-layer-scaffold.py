@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """coordinator-compute-layer-scaffold.py — sibling-repo veneer over the claude-klabauter
 compute_layer.scaffold op.
 

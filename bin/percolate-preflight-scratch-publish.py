@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """percolate-preflight-scratch-publish.py — hook-exercising scratch-publish gate for the C6 percolation cutover.
 
 Fires a REAL non-dry-run `publish.py` into a throwaway scratch destination

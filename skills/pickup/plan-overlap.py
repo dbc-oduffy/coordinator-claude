@@ -47,7 +47,9 @@ import itertools
 import json
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -159,7 +161,7 @@ def _default_repo_root() -> Path:
     return repo_root(Path(__file__).resolve().parents[3])
 
 
-def _resolve_engine_root():
+def _resolve_engine_root() -> str | None:
     """The engine root through the shared `_engine_root` seam, or None when none resolves."""
     if str(_HOOKS_SCRIPTS_DIR) not in sys.path:
         sys.path.insert(0, str(_HOOKS_SCRIPTS_DIR))
@@ -170,7 +172,7 @@ def _resolve_engine_root():
     return resolve_claude_klabauter_root()
 
 
-def _engine_handler():
+def _engine_handler() -> Callable[..., Any]:
     """The in-process `plan.overlap_edges` handler; raises `OverlapError` naming why it is absent."""
     root = _resolve_engine_root()
     if not root:

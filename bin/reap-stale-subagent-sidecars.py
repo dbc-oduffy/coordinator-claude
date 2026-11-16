@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """reap-stale-subagent-sidecars.py — delete-by-convention sweep over
 ``state/subagent-share/`` (DR-091's one-home for every identity-typed
 subagent sidecar: run-report, review-findings, staff-eng-review, assessment

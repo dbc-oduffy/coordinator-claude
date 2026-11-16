@@ -1,5 +1,7 @@
 # Phase 1: Haiku Artifact Scanner Prompt
 
+> **Superseded for the workflow vehicle.** `distill-harvest.workflow.js` no longer dispatches this prompt: Wave 1 runs `DIGEST_PY` (model-free, one relay). This text remains the manual-vehicle scanner prompt and the `artifact_paths:` schema reference.
+
 ```
 You are an artifact scanning agent. Your task is to read every file in your assigned
 batch and extract structured knowledge nuggets.
@@ -109,7 +111,8 @@ so the H2 heading text must be stable and descriptive.
 
 ### [ALREADY_CAPTURED]
 Knowledge that is already present in the wiki (compare against the wiki directory guide
-headings and content). A nugget must NOT be classified `[ALREADY_CAPTURED]` on the basis of
+headings and content; look guides up with project-rag — project_symbol, project_semantic_search,
+project_file — and the guide_index.py outline, falling back to Grep only after a project-rag call errors twice). A nugget must NOT be classified `[ALREADY_CAPTURED]` on the basis of
 a `~/.claude/**/memory/*.md` (or any `~/.claude` path) capture pointer — that is machine-local,
 RAG-invisible, and NOT durable capture; "already captured" here means present in an IN-REPO
 home (`docs/decisions/`, `docs/wiki/`, `state/cross-repo-commitments/`, or a canonical

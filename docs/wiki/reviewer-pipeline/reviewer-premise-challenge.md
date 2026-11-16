@@ -4,6 +4,9 @@ system: reviewer-premise-challenge
 status: distilled
 distilled_at: 2026-05-06
 distilled_run: 2026-05-06-13h00
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
 ---
 
 
@@ -85,6 +88,14 @@ All standard findings are recorded below the block for EM override visibility. E
 
 The verbatim quote (or PM-confirmed quoted summary) is the audit trail. **No silent overrides.**
 
+### Rationale and review-integrator handling (decision record)
+
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-1-064 -->
+The layered fix (W1 to W5) is recorded in the decision corpus. Two points not stated above:
+
+- **Location rationale.** The original example-game-repo proposal put the fix at the reviewer stage; that was judged the *worst* of the five intervention points (latest and most expensive), which is why W1/W2 sit upstream and Pass 0 is the backstop.
+- **the Game Dev Reviewer mirror and integrator.** the Game Dev Reviewer carries a Pass 0 mirror, and `review-integrator` treats a `REJECTED` verdict as advisory (surface the block, never auto-apply) — consistent with W5. The W1 reversal-verb hint above is a separate, W1-only rule and is not restated here.
+
 ## Gotchas
 
 - **Empirical audit before fix code when a reviewer mandates a specific mechanism.** When a reviewer finding prescribes a concrete mechanism (e.g. "use X pattern", "add Y guard"), verify that the mechanism is applicable before writing fix code. A one-hour audit beats a half-day of wrong-fix code. The W3 Pass 0 finding is a hypothesis based on the plan text; the executor verifying at the code level often discovers the scope is narrower or the mechanism doesn't apply. Auditability rule: if the fix has structural side-effects, audit first, then fix.
@@ -92,7 +103,7 @@ The verbatim quote (or PM-confirmed quoted summary) is the audit trail. **No sil
 - **Validator/parser-semantics claims from reviewers are folklore until measured.** When a reviewer claims a validator, parser, linter, or schema engine "will reject X" / "already enforces Y" / "rewrites Z under the hood", treat the claim as a hypothesis — not as load-bearing input to the disposition table. Stakes-proportionate empirical check: feed the asserted input to the actual tool and observe. For non-trivial-stakes findings (anything that gates merge, changes a schema, or removes a guard), the empirical check is mandatory before AUTO-FIX or apply. A reviewer-asserted semantic is one source; the running tool is the other; convergence between them is the green-light, not the reviewer's confidence alone. This is structurally similar to the convergence-as-confidence rule in coordinator CLAUDE.md but specifically for tool-behavior claims, which have the highest folklore rate.
 
 - **REJECTED trigger is `refuted` alone.** The original draft included "OR architecturally superior alternative", but that required the Staff Engineer to judge alternatives they have explicitly not investigated — contradicting the W3 "naming is high-level only" guardrail.
-- **the Data Science Reviewer / the Front-End Reviewer / the UX Reviewer Pass 0 mirrors deferred.** Hit rate for premise-failure is structurally lower in those domains; revisit only on a measurable miss rate.
+- **the Data Science Reviewer / the Front-End Reviewer / the UX Reviewer Pass 0 mirrors deferred** (the Game Dev Reviewer's mirror shipped). Hit rate for premise-failure is structurally lower in those domains; revisit only on a measurable miss rate.
 - **Calibration block schema unchanged.** Premise-challenge fields live in reviewer system prompts, not in the synced calibration block — the calibration block stays focused on confidence + AUTO-FIX/ASK routing.
 
 ## Unification Theses Must Be Audited on Fail-Open Branches

@@ -7,10 +7,10 @@
 # implementation and is intentionally underscore-prefixed to discourage direct
 # invocation.
 #
-# LOCATION-INDEPENDENT FORWARDER: resolves _machine_local.py via the coordinator
-# settings-home seam, so this script works correctly whether installed at
-# <settings-home>/bin/machine-local (primary) or ~/.claude/bin/machine-local
-# (transitional compat forwarder during the settings-home migration window).
+# LOCATION-INDEPENDENT FORWARDER: loads the _machine_local.py beside this file; only
+# when no sibling exists does it fall back to the coordinator settings-home bin
+# (transitional compat forwarder at ~/.claude/bin/machine-local). The settings-home
+# bin also hosts the .python-bin cache.
 # _real= target: COORDINATOR_SETTINGS_HOME -> ${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings
 # Spec backlink: docs/plans/2026-07-06-durable-substrate-to-settings-home.md § C4 -- _real= target
 #
@@ -45,6 +45,27 @@ def _real_settings_bin() -> str:
         home = os.environ.get("CLAUDE_HOME") or os.environ.get("HOME") or os.environ.get("USERPROFILE") or ""
         settings_home = os.path.join(home, ".coordinator-claude-settings")
     return os.path.join(settings_home, "bin")
+
+
+def _impl_path() -> str:
+    """Return the _machine_local.py that ships beside this forwarder.
+
+    Sibling-first, so forwarder and impl are always the same install: resolving the
+    impl through the running settings home paired a Windows-side forwarder with a
+    stale WSL-side impl (a different home under the same interpreter). The settings-home
+    bin is only the answer when no sibling exists (a compat forwarder installed alone).
+    One isfile per candidate; no spawns.
+    """
+    here = os.path.abspath(__file__)
+    candidates = [
+        os.path.join(os.path.dirname(here), "_machine_local.py"),
+        os.path.join(os.path.dirname(os.path.realpath(here)), "_machine_local.py"),
+        os.path.join(_real_settings_bin(), "_machine_local.py"),
+    ]
+    for cand in candidates:
+        if os.path.isfile(cand):
+            return cand
+    return candidates[-1]
 
 
 def _py311_ok(candidate: str) -> bool:
@@ -109,8 +130,21 @@ def _run_impl_in_process(impl):
     # Past this point the impl HAS run. Every return below is its result, never a
     # fallback signal -- re-running it in a subprocess here would repeat whatever
     # it already did.
+    breaker = getattr(module, "_spawn_storm_breaker", None)
+    if not callable(breaker):
+        sys.stderr.write(
+            f"machine-local: version skew: {impl} lacks _spawn_storm_breaker, which this "
+            "forwarder requires; forwarder and implementation are from different installs.\n"
+            "  Remediation: re-run coordinator:install to refresh the bin/ family.\n"
+        )
+        return 2
+
     try:
-        rc = module.main()
+        # The impl's __main__ block never runs under this load name, so its breaker is
+        # called here; skipping it let in-process calls through uncapped.
+        rc = breaker()
+        if rc is None:
+            rc = module.main()
     except SystemExit as exc:
         rc = exc.code
     return rc if isinstance(rc, int) else 0
@@ -163,8 +197,15 @@ def _cache_python(bin_dir: str, python: str) -> None:
 
 
 def main() -> int:
+    # Refuse a nested call before resolving or spawning anything: under a storm the cost
+    # is the interpreter start, so the impl's own check comes too late to bound it.
+    depth = os.environ.get("MACHINE_LOCAL_DEPTH", "0")
+    if depth != "0":
+        sys.stderr.write(f"machine-local: refused nested invocation (MACHINE_LOCAL_DEPTH={depth}); "
+                         "a descendant of a machine-local call re-entered it.\n")
+        return 2
     _real = _real_settings_bin()
-    impl = os.path.join(_real, "_machine_local.py")
+    impl = _impl_path()
 
     if not os.path.isfile(impl):
         settings_home = _real[: -len("/bin")] if _real.endswith("/bin") else _real

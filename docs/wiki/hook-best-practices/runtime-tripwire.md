@@ -2,6 +2,11 @@
 title: Runtime Tripwire — Model-Aware Nudge for Long-Running Background Executors
 tags: [doctrine, hooks, agent-dispatch, executor-runtime]
 status: active
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-20h30
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
 ---
 
 # Runtime Tripwire — Model-Aware Nudge for Long-Running Background Executors
@@ -55,6 +60,9 @@ Per-model defaults and env-var overrides:
 **Sonnet and the HARD RULE ceiling.** Sonnet trips at 12 min, 3 minutes before the `CLAUDE.md` HARD RULE 15-min hard ceiling. The buffer exists so the wrap shape (persist → write successor stub → return) lands before the agent crosses doctrine. PM disposition 2026-06-08 (`docs/problems/2026-06-08-runtime-tripwire-background-executors.md` P3): Sonnet = 12 was chosen explicitly over 15 to give this 3-minute execution margin.
 
 Unknown model defaults to 25 (Opus default), matching the existing compaction-advisory's bias-toward-Opus failure direction.
+
+<!-- PROVENANCE: run 2026-11-13-20h30, derived from batch-1-057, batch-1-063 -->
+The EM is the authority and the agent's own judgment is a signal, so the thresholds count Agent-dispatch calls and nudge rather than kill; see [DR-1689](../../../../docs/decisions/DR-1689-runtime-tripwire-em-is-authority-agent.md). The values live in `lib/runtime-thresholds.sh`. Only the Sonnet value has a recorded basis (the 3-minute margin above); the Opus 25 and Haiku 10 values have no stated basis beyond being model-differentiated, so treat them as uncalibrated and tune them from the §6 calibration evidence.
 
 ## §3 — Wrap shape — the canonical prescription
 
@@ -143,10 +151,21 @@ L3b was originally planned as a `SessionStart` hook that emits the heartbeat-boo
 ### What this does NOT add
 
 - **No new Bash run_in_background coverage** (OOS-2 from the originating plan still holds).
-- **No L3a per-dispatch `CronCreate` HARD RULE.** the Staff Engineer review dropped this layer as structurally redundant with L3b (which already surfaces per-agent elapsed times every 5 min) and as a doctrine-as-discipline antipattern (HARD RULE depending on EM memory rather than structural enforcement).
+- **No L3a per-dispatch `CronCreate` HARD RULE**. The Staff Engineer review dropped this layer as structurally redundant with L3b (which already surfaces per-agent elapsed times every 5 min) and as a doctrine-as-discipline antipattern (HARD RULE depending on EM memory rather than structural enforcement).
 - **No reflexive kill.** Same nudge-not-kill discipline as §4 above.
 
+### L3b retired
+
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-3-006 -->
+The L3b session-wide `CronCreate` EM-clock heartbeat has since been **retired**. Every `CronCreate` fire injects its prompt as a `Human:`-labeled transcript turn, so the silence directive rendered as user-shaped noise. Read the L3b row above as historical; L1 and L2 are the live layers.
+
+<!-- PROVENANCE: run 2026-11-13-20h30, derived from batch-1-082, batch-1-083 -->
+L3b was built and retired within a single day (2026-06-15) because `CronCreate` has no silent channel; that assumption was never verified before dispatch. L1 and L2 coverage was declared sufficient. A design that depends on a platform channel should probe the channel's feasibility before the build is dispatched, not after.
+
 ### Open caveats
+
+- **`hooks.json` mid-session reload is not a runtime guarantee.** <!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-2-061 --> The L1 and L2 wirings activate only at the next fresh session boot; do not expect a session already running to pick them up.
+- **Multi-event wiring of `em-check.sh` is safe without a script edit.** <!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-3-008 --> The bark-once sentinel is per-agent and the throttle is per-session (5 min); the throttle only delays a nudge, never silences it.
 
 - **L1 throttle is per-session, not per-event.** A `PostToolUse` fire at T0 consumes the 5-min throttle for all subsequent `UserPromptSubmit`/`Stop` events too. This is intentional (matches the compaction-advisory pattern) but means a fresh dispatch crossing threshold mid-throttle is deferred up to 5 min. L2 asyncRewake-Stop is the backstop for cases where this matters.
 - **L2 `asyncRewake` is platform-dependent.** The 2026-06-15 plan included a smoke probe (C0 Probe A) that was deferred to the autonomous run's natural-Stop event for empirical observation. If a future session observes `DOES-NOT-FIRE`, file a successor for L2 re-shape; L1 and L3b are independent and continue to deliver value.

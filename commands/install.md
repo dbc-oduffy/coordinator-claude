@@ -248,13 +248,13 @@ Exits 0 installed, 1 absent, 2 if Git's `/etc/profile` is unlocatable. `--check-
 
 Exits 0 installed, 1 absent or stale, 2 not Windows. `--check-only`/`--non-interactive`: report only. Interactive on rc 1: ask "Install BoxCacheTrim? [y/N]" (default N); on Y hand the operator the command with `--install` for `--check`, to run **elevated**; rc 3 means "re-run elevated", never "done".
 
-**Codex and agy hosts.** Opt-in; `--check-only` reports only, `--non-interactive` skips. Not the Codex reviewer integration. Offer it when `codex` or `agy` is on PATH. Prerequisite: the engine (`claude-klabauter`), which ships the guard shim. Interactive on Y:
+**Codex and agy hosts.** Opt-in; `--check-only` reports only, `--non-interactive` skips. Not the Codex reviewer integration. Offer it always, CLI on PATH or not: an absent CLI gets the pre-seeded doctrine, skills and hook files, trust deferred until the CLI lands and the leg is re-run. Prerequisite: the engine (`claude-klabauter`), which ships the guard shim. Interactive on Y:
 
 `"$_py" "$CLAUDE_PLUGIN_ROOT/bin/unimatrix-install.py" --install --hosts codex,agy`, where `$_py` is the interpreter resolved per `snippets/resolve-coordinator-bin.md`.
 
 PowerShell host (rung 0): `& python3 "$env:CLAUDE_PLUGIN_ROOT\bin\unimatrix-install.py" --install --hosts codex,agy`
 
-It seeds the `coordinator-doctrine` block into `$CODEX_HOME/AGENTS.md` and `~/.gemini/GEMINI.md`, seeds skills, and registers one guard `PreToolUse` hook per host plus peer registration. Report `governance verification FAILED` or `governance DEGRADED: engine root unresolved` verbatim; neither is a pass. Limits and the trust step: `INSTALL.md` § Codex and agy hosts.
+It seeds the `coordinator-doctrine` block into `$CODEX_HOME/AGENTS.md` and `~/.gemini/GEMINI.md`, seeds skills, and registers one guard `PreToolUse` hook per host plus peer registration. Report `governance verification FAILED` or `governance DEGRADED: engine root unresolved` verbatim; neither is a pass. Limits and the trust step: `INSTALL.md` § Codex and agy hosts. Grok is not seedable: the installer refuses `--hosts grok` until the engine adds it to `HOST_NAMES`; do not pass it.
 
 **Percolation setup.** A `coordinator/bin/publish.py` AND a `setup/` dir in the repo under setup → percolation source; else skip. No targets registered: walk detect/scaffold → register target → author `.percolate-ignore` → scaffold hook dirs, interactively.
 

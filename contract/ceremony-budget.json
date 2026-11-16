@@ -1,0 +1,12 @@
+{
+  "contract": "ceremony-budget",
+  "schema_version": 1,
+  "whole_backlog_token_bar": 1000000,
+  "token_class": "total",
+  "benchmark_corpus": "DoE",
+  "slice": {
+    "agents": 10,
+    "tokens": 200000,
+    "minutes": 15
+  }
+}

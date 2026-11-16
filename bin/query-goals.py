@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """query-goals.py -- the porter over `sections/goals.py:collect(ctx)`.
 
 No shebang line, no exec bit: this is only ever spawned as `python3

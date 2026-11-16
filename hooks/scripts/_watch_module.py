@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 
-def resolve_watch_module(*, reraise: bool = False):
+def resolve_watch_module(*, reraise: bool = False) -> Any:
     try:
         skills_dir = Path(__file__).resolve().parents[2] / "skills" / "group-em"
         skills_dir_str = str(skills_dir)

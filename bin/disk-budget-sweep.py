@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """disk-budget-sweep -- run the disk-budget sweep by hand and print the GB freed.
 
 `--dry-run` (default) reports what would be deleted and changes nothing; `--apply` deletes and

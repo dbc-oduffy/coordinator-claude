@@ -1,6 +1,6 @@
 ---
 name: code-health
-description: "Night-shift code review: dispatch, apply findings, track."
+description: "Night-shift code review: apply findings, track."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent"]
 argument-hint: (no arguments needed)
 ---
@@ -117,6 +117,10 @@ completion entries [date]`, pathspec exactly `state/health-ledger.md` and
 | Debt backlog doesn't exist | Create from template first |
 | Complex finding can't be fixed inline | Debt backlog, with severity and effort estimate |
 | Git commands fail (no commits, detached HEAD) | Report the error and stop |
+
+## Grinder defaults
+
+Contract: `coordinator/docs/wiki/grinder-efficiency-defaults.md`; a finding is the row. **script-first triage**: Step 1's completion query, Step 2's frozen diff and Step 4.5's commenting sweep settle scope and lint findings before the reviewer sees a row. **default budget**: one Sonnet `code-reviewer` dispatch per run, the EM's stated cap on the pass. **25/50/75% checkpoints**: the EM reads the reviewer's ledger against those marks of that cap. **scoped commit per green row**: each applied finding commits on its own pathspec; Step 8 carries only the ledger and summary.
 
 ## Relationship to Other Commands
 

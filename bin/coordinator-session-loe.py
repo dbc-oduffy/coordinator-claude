@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """coordinator-session-loe.py — Read helper: compute LoE (Level of Effort)
 metrics for a coordinator session and emit a t-shirt size.
 
@@ -79,6 +79,17 @@ yaml-frontmatter example:
 
 
 _BOOTSTRAPPED_NAMES = ("resolve_checked_repo_root",)
+
+
+def _session_hub(git_root: str) -> str:
+    """Session hub directory of the checkout at *git_root* (engine resolver)."""
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+
+    cc_invoke.ensure_engine_on_path(__file__)
+    from coordinator_core.session_hub_path import hub_for_common
+
+    return str(hub_for_common(os.path.join(git_root, ".git")))
 
 
 def _bootstrap_csl() -> None:
@@ -249,7 +260,7 @@ def main(argv: list[str]) -> int:
     if git_root is None:
         print("Error: not inside a git repo", file=sys.stderr)
         return 1
-    sessions_base = os.path.join(git_root, ".git", "coordinator-sessions")
+    sessions_base = _session_hub(git_root)
 
     if not session_id:
         session_id = _resolve_session_id()

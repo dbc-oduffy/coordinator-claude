@@ -21,6 +21,11 @@ Contract:
             into `newCustomInstructions` and appends it AFTER the PM's typed
             `/compact` args — it steers, never replaces them. It is also echoed
             to the PM as one display line, which is why the engine caps it.
+            The harness documents PreCompact stdout as compaction-summary
+            instructions capped at 10,000 characters per hook; the engine's
+            `_STEERING_CHAR_CAP = 1500` (claude-klabauter
+            `coordinator_core/hooks/context_pressure_precompact.py:295`, enforced at :392 and
+            pinned by `test_context_pressure_precompact.py:246`) keeps this text far under that cap.
             Never emit JSON here: `decision: "block"` / `continue: false`
             REFUSE the compaction.
   exit 0  — ALWAYS, unconditionally, on every code path including every

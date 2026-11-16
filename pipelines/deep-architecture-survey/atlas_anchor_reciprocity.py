@@ -22,7 +22,7 @@ _DRIVE = re.compile(r"^[A-Za-z]:[\\/]")
 _PATH_KEY = re.compile(r"^(path|paths|file|files|.*_(path|paths|file|files))$")
 
 
-def _scalar(text: str):
+def _scalar(text: str) -> str:
     text = text.strip()
     if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'":
         return text[1:-1]

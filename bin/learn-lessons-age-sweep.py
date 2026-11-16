@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """learn-lessons-age-sweep.py — completed-central-run cutoff derivation +
 routed-id/orphan-strip-list cross-check for the coordinator:learn-lessons skill.
 
@@ -28,7 +29,8 @@ Spec backlink: coordinator/skills/learn-lessons/SKILL.md (coordinator doctrine r
   § Phase 5 — Authorization and Apply § Strip-list orphan-rejection
     [check-strip-orphans subcommand]
 
-Self-resolving: no cwd dependence, no coordinator_core import — this port is pure
+Self-resolving: paths are explicit arguments (relative ones resolve against
+`--repo`, default cwd), no coordinator_core import — this port is pure
 stdlib + PyYAML logic lifted verbatim from the skill's inline-Python fences, not a
 call into the claude-klabauter engine.
 """
@@ -131,6 +133,12 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
+    ap.add_argument(
+        "--repo",
+        type=Path,
+        default=None,
+        help="target repo; relative path arguments resolve against it instead of cwd",
+    )
     sub = ap.add_subparsers(dest="subcommand", required=True)
 
     p_cutoff = sub.add_parser(
@@ -154,6 +162,10 @@ def main(argv: list[str]) -> int:
     p_orphans.set_defaults(func=_cmd_check_strip_orphans)
 
     args = ap.parse_args(argv)
+    if args.repo is not None:
+        for name in ("runs_dir", "records", "strip_list"):
+            if hasattr(args, name):
+                setattr(args, name, args.repo / getattr(args, name))
     return args.func(args)
 
 

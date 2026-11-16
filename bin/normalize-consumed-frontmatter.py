@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """normalize-consumed-frontmatter.py — reconciles a record's frontmatter with its consumed marker.
 
 Flips a record's frontmatter to match its body's `<!-- consumed: YYYY-MM-DD

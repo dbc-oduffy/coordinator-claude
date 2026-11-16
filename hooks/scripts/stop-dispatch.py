@@ -288,8 +288,8 @@ def _pre_group_em_park_spool(ctx: Ctx) -> bool:
     if not os.path.isdir(os.path.join(root, "state")):
         return False
     return os.path.isfile(
-        os.path.join(root, ".git", "coordinator-sessions", ctx.session_id,
-                     "receiver-state.json")
+        os.path.join(root, ".coordinator-local", "coordinator-sessions",
+                     ctx.session_id, "receiver-state.json")
     )
 
 
@@ -307,6 +307,53 @@ def _pre_disk_budget_due(ctx: Ctx) -> bool:
         return time.time() - os.stat(stamp).st_mtime >= hours * 3600
     except OSError:
         return True
+
+
+def _pre_freshness_due(ctx: Ctx) -> bool:
+    # Cheap, import-free. The literals and the 6 h default are duplicated from
+    # `stop-freshness-autofire.py` and pinned by `test_precondition_tracks_the_legs_constants`.
+    # Passes only for an EM session (the `em-role-asserted` marker) in a repo carrying the
+    # distillation log or the dev sentinel, when the throttle stamp expired or HEAD moved.
+    if ctx.agent_id or not ctx.session_id:
+        return False
+    root = ctx.repo_root()
+    if not root:
+        return False
+    if not os.path.isfile(os.path.join(root, ".coordinator-local", "coordinator-sessions",
+                                       ctx.session_id, "em-role-asserted")):
+        return False
+    if not (os.path.isfile(os.path.join(root, "state", "distillation-log.md"))
+            or os.path.isfile(os.path.join(root, ".coordinator-dev-repo"))):
+        return False
+    stamp = os.path.join(root, ".coordinator-local", "freshness-autofire", "last-check.json")
+    try:
+        hours = float(os.environ.get("COORDINATOR_FRESHNESS_AUTOFIRE_THROTTLE_HOURS") or 6)
+    except ValueError:
+        hours = 6.0
+    try:
+        age = time.time() - os.stat(stamp).st_mtime
+    except OSError:
+        return True
+    if age >= hours * 3600:
+        return True
+    if age < 300:
+        return False
+    try:
+        with open(os.path.join(root, ".git", "HEAD"), encoding="utf-8") as fh:
+            head = fh.read().strip()
+        if head.startswith("ref:"):
+            ref = head[4:].strip()
+            try:
+                with open(os.path.join(root, ".git", *ref.split("/")), encoding="utf-8") as fh:
+                    head = fh.read().strip()
+            except FileNotFoundError:
+                # A packed ref has no loose file; mirror `stop-freshness-autofire.py::head_sha`.
+                with open(os.path.join(root, ".git", "packed-refs"), encoding="utf-8") as fh:
+                    head = next((p[0] for p in (ln.split() for ln in fh) if len(p) == 2 and p[1] == ref), "")
+        with open(stamp, encoding="utf-8") as fh:
+            return bool(head) and head != json.load(fh).get("head")
+    except (OSError, ValueError, AttributeError):
+        return False
 
 
 @dataclass(frozen=True)
@@ -349,6 +396,10 @@ REGISTRY: Tuple[StopGuard, ...] = (
     # disk-budget sweep child when the 6 h stamp has expired; only a running session reaches it.
     StopGuard("stop_disk_budget_sweep",
               "stop-disk-budget-sweep.py", _pre_disk_budget_due),
+    # A PRODUCER like the ones above: always exit 0, empty stdout. Spawns the detached freshness
+    # probes at the throttle/HEAD gate; the directive rides the next UserPromptSubmit marker.
+    StopGuard("stop_freshness_autofire",
+              "stop-freshness-autofire.py", _pre_freshness_due),
 )
 
 

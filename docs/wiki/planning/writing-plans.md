@@ -134,13 +134,16 @@ Read `CONTEXT.md` if present at the project root; if absent, proceed silently �
 
 <!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
 
-**Code lookup: project-rag first.** Engine facts and symbol questions (definitions, callers, members, UE types) go to the project-rag tools before Grep/Glob; Grep is for literal text.
+**Code lookup: project-rag first.** Whenever project-rag's CLI, MCP tools or registry entry is present it is the primary path: engine facts and symbol questions (definitions, callers, members) go to its tools before Grep/Glob; Grep is for literal text. Grep/Read stays available (never a prohibition); a project-rag shortfall is reported to project-rag as a gap, not silently routed around.
 
-First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
-Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
-Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
+First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_lsp_definition,mcp__project-rag__project_lsp_hover,mcp__project-rag__project_code_outline,mcp__project-rag__project_symbol,mcp__project-rag__project_rag_instructions")`
+Then `project_staleness_check(repo=<repos.* key>)`.
+Pass `repo=<repos.* key>` on every project-rag call; its key is a `repos.` row of `machine-local keys`. An answer from the wrong repo is a miss.
+Shape -> tool: symbol `project_symbol_brief(symbol_name=X, lsp=true)` first; type/location `project_lsp_definition`/`project_lsp_hover(file=, line=, name=)`; a file's symbols `project_code_outline(file=)`; exact-name identity `project_symbol(symbol_name=X)`; else `project_rag_instructions`.
+Bodies and members: load `project_symbol_source` by name; a `project_symbol` stub is not "corpus can't answer".
 **Enumeration is not a lookup.** "What exists?" (target list, file set, coverage count, "is X covered?") is answered by walking the filesystem, never by an index; use project-rag to understand what the walk found.
-If a project-rag call errors, retry it once; retry a substring timeout by exact name. MetaHuman lookups need `source=unreal_5.8_plugin`: a `source=engine` miss is a wrong-source error, so retry with the right source. A UE or MetaHuman fact you assert whose retry fails ABORTS per the global rules (exact call and output; pinned-sha engine source is the only fallback, never memory), and unaudited code is reported "unaudited". An executor working from a plan's cited facts needs no fresh lookup; a new fact it needs and cannot get stops that row only. Non-UE facts, or no project-rag installed: use Grep/Read and carry on.
+If a project-rag call errors, retry it once; retry a substring timeout by exact name. A failure that survives the retry goes in your report; then use Grep/Read scoped to named paths and carry on. No project-rag installed: use Grep/Read.
+Executors only: an executor working from a plan's cited facts needs no fresh lookup; a new fact it needs and cannot get stops that row only.
 **Every grep is scoped**: `git grep` or the Grep tool on named paths in your own repo; never search recursively from a repo root, `..`, a sibling checkout or a drive (`A-RECURSIVE-GREP-FROM-A-REPO-ROOT-STALLS-THE-BOX`). A search constraint in your brief or `em_context` binds you, even when project-rag is down.
 Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 <!-- END project-rag-preamble -->
@@ -230,6 +233,8 @@ Before committing to a prescribed shape, run a negative search to surface prior 
 **Vocabulary substitution instructions must be verified against the authoritative project glossary before mass-rename dispatch.** When a brief instructs X → Y vocabulary substitution, grep the project's `CONTEXT.md` (or canonical glossary document) first. The glossary may already reserve Y for a different concept, making the substitution a collision; or it may list X as a deprecated alias that maps to a different canonical term than Y. A mass-rename dispatched against an unverified substitution ships the collision into every occurrence. Require a glossary-diff step in the plan before any rename wave.
 
 **Grep-absence ACs must target the specific marker, not a broad substring.** An AC asserting something is GONE (`sh:! grep -qi <phrase> <file>`) must match the literal retired marker, not a substring that legitimately survives elsewhere in the file. A broad substring false-positives on an unrelated pre-existing line that happens to contain the same words (e.g. `! grep -qi transitional <file>` tripping on a pre-existing "Accepted transitional cost" comment) and would fail a correct deliverable. Write the grep against the exact retired heading or sentinel text, not a word that recurs in legitimate prose.
+
+**A retirement's name-grep AC is scoped to live wiring, never bare string presence.** "This grep returns no hits outside docs/" reads as a completeness oracle and is the AC most likely to contradict another one: an uninstall/cleanup AC that must match the retired name to find what it removes, or a chunk that leaves the name in a comment or docstring recording the retirement. A name grep cannot tell live wiring (declarations, dispatch arms, phase names, env-var reads, imports) from prose about its absence. Before ratifying, read the grep AC against every other AC and every chunk body; if any requires writing the name, the criteria are mutually unsatisfiable and the grep needs narrowing at authoring time. Prefer a structural oracle that already exists (phase absent from every registry leg, a retired flag exiting non-zero, a doctor probe returning PASS).
 
 **Vacuous-true is not an AC pass.** When an acceptance criterion turns out vacuous at close-out time — the seam it was designed to exercise has moved, or the criterion reduces to a trivially-satisfied structural check — either re-anchor it to the moved seam or surface it as a stub-quality finding. A criterion that passes because nothing is checked is not evidence of correctness; it is evidence of an unverified requirement. The plan-coverage-checker's "vacuous-pass" bucket is the mechanical signal; the resolution is always re-anchor or open-finding, never mark-closed.
 
@@ -366,6 +371,13 @@ prime_exit_criterion:
 ## Prime Exit Criterion
 
 [One falsifiable sentence naming what is true of the tree when this plan has delivered.]
+
+## Wiring table (optional frontmatter key)
+
+DELIVERY-MEANS-IT-RAN-END-TO-END: a plan with a runtime seam declares `wiring:`, a flat list of parts: `id`, `status`
+(wired, not_built, blocked or off_route), and when wired `built_path` and `runs_evidence`
+(`{path, sha, dirty}` at the delivered commit on a clean tree). `blocked_on`, `off_route_reason` (required when off_route),
+`consumes`, `consumes_external` and `produces` are optional; every `consumes` is fed by a `produces`.
 
 ## Non-Goals
 

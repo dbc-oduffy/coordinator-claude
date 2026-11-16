@@ -1,4 +1,4 @@
-# Unix shebang.
+#!/usr/bin/env python3
 """classify-resolver-callers.py — mechanical bucket enumerator for the
 resolve_claude_klabauter naming retirement (C7,
 docs/plans/2026-08-19-an-engine-root-is-a-stamped-build.md).

@@ -137,9 +137,15 @@ def _portable_topology_satisfied(portable_file: Path) -> bool:
     return has_wiki and has_install
 
 
+#: Kill ceiling for the machine-local spawn (== coordinator_core.machine_local_spawn
+#: .ML_SPAWN_TIMEOUT_S); subprocess.run kills and reaps the direct child on expiry.
+_ML_SPAWN_TIMEOUT_S = 2.0
+_ML_TIMEOUT_MESSAGE = "machine-local {args} did not finish within the 2s kill ceiling"
+
+
 def _run_machine_local(machine_local_bin: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    """Invoke `<machine_local_bin> <args>`. Raises OSError on an exec/transport
-    failure (e.g. Windows WinError 193 from CreateProcess-ing an extensionless
+    """Invoke `<machine_local_bin> <args>`. Raises OSError (TimeoutError past the
+    kill ceiling) on an exec/transport failure (e.g. Windows WinError 193 from CreateProcess-ing an extensionless
     shebang script directly) — callers that can tolerate a failed lookup catch
     it themselves (see `_machine_local_has_publish_targets`); callers that
     cannot (the `_registry_branch` mutation calls) let it propagate rather
@@ -177,18 +183,26 @@ def _run_machine_local(machine_local_bin: Path, *args: str) -> subprocess.Comple
                     f"ends in a backslash): {arg!r}"
                 )
         cmdline = " ".join(f'"{arg}"' for arg in (str(machine_local_bin), *args))
+        try:
+            return subprocess.run(
+                cmdline,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=_ML_SPAWN_TIMEOUT_S,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise TimeoutError(_ML_TIMEOUT_MESSAGE.format(args=args)) from exc
+    try:
         return subprocess.run(
-            cmdline,
+            [str(machine_local_bin), *args],
             capture_output=True,
             text=True,
             check=False,
+            timeout=_ML_SPAWN_TIMEOUT_S,
         )
-    return subprocess.run(
-        [str(machine_local_bin), *args],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    except subprocess.TimeoutExpired as exc:
+        raise TimeoutError(_ML_TIMEOUT_MESSAGE.format(args=args)) from exc
 
 
 def _machine_local_has_publish_targets(machine_local_bin: Path) -> bool:

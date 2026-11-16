@@ -57,6 +57,10 @@ With LLM-assisted implementation, the cost of doing the work is lower than the c
 
 A live Codex or agy peer is an adviser colleague in research: the EM may consult one on a framing, a synthesis or a claim set, as an extra angle from a different training base. The contract is [Peer lens in pipelines](../../docs/wiki/cross-repo-communication/live-peer-consult.md#peer-lens-in-pipelines): opt-in per run, non-gating, report-only, silent when no peer is live. No stage here dispatches, waits on or consumes the consult, and the Opus synthesis stands without it.
 
+## Family binding (opt-in)
+
+`coordinator/pipelines/stage-family-binding.yaml` binds scouts and research specialists to grok, each dispatched through `coordinator:family-stage-runner`. It applies only when the run's brief names the binding (`opt_in: per-run`); a brief that names none runs Claude as before (`A-STAGE-FAMILY-OVERRIDE-IS-OPT-IN-NEVER-DEFAULT`). A `BLOCKED` or `FAILED` record reruns that stage on Claude (`fallback: claude`), and the run records the rerun. No workflow script reads the binding yet, so the opting-in EM performs that rerun by hand until the engine seam lands.
+
 ---
 
 # Pipeline B: Repo Research (chatty Workflow)

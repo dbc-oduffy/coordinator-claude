@@ -27,11 +27,8 @@ Contract (mirrors the engine op's own contract):
              Agent dispatch's brief carries no SendMessage-to-main delivery
              instruction; NOTHING otherwise (silent pass)
   exit 0  -- always. Never denies, never rewrites input -- purely advisory, so
-             there is no fail-closed leg at all (contrast
-             nudge-foreground-agent-dispatch.py, which reserves a local deny for
-             the one payload shape it can prove foreground without the engine;
-             this hook has no analogous provably-actionable shape to fail closed
-             on, and the op never denies even when the engine IS reachable).
+             there is no fail-closed leg at all (the op never denies even when
+             the engine IS reachable).
 
 stdin -> params mapping: tool_name (flattened top-level) and tool_input (raw,
 unflattened -- the op reads tool_input["name"] / tool_input["prompt"] directly,

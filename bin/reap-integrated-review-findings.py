@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """reap-integrated-review-findings.py — reaps integrated review-findings sidecars.
 
 DR-215 strangler-facade for leg (a) of the review-findings sidecar auto-sweep:

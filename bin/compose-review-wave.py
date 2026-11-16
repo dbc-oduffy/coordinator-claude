@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """compose-review-wave.py -- caller-side composer for the fired review
 partition workflow.
 
@@ -19,8 +20,7 @@ parts a composer CAN close (i, ii, iv) -- part (iii), the permission-mode
 requirement, is a settled unclosable residual on this path (§6) and is
 recorded, not resolved, here.
 
-Sibling to coordinator/workflows/wsc-review-partition.mjs (content repo, C2):
-this script produces exactly the `args` object that Workflow script consumes
+This script produces exactly the `args` object the review-wave Workflow consumes
 -- `{ slices: [ { id, diffPath, shaRange, wasteReport,
 reviewer: {sidecarPath, contractBlocks} } ] }`,
 no other top-level or per-role key. The integrator stage is retired
@@ -112,8 +112,8 @@ A slice entry carries EITHER a pre-frozen `diffPath` (passed through
 verbatim) OR a `range`, which this script freezes itself by delegating to
 the installed `freeze-review-diff` CLI -- never by reimplementing it.
 
-Output on stdout: ONE JSON object, the literal `args` payload for C2's
-`wsc-review-partition.mjs` script.
+Output on stdout: ONE JSON object, the literal `args` payload for the
+review-wave Workflow.
 """
 
 from __future__ import annotations
@@ -663,7 +663,9 @@ def _run_waste_attribution(changed_paths: list[str], repo_root: Path) -> dict:
     # test-environment-discipline.md sec.4 records. cwd stays repo_root: the child
     # resolves repo-relative paths against it, and a scratch cwd would break
     # attribution rather than isolate anything.
-    with tempfile.TemporaryDirectory(prefix="waste-attr-") as scratch:
+    import cli_shared
+
+    with tempfile.TemporaryDirectory(prefix="waste-attr-", dir=cli_shared.managed_temp_root()) as scratch:
         child_env = dict(os.environ)
         child_env["HOME"] = scratch
         child_env["USERPROFILE"] = scratch

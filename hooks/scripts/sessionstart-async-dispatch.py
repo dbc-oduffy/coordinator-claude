@@ -163,6 +163,11 @@ REGISTRY: Tuple[StartGuard, ...] = (
     # 24 h per repo by its own stamp; two invokes capped at 15 s each.
     StartGuard("session_start_scratch_retention", "session-start-scratch-retention.py",
                frozenset({"startup", "resume", "compact"})),
+    # Index freshness: one local `freshness-verdict`; writes the verdict cache the sync banner and the
+    # sweep preconditions read. On stale/absent it starts a detached `refresh-from-release` and never
+    # waits on it, so sweep_boot's budget is untouched.
+    StartGuard("session_start_index_freshness", "session-start-index-freshness.py",
+               frozenset({"startup", "resume"})),
     # LAST, so the cheap self-heals above never wait behind it. No per-leg timer: the 45 s registration timeout bounds it.
     StartGuard("sweep_boot", "sweep-boot.py", frozenset({"startup", "compact"})),
 )

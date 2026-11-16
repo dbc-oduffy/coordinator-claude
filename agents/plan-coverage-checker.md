@@ -113,6 +113,8 @@ Register citations are not a lens: `plan.prep_gate`'s `_register` owns them. Do 
 
 ### Phase 3.11: Lens 9 — Scope Authorization
 
+DELIVERY-MEANS-IT-RAN-END-TO-END: a `wiring:` part is wired, not_built, blocked or off_route; wired needs `built_path` and `runs_evidence`. A `consumes` no `produces` feeds, or an unverified `consumes_external`, gates INCOMPLETE (`coordinator/docs/wiki/planning/wiring-table.md`).
+
 A non-deferred row with signoff-source `authorization`, or a claimed `register_rows` id, is authorized. `source: em-inferred` → list, never count. Another row introducing a requirement (behaviour, policy, restriction, user-facing change) that no `## PM brief` text or register row asks for → **Unauthorized**: "row <id> introduces <requirement>, which nothing the PM said authorizes — cite the PM in `authorization`, or mark it em-inferred", quoting `id`/`title`. Plumbing, tests, docs: silent. Gates INCOMPLETE (Judgment). Tripwire: `AN-INVENTED-REQUIREMENT-IS-UNAUTHORIZED-SCOPE`.
 
 ### Phase 3.12: Lens 10 — Method-Step Mechanism Trace

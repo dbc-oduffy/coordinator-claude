@@ -1,3 +1,12 @@
+---
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
+    omitted_reasons:
+      archived_spec: private-source
+      last_verbose_sha: private-source
+---
+
 # The DR Corpus: Where Decisions Live and How They're Edited
 
 Conventions for authoring and maintaining `DR-*` decision records — read this before writing a
@@ -18,14 +27,21 @@ project `CLAUDE.md` § Place in the fleet).
 
 ## Edit in place, or mint a new DR — the rule is reversal, not change
 
-**A non-reversing change is an in-place edit** of the record, stamped with `edited:` in its
-frontmatter. No `## Amendment`, `## Supersession`, or `## Correction` sections: the record states
-the ruling as it stands.
+**A non-reversing change rewrites the whole record** (title, Decision, Consequences, and the file
+name when the title states the old rule), stamped with `edited:` in its frontmatter. Withdrawn
+text is deleted; only PM verbatims grounding the current rule stay. No `## Amendment`,
+`## Supersession`, or `## Correction` sections: the record states the ruling as it stands.
 
 **A full reversal mints a new DR**, and the old record is deleted via
 `fleet.delete_superseded_decisions`. `status: superseded` is a transient pre-delete state, never a
 resting state; every record in the corpus is live. The rule itself lives in
 `coordinator/docs/wiki/dr-supersession-rule.md`.
+
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-35-041, batch-36-061 -->
+
+Frontmatter carries an optional `edited` date beside `created` (`decision.schema.json`); it is
+never required, and there is no `partially_superseded_by` field. Git history plus `edited` shows a
+record changed; the record itself states what is true now.
 
 ## Citation integrity — check-decision-citations
 
@@ -53,6 +69,17 @@ id resolves to a record somewhere in the fleet.
 - **Fire response.** Fix the citation, or route a genuinely lost record to the recovery plan.
   Never run `--emit-baseline` to silence a fire.
 
+
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-18-025, batch-27-007 -->
+
+## Gotchas
+
+- **A DR number can be overloaded across planes.** One bare number can name two things: a decision recorded in a
+  sibling repo and an entry of a repo-level wiki page. Neither exists as
+  a `docs/decisions` file here. Cite such a number with its qualifier, never bare.
+- **The decision-object schema validator found a latent break.** `baton_assemble` has never
+  satisfied the schema's `reason` enum on any judgment point; the gap is pinned by a strict xfail
+  citing the memo, so fixing the emitter turns the xfail red.
 
 ## Negative spec
 

@@ -7,6 +7,9 @@ argument-hint: "[handoff-file-path | memo-file-path]"
 
 # Pickup — Resume from Handoff or Action a Memo
 
+**Non-Claude EM:** this skill is the Claude-native path; a non-Claude EM takes the engine-op path at
+`coordinator/docs/wiki/non-claude-workers/non-claude-em-path.md`.
+
 A baton, not a menu — read it, run with it; no summarizing back for approval. Build work in it is fired, not hand-done: fire with context, own the swimlanes.
 **The cross-repo memo inbox does not move without a deliberate act.** Every memo leaves by being actioned here.
 

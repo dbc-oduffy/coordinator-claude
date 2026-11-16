@@ -134,7 +134,7 @@ const RETURN_TLDR_SCHEMA = {"type":"object","additionalProperties":false,
 
 const SYNTH_SCHEMA = {
   type: 'object',
-  required: ['status', 'clusters', 'ownedRetirements', 'conflicts', 'tldr'],
+  required: ['status', 'clusters', 'ownedRetirements', 'conflicts'],
   properties: {
     status: { type: 'string', enum: ['synthesized', 'blocked'] },
     blockedReason: { type: 'string' },
@@ -161,7 +161,7 @@ const SYNTH_SCHEMA = {
 
 const SCOUT_SCHEMA = {
   type: 'object',
-  required: ['corpusPaths', 'tldr'],
+  required: ['corpusPaths'],
   properties: {
     corpusPaths: {
       type: 'array',
@@ -177,7 +177,7 @@ const SCOUT_SCHEMA = {
 
 const OVERVIEW_SCHEMA = {
   type: 'object',
-  required: ['overviewPath', 'peerTeamAsks', 'crossesRepo', 'tldr'],
+  required: ['overviewPath', 'peerTeamAsks', 'crossesRepo'],
   properties: {
     overviewPath: { type: 'string' },
     peerTeamAsks: { type: 'integer' },
@@ -189,13 +189,13 @@ const OVERVIEW_SCHEMA = {
 
 const REVIEW_SCHEMA = {
   type: 'object',
-  required: ['sidecarPath', 'verdict', 'tldr'],
+  required: ['sidecarPath', 'verdict'],
   properties: { sidecarPath: { type: 'string' }, verdict: { type: 'string' }, tldr: RETURN_TLDR_SCHEMA },
 }
 
 const APPROVAL_SCHEMA = {
   type: 'object',
-  required: ['verdict', 'approver', 'ruling', 'ruling_ref', 'tldr'],
+  required: ['verdict', 'approver', 'ruling', 'ruling_ref'],
   properties: {
     verdict: { type: 'string', enum: ['approved', 'declined'] },
     approver: { type: 'string', enum: ['apm'] },
@@ -207,7 +207,7 @@ const APPROVAL_SCHEMA = {
 
 const FILL_SCHEMA = {
   type: 'object',
-  required: ['tldr'],
+  required: [],
   properties: {
     stageReply: { type: 'object' },
     refused: { type: 'boolean' },
@@ -531,7 +531,9 @@ ${CORPUS_RULE}
 
 Write exactly these files:
   - ${ROADMAP_DIR}/inventory.md. The inventory row MARKS each input that is a live plan under docs/plans/.
-  - ${ROADMAP_DIR}/clusters.md. Each cluster is a \`## <id> — <title>\` heading carrying a \`**loe:**\`
+  - ${ROADMAP_DIR}/clusters.md. It opens with a required file-level line
+    \`Stub slug prefix: <short word, never date-led, unique across open roadmaps>\`; blitz_stage refuses
+    a prefix that collides with a staged roadmap. Each cluster is a \`## <id> — <title>\` heading carrying a \`**loe:**\`
     line (the whole-baton t-shirt read), a \`**blocked_by:**\` line (only cluster ids, or none: no parentheticals or prose, because
     blitz_stage parses every id on it as an edge; a note goes on its own separate line), and an
     \`**external:**\` yes or no line: yes only when answering the cluster needs the web, no when the

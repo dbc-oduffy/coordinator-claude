@@ -88,6 +88,7 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import ModuleType
 from typing import Iterable
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -184,7 +185,7 @@ class Projection:
 # ---------------------------------------------------------------------------
 
 
-def _load_module_by_path(path: Path, name: str):
+def _load_module_by_path(path: Path, name: str) -> ModuleType:
     spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
         raise ProjectionUnavailableError(f"could not build an import spec for {path}")
@@ -211,7 +212,7 @@ def _resolve_claude_klabauter_root() -> Path:
     return Path(root)
 
 
-def _import_publish_sync():
+def _import_publish_sync() -> ModuleType:
     """Import THIS REPO's own real sync driver (`setup/publish_sync.py`) by path.
 
     Reused rather than re-implemented for `_walk_files` / `_archived_or_orphan` /
@@ -225,7 +226,7 @@ def _import_publish_sync():
     return _load_module_by_path(path, "_prepublish_projection_publish_sync")
 
 
-def _import_percolate_allowlist():
+def _import_percolate_allowlist() -> ModuleType:
     """Import the engine-plane sibling repo's `coordinator/lib/percolate/allowlist.py` for its PURE
     CSV-parsing helpers (`parse_allowlist_csv`, `split_inclusion_exclusion`) -- never for
     `build_allowlisted_source` (mutates a temp tree; not called anywhere in this module)."""
@@ -238,7 +239,7 @@ def _import_percolate_allowlist():
     return allowlist_module
 
 
-def _import_percolate_store():
+def _import_percolate_store() -> ModuleType:
     """Import the engine-plane sibling repo's `coordinator_core.percolate.store` for `resolve_target` --
     the REAL base+target composition function, used here only to read the composed
     `basename_rename` table (§ `_apply_basename_rename`).

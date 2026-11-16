@@ -1,11 +1,14 @@
 ---
 name: workday-complete
-description: "End-of-day wrap — validate, consolidate, review, changelog."
+description: "End-of-day wrap: validate, consolidate, review, changelog."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill"]
 argument-hint: "[optional summary of the day]"
 ---
 
 # Workday Complete — End-of-Day Orchestration
+
+**Non-Claude EM:** this command is the Claude-native path; a non-Claude EM takes the engine-op path at
+`coordinator/docs/wiki/non-claude-workers/non-claude-em-path.md`.
 
 Daily wrap: validate, consolidate branches, daily review, week-changelog, staleness. Never
 merges to main — that is `/workweek-complete`.
@@ -66,6 +69,8 @@ one report line, never the plugin-cache copy (it cannot resolve the engine check
 
 **The register stall check:** `coordinator-invoke requirement_register.stall_report '{"today":"<today>"}'` (settings-home forwarder); render findings in the wrap report under `### Register stall check`, omitted when empty.
 
+**Step 4a: project-rag usage reading.** Run `project-rag-usage-count.py --indexed-only --since-hours 24` (settings-home `bin/`) and replace the `Latest reading:` line under `## Readings` in `coordinator/docs/wiki/coordinator-tripwires/an-agent-told-to-prefer-project-rag-must-hold-its-tools.md` with the dated result; report it in one line. Script absent or failing: say so, leave the line.
+
 **Step 4b: Structural index.** Read-only: report the staleness from `.structural-index/refresh-last.json` (and the Step 4 staleness survey) in one line; the next `/workday-start` refreshes it. Never run a refresh here (`A-REINDEX-IS-A-STALENESS-FLAG-NEVER-AN-AGENT-TRIGGER`).
 
 ## Step 5: Resolve Judgment Points
@@ -78,9 +83,10 @@ Read each `judgment_points[]` entry verbatim — question/evidence/dispositions 
   an orphan is adopt-commit. Everything left over is adopt-commit; Step 9e will not let the ceremony end while any of
   it is still dirty.
 - `jp_step3_5_backfill_cap`: a backfill disposition the PM already stated this session ("backfill any records we've missed") settles it as backfill all. The point is raised only when the scan exceeds the cap; the backfill-cap run rule resolves it to `backfill_all`.
-- `jp_step4b_analyst_dispatch`: dispatch unless `skip_no_new_work`. `jp_step4c_observer_dispatch`:
-  never dispatch daily; the observer runs weekly (`/workweek-complete` Step 7b).
-- `jp_step4_5_clustering_dispatch`: dispatch per ≥2-entry chain; `skip_only_mode` under `$ONLY_MODE=1`.
+- `jp_step4b_analyst_dispatch`: run `daily-doc-rollup.py summary` unless `skip_no_new_work`; no agent.
+  `jp_step4c_observer_dispatch`: never daily; the observer is the one kept agent, weekly
+  (`/workweek-complete` Step 7b).
+- `jp_step4_5_clustering_dispatch`: run `daily-doc-rollup.py clusters`; `skip_only_mode` under `$ONLY_MODE=1`.
 - `jp_step4e_health_ledger_new_rows`: add `?` rows for touched systems; never audit clocks/grades.
 - `jp_day_goal_closeout`: `day_goal_closeout` is a top-level key of the decisions file, beside the judgment-point entries: `{"day_goal_closeout": {goal_id: "done"|"dropped"}}`, or skip (shape: wiki).
 
@@ -98,23 +104,34 @@ PowerShell hosts (rung 0, Shape W):
 
 Read `landed`/`blocked`/`failed`; `blocked` returns to Step 5; a `blocked` directive the decisions file set to `skip` is settled, never a return (exit codes: wiki).
 
-## Step 6b-7: Daily-Summary Dispatch and Stitch
+## Step 6b-7: Daily Summary by Script
 
-Dispatch a Sonnet analyst (target day: `$FOR_DATE` under `$ONLY_MODE=1`, else today; under catch-up, gap-day analysts only) writing
-`archive/daily-summaries/<target-day>-<machine>.md` (analyst only; the strategic observer runs
-weekly in `/workweek-complete` Step 7b). Skip on `skip_no_new_work`. Each Step 6 backfill gap-row
-TSV entry (oldest-first) gets its own analyst dispatch, only after Step 6 completes (wiki).
+Script first, no model call.
+Run `python3 coordinator/scripts/daily-doc-rollup.py summary --repo . --day <target-day>` (target day:
+`$FOR_DATE` under `$ONLY_MODE=1`, else today; under catch-up, gap days only), writing
+`archive/daily-summaries/<target-day>-<machine>.md`. No agent is dispatched. Skip on
+`skip_no_new_work`. Each Step 6 backfill gap-row TSV entry (oldest-first) gets its own call with
+`--backfilled`, only after Step 6 completes. Exit 1: write a minimal summary yourself (wiki).
 
-A daily summary carries no `## Strategic Review` heading and no `.observer.md` sidecar; no stitch
-runs and the heading count is not checked.
+Then append the day's completed plans from
+`project_rag_cli.py plans-completed --project-root . --since <day> --until <day+1>` (the project-rag
+`plans-completed` door, resolved under the `repos.project_rag` registry key; JSON `rows[]`, ranked by
+sizing, each carrying its commit sha: a pointer git recovers after distill deletes the plan). Run
+`plan-preview <plan_path>@<sha>` only for impactful rows (`size_class` L or XL), at most ~10k chars
+each. Door missing or exit 3 (no index): one line "no-producer: project-rag plans-completed
+unavailable" in place of that section. Never fan out over the corpus.
+
+The one kept agent is the weekly strategic observer (`/workweek-complete` Step 7b). A daily summary
+carries no `## Strategic Review` heading and no `.observer.md` sidecar; no stitch runs.
 
 Health ledger (`jp_step4e_health_ledger_new_rows`): add `?` rows to `state/health-ledger.md`
 for touched systems. Remove `tasks/daily-review-scratch`.
 
 ## Step 8: Completion-Log Clustering
 
-Skip `$ONLY_MODE=1` or catch-up. Per `jp_step4_5_clustering_dispatch`: dispatch a `narrative:` synthesis
-worker per ≥2-entry chain lacking one (≤300 words, SHAs preserved, no editorial bucketing).
+Skip `$ONLY_MODE=1` or catch-up. Per `jp_step4_5_clustering_dispatch`: run
+`python3 coordinator/scripts/daily-doc-rollup.py clusters --repo . --day <today>`; it writes a `narrative:`
+field on the lead entry of each ≥2-entry chain lacking one. No agent is dispatched.
 
 ## Step 9: Completed Archive Audit
 
@@ -168,6 +185,12 @@ available" and continue. Exit 1 is a report section.
 
 Shape W above / Shape A/B POSIX — `snippets/resolve-coordinator-bin.md`. `--repo` flag refused
 (`scope='none'`); `repo` goes in the JSON params, not omitted.
+
+## Step 8c: Freshness Fire
+
+Skip under `$ONLY_MODE=1`. Per `freshness-the-operator-must-remember-is-not-maintained`: run
+`update-docs-probes fresh-scaffold-probe`, then `update-docs-probes distill-threshold`. Exit 1 chains
+`/update-docs` and `/distill` via the Skill tool, no PM gate. One summary line either way.
 
 ## Step 9e: Emitted Workflow Script Sweep
 

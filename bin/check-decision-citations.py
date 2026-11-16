@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """check-decision-citations -- a cited DR-nnn / SC-DR-nnn id must resolve somewhere in the fleet.
 
 Default mode exits 1 on a live dangling id the committed baseline does not list, 0 when clean (or
@@ -30,6 +31,7 @@ SC_WIKI_REL = "coordinator/docs/wiki/concurrent-em-git-operations/scoped-safety-
 DECISION_DIRS = ("docs/decisions", "coordinator/docs/decisions")
 EXTENSIONS = ("*.md", "*.json", "*.sh", "*.py", "*.yaml", "*.js")
 EXCLUDED_PREFIXES = ("archive/", "tasks/", ".structural-index/", ".coordinator-local/")
+_FIXTURE_SEGMENT = ("tests", "fixtures")
 RESERVED = frozenset({"DR-000", "DR-999", "SC-DR-000"})
 
 _GREP_PATTERN = r"(^|[^A-Za-z0-9-])(SC-)?DR-[0-9]{3}([^0-9]|$)"
@@ -39,6 +41,12 @@ _FILENAME_ID = re.compile(r"^(DR-\d{3})")
 _DELETED_ID = re.compile(r"^(DR-\d{3})(?:-|\.md$)")
 _FM_ID = re.compile(r"""^id:\s*["']?(DR-\d{3})""")
 _KEYS_LINE = "Resolved sibling registry keys:"
+
+
+def _is_fixture_path(rel: str) -> bool:
+    """True when the repo-relative path has adjacent `tests/fixtures` segments at any depth."""
+    parts = rel.split("/")
+    return any(parts[i : i + 2] == list(_FIXTURE_SEGMENT) for i in range(len(parts) - 1))
 
 
 class CheckError(Exception):
@@ -161,7 +169,7 @@ def live_tokens(root: Path) -> dict[str, set[str]]:
     found: dict[str, set[str]] = {}
     for rel in sorted(p for p in proc.stdout.split("\0") if p.strip()):
         rel = rel.strip("\n")
-        if rel.startswith(EXCLUDED_PREFIXES):
+        if rel.startswith(EXCLUDED_PREFIXES) or _is_fixture_path(rel):
             continue
         try:
             text = (root / rel).read_text(encoding="utf-8", errors="replace")

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """ceremony-run — launch or finish one registered ceremony run.
 
 Thin entrypoint: resolves the engine and calls `coordinator_core.ceremony_common.run.cli.main`.

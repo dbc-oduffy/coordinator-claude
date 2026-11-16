@@ -46,6 +46,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 from _message_envelope import compose, render  # noqa: E402
+from _session_hub_path import hub_for_common  # noqa: E402
 
 _WIKI_ANCHOR = (
     "coordinator/docs/wiki/coordinator-tripwires/"
@@ -216,7 +217,7 @@ def _session_dir(payload: dict, root: Path) -> Optional[Path]:
     common = resolve_git_common_dir(str(root))
     if not common:
         return None
-    d = Path(common) / "coordinator-sessions" / str(sid)
+    d = hub_for_common(Path(common)) / str(sid)
     return d if ensure_session_dir(d, sid) else None
 
 

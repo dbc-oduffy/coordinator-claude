@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """lessons-outbox-drain.py — mechanical backbone of the DoE Phase 2.6 outbox drain.
 
 `skills/learn-lessons/SKILL.md` § Phase 2.6 (Lessons-Outbox Drain, Central Mode Only)

@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 # Spec backlink: coordinator-content-repo:pln-wire-claude-klabauter-fleet-archive-prun-8fd552 § strang-10
 """
 workday-complete-step9-append-changelog.py -- Step 9 of /workday-complete: append the

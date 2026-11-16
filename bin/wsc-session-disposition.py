@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 # wsc-session-disposition — naked-Python port of the workstream-complete Step 0
 # "Session-Shape Detection" block (coordinator-content-repo
 # coordinator/skills/workstream-complete/SKILL.md, the `<!-- VERBATIM -->`
@@ -1446,7 +1446,10 @@ def _resolve_memo_session_start_time(repo_root: Path, sid: str) -> "datetime | N
     if common_proc is not None and common_proc.returncode == 0 and common_proc.stdout.strip():
         common = Path(common_proc.stdout.strip())
         common_dir = common if common.is_absolute() else repo_root / common
-        claim_dir = common_dir / "coordinator-sessions" / sid
+        _bootstrap_engine_imports()
+        from coordinator_core.session_hub_path import session_dir_for
+
+        claim_dir = session_dir_for(common_dir, sid)
         if claim_dir.is_dir():
             try:
                 return datetime.fromtimestamp(claim_dir.stat().st_mtime, tz=timezone.utc)

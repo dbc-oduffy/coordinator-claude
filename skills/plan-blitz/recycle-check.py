@@ -126,7 +126,7 @@ def _norm_path(p: str) -> str:
     return p.strip().replace("\\", "/")
 
 
-def _record_handoff_path(text: str):
+def _record_handoff_path(text: str) -> str | None:
     """The handoff path an execution record's leading key block names, or None when it names none.
 
     A record whose frontmatter opens with `---` and never closes is still read: its key block is
@@ -151,7 +151,7 @@ def _frontmatter(text: str) -> str:
     return text[3:end] if end != -1 else ""
 
 
-def _first_disposition(chunk: str):
+def _first_disposition(chunk: str) -> tuple[int, str, re.Match[str]] | None:
     """First disposition in DOCUMENT ORDER, or None. Order matters and precedence between the two
     vocabularies does not: a record states its disposition once, and whichever spelling it reaches
     for first is the one it meant. Preferring a vocabulary instead of a position is what made a
@@ -207,7 +207,7 @@ def _disposition(text: str) -> tuple[str, str]:
     return "UNREADABLE", f"outcome: {raw[:60]}"
 
 
-def _slot_order(run_dir: Path, rec: Path):
+def _slot_order(run_dir: Path, rec: Path) -> tuple[int, int, str]:
     """Chronological order of two records of one baton WITHIN one run. `sidecarFor` writes each
     fire's records into `<run>/wave-<index>-<fireId>/`, so a baton planned in wave 0 and re-planned
     in wave 2 has two records in one run, and LATEST RECORD WINS has to order them. Lexical order
@@ -222,7 +222,7 @@ def _slot_order(run_dir: Path, rec: Path):
     return (1, int(m.group(1)), slot) if m else (2, 0, slot)
 
 
-def scan(repo_root: Path, baton_ids, trail_root: str, exclude_run: str | None, live=None):
+def scan(repo_root: Path, baton_ids, trail_root: str, exclude_run: str | None, live=None) -> tuple[list | None, str | None]:
     root = repo_root / trail_root
     if not root.is_dir():
         return None, f"no trail root at {root}"
@@ -306,7 +306,7 @@ def _same_record(live_keys: dict, archived_keys: dict) -> bool:
     return not shared or any(live_keys[k] == archived_keys[k] for k in shared)
 
 
-def resurrected(repo_root: Path, baton_ids, live, archive_root: str = "archive/handoffs"):
+def resurrected(repo_root: Path, baton_ids, live, archive_root: str = "archive/handoffs") -> list:
     """Candidates whose record is already archived in a terminal state. Pure reads, no verdict on
     fire: RESURRECTED on a basename match, SHARED-ID (advisory) on a `deliverable_id` match against
     a record that ended its deliverable. An archived copy that is the candidate's own `predecessor`
@@ -376,7 +376,7 @@ def _gate_body(gate_report: Path) -> dict:
     return data
 
 
-def _wave_ids(gate_report: Path, wave_index: int):
+def _wave_ids(gate_report: Path, wave_index: int) -> tuple[list, dict]:
     data = _gate_body(gate_report)
     waves = data.get("waves") or []
     ids = list(waves[wave_index]) if wave_index < len(waves) else []

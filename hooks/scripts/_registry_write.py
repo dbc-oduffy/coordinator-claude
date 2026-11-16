@@ -60,10 +60,10 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import _find_plugin_root, _settings_home
 except Exception:  # pragma: no cover - partial-deploy defence
-    def _find_plugin_root(start):  # type: ignore[no-redef]
+    def _find_plugin_root(start) -> None:  # type: ignore[no-redef]
         return None
 
-    def _settings_home():  # type: ignore[no-redef]
+    def _settings_home() -> None:  # type: ignore[no-redef]
         return None
 
 

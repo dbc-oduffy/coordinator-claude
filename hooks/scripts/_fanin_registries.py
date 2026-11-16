@@ -43,6 +43,7 @@ module derives `filename` as `Path(module_path).name`.
 engine's chain and the dispatcher is a pure relay (see `_CARRIER_SOURCES`).
 """
 from __future__ import annotations
+from types import ModuleType
 
 import importlib.util
 import sys
@@ -70,7 +71,7 @@ FANIN_DISPATCHERS = {
 }
 
 
-def load_dispatcher(filename: str):
+def load_dispatcher(filename: str) -> ModuleType:
     """Import a fan-in-layer module by path -- its filename is not a legal
     module name and it is not on any import path. Registered in
     `sys.modules` before exec: these modules define their guard row as a
@@ -134,7 +135,7 @@ _CARRIER_SOURCES: "dict[str, tuple[str, str, Callable]]" = {
 }
 
 
-def carried_guards(filename: str):
+def carried_guards(filename: str) -> list[tuple[str, str]]:
     """`[(module_key, guard_filename), ...]` for one dispatcher, in REGISTRY order.
 
     Order is preserved because it is load-bearing for `sessionstart-dispatch.py`
@@ -167,7 +168,7 @@ DECLARED_DUAL_CARRY: "dict[str, tuple[str, str]]" = {
 }
 
 
-def all_carried_guards():
+def all_carried_guards() -> dict[str, str | list[str]]:
     """`{guard_filename: dispatcher_filename | [dispatcher_filename, ...]}` across
     every fan-in dispatcher. The value is a list, in FANIN_DISPATCHERS order, only
     for a guard in `DECLARED_DUAL_CARRY` carried by exactly its declared pair.

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """query-handoff-columns.py — native Python CLI entry routing handoff.columns.
 
 No shebang line: unlike this directory's generator-owned two-leg entrypoints

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """targeted-test-run — run only the tests covering one backlog row and what its fixer touched.
 
 Usage: `targeted-test-run --repo <root> --row <row yaml> [--touched <path> ...] --record <path>`.

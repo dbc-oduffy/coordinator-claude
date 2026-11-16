@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """stitch-observer-sidecar.py — /workweek-complete Step 7b: fold the weekly
 strategic observer's sidecar into the week's canonical `WEEK-SUMMARY.md`.
 

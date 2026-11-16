@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 coordinator-install.py — CLI trampoline over claude-klabauter
 coordinator_core.install.coordinator_install_entry.main.

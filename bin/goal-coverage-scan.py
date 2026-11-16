@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """goal-coverage-scan.py — Read-only backward-teeth detector for active goals.
 
 Naked-Python port of the retired node original `coordinator/bin/goal-coverage-

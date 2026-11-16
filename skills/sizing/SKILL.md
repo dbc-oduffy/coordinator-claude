@@ -1,12 +1,14 @@
 ---
 name: sizing
-description: "The EM's first move on a PM ask of unsure size (a confident XS: one file plus test, ~30 lines, decided before any other read, is hand-done) — fires the one Workflow that sizes, plans, executes, reviews, commits. Fires on any novel ask. Exclusive with pickup."
+description: "EM's first move on a PM ask of unsure size (a confident XS is hand-done): fires the one Workflow. Any novel ask. Exclusive with pickup."
 description-budget: 260
 allowed-tools: ["Read", "Grep", "Glob", "Bash"]
 argument-hint: "[PM ask text | nothing — describe the ask inline]"
 ---
 
 # Sizing — the Build Door
+
+**Non-Claude EM:** no `Workflow` tool; run `coordinator-invoke engine_ask.submit --params-file <json>` (`AN-EXTERNAL-SUBMIT-GOES-THROUGH-ENGINE-ASK-WITH-SOURCE-PM-OR-RELAYED`).
 
 **Two doors:** this is the sizing door; `/coordinator:research` is the research door.
 
@@ -25,6 +27,8 @@ The t-shirt picks a ROOM, not a cost; no appetite question first.
 ---
 
 ## The flow
+
+`DELIVERY-MEANS-IT-RAN-END-TO-END` (`wiki/planning/wiring-table.md`): a plan's `wiring:` parts (wired, not_built, blocked, off_route; `built_path`, `runs_evidence`, `consumes`, `produces`) are judged apart from register rows; a binding-ask R-row is covered only when a live spine row claims it and that row's `writes` exist.
 
 A PM-stated ordered method is one register row per step, each with its `mechanism:` (`requirement-register.md` § Method steps; `A-NAME-TRACE-PASSES-A-SUBSTITUTED-MECHANISM`).
 

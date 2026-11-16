@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # roadmap-planning-assemble — CLI trampoline over claude-klabauter
 # coordinator_core.roadmap_planning_assemble (the spine-seam computed-skill
 # assembler for `roadmap-planning`'s Phase 1 synthesis / N sprint

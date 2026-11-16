@@ -58,6 +58,7 @@ NEGATIVE SPEC — what this hook deliberately does NOT do:
 """
 
 from __future__ import annotations
+from types import ModuleType
 
 import io
 import json
@@ -109,7 +110,7 @@ def resolve_enter_cli() -> Path | None:
     return candidate if candidate.is_file() else None
 
 
-def _load_box_notice():
+def _load_box_notice() -> ModuleType | None:
     """`bin/group-em-box-notice.py`, loaded by path from this hook's own tree; None when absent."""
     path = Path(__file__).resolve().parents[2] / "bin" / "group-em-box-notice.py"
     if not path.is_file():
@@ -122,16 +123,43 @@ def _load_box_notice():
     return module
 
 
+_SCRATCH_MARKER_TOKENS = frozenset({"gate", "clone"})
+
+
+def _scratch_or_gate_clone_reason(key: str, value: str) -> str | None:
+    """Why a registered repo is a scratch gate clone, not a fleet member, or None when it is one:
+    its path has a `scratch` directory component, or its key leaf or checkout directory name
+    carries a `gate` or `clone` token (split on non-alphanumerics, so `gateway` does not match)."""
+    import re
+
+    parts = [p.lower() for p in re.split(r"[\\/]+", value) if p]
+    if "scratch" in parts:
+        return "path under scratch/"
+    for name in (key.rsplit(".", 1)[-1], parts[-1] if parts else ""):
+        for token in re.split(r"[^a-z0-9]+", name.lower()):
+            if token in _SCRATCH_MARKER_TOKENS:
+                return f"{token} marker in {name}"
+    return None
+
+
+# Repos the last `fleet_repo_roots()` call dropped as scratch gate clones, as `skipped <key>:
+# <reason>` lines. A heuristic skip that is silent hides a real repo whose inbox never drains, so
+# the caller renders these into the sweep output.
+FLEET_SKIPPED: list[str] = []
+
+
 def fleet_repo_roots() -> list[str]:
     """Fleet repos from the machine-local registry (`repos.*`), never from live sessions: a repo
     with no EM still has an inbox. De-duplicated by normalised path (the registry carries aliases
-    for one checkout) and kept only when it is a git repo carrying `state/cross-repo/inbox`."""
+    for one checkout) and kept only when it is a git repo carrying `state/cross-repo/inbox`.
+    Scratch gate clones are dropped and recorded in `FLEET_SKIPPED`."""
     import tomllib
 
     import _engine_root
 
     reg_dir = _engine_root._settings_home_registry_dir()
     paths: dict[str, str] = {}
+    skipped: dict[str, str] = {}
     for name in ("registry.toml", "registry.local.toml"):  # local overrides the tracked baseline
         try:
             with (reg_dir / name).open("rb") as fh:
@@ -140,7 +168,14 @@ def fleet_repo_roots() -> list[str]:
             continue
         for key, value in _engine_root._flatten_registry(data).items():
             if key.startswith("repos.") and isinstance(value, str) and value:
+                reason = _scratch_or_gate_clone_reason(key, value)
+                if reason:
+                    paths.pop(key, None)
+                    skipped[key] = reason
+                    continue
+                skipped.pop(key, None)
                 paths[key] = value
+    FLEET_SKIPPED[:] = [f"skipped {k}: {r}" for k, r in sorted(skipped.items())]
     roots: dict[str, str] = {}
     for value in paths.values():
         root = Path(value)
@@ -200,6 +235,32 @@ def read_fire_stamp(repo_root: str, session_id: str) -> set[str] | None:
         return {m for ms in data["memos"].values() for m in ms}
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
+
+
+PENDING_LEDGER_MAX_AGE_S = 6 * 3600
+
+
+def read_pending_ledger(repo: str) -> set[str]:
+    """Memo paths held by produced-but-unapplied manifests: the union of `{"memos": [...]}` over
+    every entry under `<repo>/.coordinator-local/gem-inbox-pending/`. A missing directory or an
+    unreadable or malformed entry subtracts nothing, and so does an entry older than
+    PENDING_LEDGER_MAX_AGE_S (an applier that died before deleting it)."""
+    import time
+
+    held: set[str] = set()
+    try:
+        entries = sorted((Path(repo) / ".coordinator-local" / "gem-inbox-pending").glob("*.json"))
+    except OSError:
+        return held
+    now = time.time()
+    for entry in entries:
+        try:
+            if now - entry.stat().st_mtime > PENDING_LEDGER_MAX_AGE_S:
+                continue
+            held.update(str(m) for m in json.loads(entry.read_text(encoding="utf-8"))["memos"])
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    return held
 
 
 def write_fire_stamp(repo_root: str, session_id: str, memo_lists: dict, prior: set[str] | None) -> None:
@@ -297,19 +358,32 @@ def _box_blocks(
         import _machine_profile
 
         if _machine_profile.feature_enabled("cross_repo_memos"):
+            FLEET_SKIPPED.clear()
             repos = fleet_repo_roots()
+            if FLEET_SKIPPED:
+                blocks.append("Fleet inbox sweep:\n" + "\n".join(FLEET_SKIPPED))
             if repos:
                 prior = read_fire_stamp(repo_root, session_id) if reentry else None
                 memo_lists = {r: v for r in repos if (v := inbox_memo_lists(r)) is not None}
-                fire_lists = memo_lists
+                fire_lists = {}
+                held_out: set[str] = set()
+                for r, v in memo_lists.items():
+                    pending = read_pending_ledger(r)
+                    memos = [m for m in v["memos"] if m not in pending]
+                    if len(memos) < len(v["memos"]) and not memos:
+                        held_out.add(r)
+                        continue
+                    fire_lists[r] = {"memos": memos, "stamped": v["stamped"]}
+                repos = [r for r in repos if r not in held_out]
                 if prior is not None:
-                    fire_lists = {}
-                    for r, v in memo_lists.items():
+                    narrowed = {}
+                    for r, v in fire_lists.items():
                         fresh = [m for m in v["memos"] if m not in prior]
                         if fresh:
-                            fire_lists[r] = {"memos": fresh, "stamped": v["stamped"]}
+                            narrowed[r] = {"memos": fresh, "stamped": v["stamped"]}
+                    fire_lists = narrowed
                     repos = [r for r in repos if r in fire_lists]
-                if prior is None or fire_lists:
+                if fire_lists or (prior is None and not held_out):
                     blocks.append(
                         render_fleet_workflow(
                             Path(__file__).resolve().parents[2], repos, holder, fire_lists
@@ -318,7 +392,117 @@ def _box_blocks(
                     write_fire_stamp(repo_root, session_id, fire_lists, prior)
     except Exception:  # noqa: BLE001
         pass
+    try:
+        specs_block = _box_specs_block(payload)
+        if specs_block:
+            blocks.append(specs_block)
+    except Exception:  # noqa: BLE001
+        pass
     return blocks
+
+
+_BOX_SPECS_RESPAWN_FLOOR_S = 600
+
+
+def _load_bin_module(filename: str, name: str) -> ModuleType | None:
+    """A `bin/` script by path from this hook's own tree; None when absent."""
+    path = Path(__file__).resolve().parents[2] / "bin" / filename
+    if not path.is_file():
+        return None
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _spawn_box_specs_refresher() -> None:
+    """Start `bin/group-em-box-specs-refresh.py` detached; never waited on, no ssh from here."""
+    import subprocess
+
+    script = Path(__file__).resolve().parents[2] / "bin" / "group-em-box-specs-refresh.py"
+    if not script.is_file():
+        return
+    flags = 0
+    if sys.platform == "win32":
+        flags = (
+            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
+    subprocess.Popen(
+        [sys.executable, str(script)],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+        start_new_session=sys.platform != "win32",
+        creationflags=flags,
+    )
+
+
+def _machine_local_gpu() -> str | None:
+    """This box's `hardware.gpu` (+ `vram_gb`) from the machine-local concern files, read as
+    files (`hardware.local.toml` over `hardware.toml`); None when unset. No subprocess."""
+    import tomllib
+
+    import _engine_root
+
+    reg_dir = _engine_root._settings_home_registry_dir()
+    for name in ("hardware.local.toml", "hardware.toml"):
+        try:
+            with (reg_dir / name).open("rb") as fh:
+                hw = tomllib.load(fh).get("hardware")
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+        gpu = hw.get("gpu") if isinstance(hw, dict) else None
+        if isinstance(gpu, str) and gpu.strip():
+            vram = str(hw.get("vram_gb") or "").strip()
+            return f"{gpu.strip()} {vram}GB" if vram else gpu.strip()
+    return None
+
+
+def _box_specs_block(payload: dict) -> str | None:
+    """The per-box specs block rendered from the cache, with the refresher spawned detached when
+    the cache is missing or stale. Reads files only; the sole subprocess is the detached spawn."""
+    import time
+    from datetime import datetime
+
+    specs = _load_bin_module("group-em-box-specs.py", "_gem_autofire_box_specs")
+    if specs is None:
+        return None
+    path = specs.cache_path()
+    cache = specs.read_cache(path)
+    try:
+        raw_peers = json.loads(path.read_text(encoding="utf-8")).get("peers")
+    except (OSError, ValueError, AttributeError):
+        raw_peers = None
+    peers = [p for p in raw_peers if isinstance(p, str)] if isinstance(raw_peers, list) else []
+    now = datetime.now().astimezone()
+    try:
+        age = time.time() - path.stat().st_mtime
+    except OSError:
+        age = None
+    names = peers or list(cache["boxes"])
+    if age is None:
+        stale = True
+    elif age < _BOX_SPECS_RESPAWN_FLOOR_S:
+        stale = False
+    else:
+        stale = age > specs.DEFAULT_MAX_AGE_S or specs.cache_needs_refresh(cache, names, now)
+    if stale:
+        try:
+            _spawn_box_specs_refresher()
+        except Exception:  # noqa: BLE001
+            pass
+    considered = payload.get("roster_considered")
+    sessions = considered + 1 if isinstance(considered, int) else None
+    try:
+        machine_gpu = _machine_local_gpu()
+    except Exception:  # noqa: BLE001
+        machine_gpu = None
+    me = specs.self_record(cache, sessions, machine_gpu=machine_gpu)
+    return specs.render_box_block(cache, me, None, now, peers=names or None)
 
 
 class _EnterResult:
@@ -334,7 +518,7 @@ def _run_enter(
     session_id: str,
     prompt_id: str | None = None,
     home_start: bool = False,
-):
+) -> "_EnterResult | None":
     """Run the entry CLI in-process through the engine forwarder with stdout/stderr captured.
     Rewrites `sys.path`, `sys.argv` and both std streams for the duration; all four are
     restored in `finally`. Returns None when the forward raises.

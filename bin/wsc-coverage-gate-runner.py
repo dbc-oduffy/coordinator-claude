@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """wsc-coverage-gate-runner.py — /workstream-complete Step 2.4/2.9 imperative
 logic ported off the bash fences embedded in coordinator-content-repo
 coordinator/skills/workstream-complete/SKILL.md.

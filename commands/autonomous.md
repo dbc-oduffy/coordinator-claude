@@ -1,6 +1,6 @@
 ---
 name: autonomous
-description: "Toggle autonomous mode — the PM-away premise for what counts as a legitimate stop."
+description: "Toggle autonomous mode: the PM-away premise for a legitimate stop."
 allowed-tools: ["Bash"]
 argument-hint: "[on|off]"
 ---

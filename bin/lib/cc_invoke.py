@@ -334,8 +334,7 @@ def _params_tempdir(claude_klabauter_root: str) -> "str | None":
     """Managed Temp dir for the ``--params-file`` handoff; None (system Temp) if the engine
     cannot be imported, so a resolution failure never blocks the spawn."""
     try:
-        if claude_klabauter_root not in sys.path:
-            sys.path.insert(0, claude_klabauter_root)
+        _front_insert_on_path(claude_klabauter_root)
         from coordinator_core.temp_layout import managed_tempdir
 
         return str(managed_tempdir())
@@ -388,8 +387,7 @@ def _no_console_kw(claude_klabauter_root: str) -> dict:
     or testing the mapping's truthiness would see the substitute disagree with the
     thing it substitutes for."""
     try:
-        if claude_klabauter_root not in sys.path:
-            sys.path.insert(0, claude_klabauter_root)
+        _front_insert_on_path(claude_klabauter_root)
         from coordinator_core.win_portability import no_console_creationflags
 
         return no_console_creationflags()
@@ -774,6 +772,12 @@ def _front_insert_on_path(root: str) -> str:
     return root
 
 
+def place_engine_root_on_path(root: str) -> str:
+    """Public entry for callers outside this module: pin ``root`` at ``sys.path[0]``
+    and return it (the ``_engine_root`` seam's name and contract)."""
+    return _front_insert_on_path(root)
+
+
 PROVENANCE_UNIMPORTED = "unimported"
 PROVENANCE_MATCH = "match"
 PROVENANCE_DIVERGENT = "divergent"
@@ -1153,8 +1157,7 @@ def require_dispatch_engine_on_path() -> str:
     ``coordinator/bin`` carry verbatim::
 
         claude_klabauter_root = _resolve_claude_klabauter_root()
-        if claude_klabauter_root not in sys.path:
-            sys.path.insert(0, claude_klabauter_root)
+        <membership test on sys.path, then a tail-less insert at index 0>
 
     NOTE THE MISSING PARAMETER, because it is the whole point. Every other
     ``*_on_path`` wrapper in this module takes ``script_file`` and resolves on the

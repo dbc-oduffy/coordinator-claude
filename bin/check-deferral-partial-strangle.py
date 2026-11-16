@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """
 check-deferral-partial-strangle.py -- CLI trampoline: read-only consumer of
 Claude-klabauter's registered "deferral.detect_partial_strangle" op, via

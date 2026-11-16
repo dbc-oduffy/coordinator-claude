@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """
 workday-start-inbox-blitz-assemble.py -- /workday-start Step 1.45's
 count-and-age escalation: a read-only consumer of claude-klabauter's registered

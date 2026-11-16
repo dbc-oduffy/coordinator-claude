@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """workday-complete-backfill-inject-anchor.py — Phase A0 mechanical anchor injection.
 
 Injects covered_tip_sha/covered_machine anchors into a pre-existing daily summary that

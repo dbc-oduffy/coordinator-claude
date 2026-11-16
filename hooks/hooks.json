@@ -54,6 +54,23 @@
         ]
       },
       {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 10,
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/project-rag-detect.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      },
+      {
         "matcher": "startup|resume|clear|compact|fork",
         "hooks": [
           {
@@ -89,15 +106,31 @@
           },
           {
             "type": "command",
-            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" hooks.guard_manufactured_blocker 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
-            "shell": "bash",
-            "timeout": 5
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/door_launch.py",
+              "--quiet",
+              "--pass-2",
+              "hooks.guard_manufactured_blocker",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           },
           {
             "type": "command",
-            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" hooks.guard_turn_intent 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
-            "shell": "bash",
-            "timeout": 5
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/door_launch.py",
+              "--quiet",
+              "--pass-2",
+              "hooks.guard_turn_intent",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       }
@@ -108,9 +141,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.sessionend_archive_session 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
-            "shell": "bash",
-            "timeout": 15
+            "command": "python3",
+            "timeout": 15,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/door_launch.py",
+              "--quiet",
+              "--pass-2",
+              "--advisory",
+              "hooks.sessionend_archive_session",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       }
@@ -143,9 +185,18 @@
           },
           {
             "type": "command",
-            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.workflow_step_dispatch 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
-            "shell": "bash",
-            "timeout": 1
+            "command": "python3",
+            "timeout": 1,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/door_launch.py",
+              "--quiet",
+              "--pass-2",
+              "--advisory",
+              "hooks.workflow_step_dispatch",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       }
@@ -168,9 +219,18 @@
           },
           {
             "type": "command",
-            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.workflow_step_dispatch 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
-            "shell": "bash",
-            "timeout": 1
+            "command": "python3",
+            "timeout": 1,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/door_launch.py",
+              "--quiet",
+              "--pass-2",
+              "--advisory",
+              "hooks.workflow_step_dispatch",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       }
@@ -201,7 +261,7 @@
           {
             "type": "command",
             "command": "python3",
-            "timeout": 5,
+            "timeout": 15,
             "async": false,
             "args": [
               "-c",
@@ -219,9 +279,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" hooks.preuse_bash_dispatch",
-            "shell": "bash",
-            "timeout": 15
+            "command": "python3",
+            "timeout": 15,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/door_launch.py",
+              "hooks.preuse_bash_dispatch",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -260,13 +326,36 @@
         ]
       },
       {
-        "matcher": "Agent",
+        "matcher": "Bash|PowerShell",
         "hooks": [
           {
             "type": "command",
-            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" hooks.guard_agent_route_admission",
-            "shell": "bash",
-            "timeout": 10
+            "command": "python3",
+            "timeout": 5,
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-kill-by-port-or-tree.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 5,
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-family-stage-prompt-preamble.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -275,9 +364,33 @@
         "hooks": [
           {
             "type": "command",
-            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.guard_ue_specialist_advisory",
-            "shell": "bash",
-            "timeout": 10
+            "command": "python3",
+            "timeout": 10,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/door_launch.py",
+              "hooks.guard_agent_route_admission",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 10,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/door_launch.py",
+              "--advisory",
+              "hooks.guard_ue_specialist_advisory",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -286,9 +399,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" hooks.guard_brief_prescribed_method",
-            "shell": "bash",
-            "timeout": 10
+            "command": "python3",
+            "timeout": 10,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/door_launch.py",
+              "hooks.guard_brief_prescribed_method",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -297,9 +416,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" hooks.guard_editor_python_direct",
-            "shell": "bash",
-            "timeout": 10
+            "command": "python3",
+            "timeout": 10,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/door_launch.py",
+              "hooks.guard_editor_python_direct",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -308,9 +433,34 @@
         "hooks": [
           {
             "type": "command",
-            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.preuse_search_dispatch 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
-            "shell": "bash",
-            "timeout": 5
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/door_launch.py",
+              "--quiet",
+              "--pass-2",
+              "--advisory",
+              "hooks.preuse_search_dispatch",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      },
+      {
+        "matcher": "Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-search-rag-hint.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -365,15 +515,33 @@
           },
           {
             "type": "command",
-            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.block_group_em_agent_cap_grant 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
-            "shell": "bash",
-            "timeout": 5
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/door_launch.py",
+              "--quiet",
+              "--pass-2",
+              "--advisory",
+              "hooks.block_group_em_agent_cap_grant",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           },
           {
             "type": "command",
-            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.rewrite_sendmessage_peer_name 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
-            "shell": "bash",
-            "timeout": 5
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/door_launch.py",
+              "--quiet",
+              "--pass-2",
+              "--advisory",
+              "hooks.rewrite_sendmessage_peer_name",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -417,7 +585,7 @@
           {
             "type": "command",
             "command": "python3",
-            "timeout": 15,
+            "timeout": 60,
             "args": [
               "-c",
               "import os,sys,json,re;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else (sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b),sys.stdout.write(json.dumps({'hookSpecificOutput':{'hookEventName':'PreToolUse','permissionDecision':'deny','permissionDecisionReason':'The engine did not take this submission (hook bootstrap unresolvable). Retry once, then do the work by hand (dispatch the agents yourself, scoped commits) and file this failure to the engine EM.'}})) if '\"Workflow\"' in (s:=sys.stdin.read()) and re.search(r'(?<![A-Za-z_])name\\\\?\"\\s*:\\s*\\\\?\"(?:[^\"\\\\]*:)?(engine-ask|bug-blitz)',s) else '')",
@@ -448,9 +616,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" hooks.preuse_write_dispatch",
-            "shell": "bash",
-            "timeout": 10
+            "command": "python3",
+            "timeout": 10,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/door_launch.py",
+              "hooks.preuse_write_dispatch",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           },
           {
             "type": "command",
@@ -486,9 +660,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.nudge_autonomous_askuserquestion 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
-            "shell": "bash",
-            "timeout": 5
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/door_launch.py",
+              "--quiet",
+              "--pass-2",
+              "--advisory",
+              "hooks.nudge_autonomous_askuserquestion",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -497,9 +680,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.flag_em_poll_in_flight 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
-            "shell": "bash",
-            "timeout": 5
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/door_launch.py",
+              "--quiet",
+              "--pass-2",
+              "--advisory",
+              "hooks.flag_em_poll_in_flight",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -508,9 +700,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.taskstop_reaper 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
-            "shell": "bash",
-            "timeout": 5
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/door_launch.py",
+              "--quiet",
+              "--pass-2",
+              "--advisory",
+              "hooks.taskstop_reaper",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       }
@@ -565,13 +766,58 @@
         ]
       },
       {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 10,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/postuse-declaration-gate.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      },
+      {
         "matcher": "Bash|PowerShell",
         "hooks": [
           {
             "type": "command",
-            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.taskstop_launch_recorder 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
-            "shell": "bash",
-            "timeout": 5
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/door_launch.py",
+              "--quiet",
+              "--pass-2",
+              "--advisory",
+              "hooks.taskstop_launch_recorder",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/door_launch.py",
+              "--quiet",
+              "--pass-2",
+              "--advisory",
+              "hooks.record_askuserquestion_answer",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -580,9 +826,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.plan_persistence_check 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
-            "shell": "bash",
-            "timeout": 15
+            "command": "python3",
+            "timeout": 15,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/door_launch.py",
+              "--quiet",
+              "--pass-2",
+              "--advisory",
+              "hooks.plan_persistence_check",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -602,9 +857,18 @@
           },
           {
             "type": "command",
-            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.runtime_tripwire_em_check 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
-            "shell": "bash",
-            "timeout": 5
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/door_launch.py",
+              "--quiet",
+              "--pass-2",
+              "--advisory",
+              "hooks.runtime_tripwire_em_check",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -613,9 +877,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.postuse_advisory_dispatch 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
-            "shell": "bash",
-            "timeout": 10
+            "command": "python3",
+            "timeout": 10,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/door_launch.py",
+              "--quiet",
+              "--pass-2",
+              "--advisory",
+              "hooks.postuse_advisory_dispatch",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -624,9 +897,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.watchdog_undischarged_next_move 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
-            "shell": "bash",
-            "timeout": 5
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/door_launch.py",
+              "--quiet",
+              "--pass-2",
+              "--advisory",
+              "hooks.watchdog_undischarged_next_move",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },

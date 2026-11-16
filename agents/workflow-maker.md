@@ -1,7 +1,7 @@
 ---
 name: workflow-maker
 executes-rows: false
-description: "Emits a plan's spine as a Workflow script; returns path and wave map for the EM to fire."
+description: "Emits a plan's spine as a Workflow script; returns path and wave map."
 model: sonnet
 effort: low
 color: cyan
@@ -55,6 +55,8 @@ Re-stamp an already-emitted script:
   a subagent has no Workflow tool, so a headless fire can die landing nothing.
 - `--restamp` re-stamps the receipt over a script YOU edited during a halted-run recovery; it
   refuses a peer's script by design. Semantics: `skills/execute-plan/SKILL.md`.
+
+A script or brief you edit names no hardcoded drive root for a data/cache/scratch/run-output root; it resolves via a settings-home key, a missing key a typed refusal naming the key (`coordinator/docs/wiki/coordinator-tripwires/a-hardcoded-data-root-is-not-exempt-under-an-escape-token.md`).
 
 **Read the emitter's stderr; it names its own failure modes.** It says when nothing was written
 and when a script on disk is a stale previous emission, and it warns by name about CRLF. Do not

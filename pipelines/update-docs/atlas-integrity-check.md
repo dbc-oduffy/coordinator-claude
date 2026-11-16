@@ -63,6 +63,10 @@ The step edits no atlas page and never rewrites a dead path in place.
 
 ## Step 1 — Narrative on changed pages
 
+**11a atlas narrative is the named judgment agent of this pipeline**: every step above and the
+doc-link check (`coordinator/scripts/doc_link_check.py`) run as scripts; only this narrative step
+may spawn an agent.
+
 Narrative reading and any narrative agent run only on `pages_changed`. An empty set means zero
 agents and one report line. A non-empty set goes to one narrative agent that takes the pages in
 turn; splitting it is the EM's call and is named in the Phase 14 line.

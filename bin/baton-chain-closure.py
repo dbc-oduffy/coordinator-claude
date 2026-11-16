@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """baton-chain-closure -- detect that an entire baton-chain (workstream), not a single baton, has
 closed, and emit a PM-facing closure signal conforming to `group-em-output-contract.md`.
 
@@ -203,12 +204,20 @@ def _load_baton(path: Path) -> Optional[Baton]:
     )
 
 
+def _tree_entries(repo_root: Path, tree: str) -> list:
+    """`*.md` at a LAYOUT tree root and in every month shard (output_tree_layout.iter_tree_entries)."""
+    lib_dir = str(Path(__file__).resolve().parents[1] / "lib")
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
+    import output_tree_layout
+
+    return output_tree_layout.iter_tree_entries(repo_root, tree, "*.md")
+
+
 def _iter_handoff_paths(repo_root: Path) -> list:
-    live = repo_root / "state" / "handoffs"
     archived = repo_root / "archive" / "handoffs"
     paths = []
-    if live.is_dir():
-        paths.extend(sorted(live.glob("*.md")))
+    paths.extend(_tree_entries(repo_root, "state/handoffs"))
     if archived.is_dir():
         paths.extend(sorted(archived.glob("**/*.md")))
     return paths
@@ -362,10 +371,7 @@ def _session_is_live(session_id: str, registry_dir: Optional[Path] = None) -> bo
 
 def build_plan_index(repo_root: Path) -> dict:
     index: dict = {}
-    plans_dir = repo_root / "docs" / "plans"
-    if not plans_dir.is_dir():
-        return index
-    for p in sorted(plans_dir.glob("*.md")):
+    for p in _tree_entries(repo_root, "docs/plans"):
         try:
             text = p.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
@@ -753,10 +759,9 @@ def _plan_index_for(repo_root: Path, wanted: set) -> dict:
     A candidate is confirmed by the full parse before it counts, and a later file with the same
     id overwrites an earlier one, as in `build_plan_index`."""
     index: dict = {}
-    plans_dir = repo_root / "docs" / "plans"
-    if not wanted or not plans_dir.is_dir():
+    if not wanted:
         return index
-    for p in sorted(plans_dir.glob("*.md")):
+    for p in _tree_entries(repo_root, "docs/plans"):
         fields = _read_lineage_fields(p)
         if fields is not None:
             pid = fields.get("plan_id")

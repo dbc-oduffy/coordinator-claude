@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """coordinator/bin/pre_commit_corpus_artifact_guard.py — refuse a commit that stages a
 project-rag corpus artifact, or any oversized real blob.
 
@@ -56,9 +57,21 @@ Negative-spec:
 
 Spec backlink: docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W2-C5.
 
-Never imports `coordinator_core`: a stdlib-only CLI that runs with no engine-root
-bootstrap, so it keeps its own git spawns and is exempt from the shared git runner
+Standalone contract: runs standalone as a hook body and resolves on its own when no shared
+per-commit resolution is available. Never imports `coordinator_core` itself on the guard
+path: the only reach is `_load_commit_resolution`, a guarded load by file path (checkout
+root appended to sys.path) whose failure falls back. It runs with no engine-root bootstrap,
+so it keeps its own fallback git spawns and is exempt from the shared git runner
 (`coordinator_core/tests/test_shared_git_runner.py :: _CONTRACT_EXEMPT_MODULES`).
+Only ``--install-hook`` imports it, after putting this checkout's engine root on sys.path.
+The staged set comes from `hooks/commit_resolution.py`, loaded by file path and shared
+with the other hooks of the same commit; its own spawn is only the load-failure fallback.
+
+``--install-hook`` (run in the target repo) is the sanctioned install and repair of this
+repo's ``.git/hooks/pre-commit``: absent -> write the self-resolving hook body; already
+that body -> rewrite only if stale; a copied forwarder stub -> replaced via the hook
+disposition table (original kept as ``pre-commit.retired``); any other hook -> left
+untouched, exit 2.
 """
 
 from __future__ import annotations
@@ -97,10 +110,68 @@ def _git(args: list[str]) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(["git", *args], 124, "", "git timed out")
 
 
+def _hook_git_dir() -> str:
+    """The hook's git dir with no spawn: `$GIT_DIR`, else `./.git` (a directory, or a
+    `gitdir:` file for a linked worktree). git runs hooks with cwd at the worktree root.
+    "" when underivable."""
+    try:
+        env_git_dir = os.environ.get("GIT_DIR", "").strip()
+        if env_git_dir:
+            return env_git_dir
+        cwd = os.getcwd()
+        dotgit = os.path.join(cwd, ".git")
+        if os.path.isdir(dotgit):
+            return dotgit
+        if os.path.isfile(dotgit):
+            with open(dotgit, encoding="utf-8") as fh:
+                first_line = fh.readline().strip()
+            if first_line.startswith("gitdir:"):
+                target = first_line[len("gitdir:"):].strip()
+                if target and not os.path.isabs(target):
+                    target = os.path.normpath(os.path.join(cwd, target))
+                return target
+    except Exception:
+        pass
+    return ""
+
+
+def _load_commit_resolution():
+    """Load the shared-resolution module by file path from this checkout. It imports
+    `coordinator_core.git.run`, so this checkout's root joins sys.path (appended, lowest
+    precedence). None when absent or broken."""
+    try:
+        import importlib.util
+
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        if root not in sys.path:
+            sys.path.append(root)
+        path = os.path.join(root, "coordinator_core", "hooks", "commit_resolution.py")
+        spec = importlib.util.spec_from_file_location("_corpus_guard_commit_resolution", path)
+        if spec is None or spec.loader is None:
+            return None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    except Exception:
+        return None
+
+
 def _staged_paths() -> list[str]:
     """Paths introducing new content: added, modified, renamed. Deletes introduce no blob.
     A rename counts -- `git mv` then `git add -f` records as R, and the destination is a
-    real blob that would be pushed."""
+    real blob that would be pushed.
+
+    Reads the per-commit shared resolution (one `git diff --cached` across every hook of
+    the commit); falls back to its own spawn only when that module or the git dir is
+    unavailable."""
+    resolution = _load_commit_resolution()
+    git_dir = _hook_git_dir() if resolution is not None else ""
+    if resolution is not None and git_dir:
+        try:
+            return resolution.names_filtered(git_dir, "AMR", 15)
+        except Exception as exc:
+            print(f"[corpus-artifact-guard] could not read the staged set ({exc}); allowing", file=sys.stderr)
+            return []
     proc = _git(["diff", "--cached", "--name-only", "--diff-filter=AMR"])
     if proc.returncode != 0:
         return []
@@ -131,12 +202,77 @@ def _max_bytes() -> int:
     return mb * 1024 * 1024
 
 
+def _write_hook_atomic(path, body: str) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(body.encode("utf-8"))
+    if os.name != "nt":
+        os.chmod(tmp, 0o755)
+    os.replace(tmp, path)
+
+
+def _install_hook() -> int:
+    """Install or repair this repo's pre-commit hook; see the module docstring."""
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from coordinator_core.git import hook_dispositions
+    from coordinator_core.git.corpus_guard_hook import STAMP, hook_body, is_forwarder_stub
+    from coordinator_core.git.git_dir import resolve_git_common_dir
+
+    top = _git(["rev-parse", "--show-toplevel"])
+    if top.returncode != 0 or not top.stdout.strip():
+        print("[corpus-artifact-guard] --install-hook: not inside a git repo", file=sys.stderr)
+        return 2
+    root = Path(top.stdout.strip())
+    hooks = resolve_git_common_dir(root) / "hooks"
+    target = hooks / "pre-commit"
+
+    body = hook_body()
+    if is_forwarder_stub(body):
+        print("[corpus-artifact-guard] generated hook body is a forwarder stub; refusing", file=sys.stderr)
+        return 2
+
+    if not target.exists():
+        hooks.mkdir(parents=True, exist_ok=True)
+        _write_hook_atomic(target, body)
+        print(f"[corpus-artifact-guard] installed {target}")
+        return 0
+
+    try:
+        text = target.read_bytes().decode("utf-8")
+    except UnicodeDecodeError:
+        text = ""
+    if STAMP in text:
+        if text == body:
+            print(f"[corpus-artifact-guard] {target} is current")
+        else:
+            _write_hook_atomic(target, body)
+            print(f"[corpus-artifact-guard] rewrote {target}")
+        return 0
+    if is_forwarder_stub(text):
+        verdicts = hook_dispositions.apply_repo(root, check_only=False)
+        for entry_id, hook, verdict in verdicts:
+            print(f"[corpus-artifact-guard] {entry_id} {hook}: {verdict}")
+        replaced = [v for v in verdicts if v[0] == "forwarder-stub-pre-commit"]
+        return 0 if replaced and replaced[0][2] in ("replaced", "current") else 2
+    print(f"[corpus-artifact-guard] {target} is not an engine hook; left untouched", file=sys.stderr)
+    return 2
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="pre_commit_corpus_artifact_guard.py",
         description="Refuse a commit that stages a project-rag corpus artifact or an oversized blob.",
     )
-    parser.parse_args(argv[1:] if argv is not None else None)
+    parser.add_argument(
+        "--install-hook",
+        action="store_true",
+        help="install or repair this repo's .git/hooks/pre-commit with the self-resolving hook body",
+    )
+    args = parser.parse_args(argv[1:] if argv is not None else None)
+
+    if args.install_hook:
+        return _install_hook()
 
     if os.environ.get(_BYPASS_ENV) == "1":
         print(f"[corpus-artifact-guard] bypassed via {_BYPASS_ENV}=1", file=sys.stderr)

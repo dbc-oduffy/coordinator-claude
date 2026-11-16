@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """prune-closed-improvements.py — archive closed improvement-queue entries via
 fleet.archive_queue_entry.
 

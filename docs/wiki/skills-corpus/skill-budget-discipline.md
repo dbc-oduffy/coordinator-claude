@@ -205,3 +205,14 @@ Empirically confirmed twice before the code was read: setting overrides on both 
 
 - Super-skill architecture: `docs/wiki/skills-corpus/super-skill-architecture.md`
 - Per-project plugin gating: `docs/wiki/install-playbook-rationale/per-project-plugin-gating.md`
+
+### access-mode frontmatter key (finding as of 2026-07-27)
+
+As of 2026-07-27 the agent frontmatter key access-mode is a lint-enforced declaration, not a platform-enforced constraint: it is not among the official subagent frontmatter fields and the platform reads it nowhere in the source or engine trees. It is not consumerless, though. The OSS publish mirror runs an agent-tools validator as a live CI gate that errors on any agent whose tools list is non-empty and whose access-mode is unset.
+
+- Census on that date: 30 agents read-write, 2 read-only, 1 keyless (its tools field is a scalar string, so the validator's list guard skips it).
+- Retain the key and the lint; do not delete it. Deleting it everywhere breaks OSS CI.
+- Read-only does not constrain an agent. The agent's tools allowlist does. A read-only declaration is a checkable redundancy against that allowlist.
+- The opposite trap persists: an agent documented as read-only that declares read-write passes the lint, so body-level discipline does the real work there.
+- Description-size claims: the listing truncates by an adaptive character budget, names never drop and only descriptions do, and no count-based skill ceiling is documented.
+<!-- distilled: batch-3-010-01 -->

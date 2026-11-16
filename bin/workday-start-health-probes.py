@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """workday-start-health-probes.py — day-start health-probe imperative logic,
 ported off coordinator-content-repo's `coordinator/commands/workday-start.md`.
 
@@ -308,7 +308,6 @@ def __getattr__(name: str):
 
 _WORKING_REPO_REGISTRY_KEY = "engine.working_repos.claude_klabauter"
 _SETUP_PY_PATH = os.path.join(_REPO_ROOT, "scripts", "setup.py")
-_FIX_SPAWN_TIMEOUT = 30
 
 
 def _usage(prog: str) -> int:
@@ -686,17 +685,15 @@ def cmd_working_repo_registration(argv: list[str]) -> int:
         return 0
 
     old_value = registered
-    try:
-        proc = subprocess.run(
-            [resolve_python(), machine_local_impl(), "set", _WORKING_REPO_REGISTRY_KEY, expected],
-            capture_output=True,
-            text=True,
-            timeout=_FIX_SPAWN_TIMEOUT,
-            **no_console_creationflags(),
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    from coordinator_core import machine_local_spawn
+
+    proc = machine_local_spawn.run_bounded(
+        [resolve_python(), machine_local_impl(), "set", _WORKING_REPO_REGISTRY_KEY, expected]
+    )
+    if proc is None:
         print(
-            f"working-repo-registration --fix: FAILED — could not spawn machine-local set: {exc}",
+            "working-repo-registration --fix: FAILED — could not spawn machine-local set "
+            "(failed to start or outlived the bounded ceiling)",
             file=sys.stderr,
         )
         return 1

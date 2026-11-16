@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 coordinator-fold-execution-record — CLI trampoline over claude-klabauter
 coordinator_core.ops.fold_execution_record.

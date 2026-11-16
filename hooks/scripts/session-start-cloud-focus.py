@@ -40,7 +40,7 @@ except Exception:
     def _resolve_claude_klabauter_root() -> Optional[str]:
         return None
 
-    def _place_engine_root_on_path(root):
+    def _place_engine_root_on_path(root) -> Optional[str]:
         if root and root not in sys.path[:2]:
             sys.path.insert(1 if sys.path else 0, root)
         return root

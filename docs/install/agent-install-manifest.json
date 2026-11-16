@@ -88,23 +88,6 @@
       "reference": "coordinator/docs/wiki/claude-md-surfaces/anthropic-harness-capability-map.md"
     },
     {
-      "id": "subagent-statusline-registration",
-      "description": "The `subagentStatusLine` key in `~/.claude/settings.json`, registering coordinator/bin/subagent-statusline.py as the renderer of per-subagent rows. Machine-local, like statusline-registration.",
-      "why": "Subagent rows show who, what, model, effort and distance to compaction; without the key the harness draws its default rows and the operator loses the per-subagent compaction signal.",
-      "tier": "advisory",
-      "probe": {
-        "kind": "json_key_present",
-        "location": "install_root",
-        "relative_path": "settings.json",
-        "json_path": "subagentStatusLine"
-      },
-      "install": {
-        "mode": "manual",
-        "remediation": "run the install script's status_lines step, which writes both statusLine and subagentStatusLine."
-      },
-      "reference": "coordinator/docs/wiki/claude-md-surfaces/anthropic-harness-capability-map.md"
-    },
-    {
       "id": "settings-env",
       "description": "The `env` block of `~/.claude/settings.json` carrying the all-machines values from templates/settings-manifest.md (CLAUDE_CODE_ENABLE_TODO_TOOLS, FNM_LOGLEVEL). Values, not key presence, are what gate the tools.",
       "why": "A missing or wrong value removes the Task* task graph from every session on the box while the settings read as configured.",

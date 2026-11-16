@@ -1,7 +1,7 @@
 ---
 name: queue-grind-op-runner
 executes-rows: false
-description: "Runs one queue-grind op verify via coordinator-invoke; relays exit code and JSON."
+description: "Runs one queue-grind op verify via coordinator-invoke; relays exit code, JSON."
 model: haiku
 effort: low
 tools: ["Bash", "PowerShell"]

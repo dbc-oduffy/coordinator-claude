@@ -114,6 +114,7 @@ file; unreconstructable before/after; `delta_bytes <= 0`.
 """
 
 from __future__ import annotations
+from types import ModuleType
 
 import importlib.util
 import json
@@ -132,7 +133,7 @@ if _HOOKS_DIR not in sys.path:
 _LIB_DIR = Path(__file__).resolve().parents[2] / "lib"
 
 
-def _load_lib_module(name: str):
+def _load_lib_module(name: str) -> ModuleType:
     mod = sys.modules.get(name)
     if mod is not None:
         return mod

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """check-launch-shape — assert the Windows `claude` launch chain is direct-child.
 
 WHAT THIS PROTECTS. On Windows the interactive ``claude.exe`` must be a DIRECT

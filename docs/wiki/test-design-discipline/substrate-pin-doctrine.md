@@ -3,6 +3,9 @@ title: Substrate-Pin Doctrine
 status: active
 kind: doctrine-wiki
 created: 2026-05-18
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
 ---
 
 # Substrate-Pin Doctrine
@@ -125,6 +128,22 @@ Do NOT apply to pure-Python deps, optional extras, or dev tools — the overhead
 - **Version-only pin** (`torch==2.4.0` without `+cu124`): PyPI resolves to the CPU wheel because local-version suffix is absent.
 - **Constraints file without `--index-url`**: `pip install -c constraints.txt torch==2.4.0+cu124` fails with "no matching distribution" against PyPI — the local-version suffix blocks the substitution but the index isn't provided either. Both must appear together.
 - **`pip install -U` in CI without lockfile gate**: re-resolution bypasses all source pins; lockfile check should gate this.
+
+## Inspect the substrate before writing the spec
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-2-030 -->
+
+A spec that names a JSON shape, config key, or resolver behavior must be written after inspecting the real substrate (the actual files, index, or installed artifact), not from memory of how it should look. The same defense-in-depth instinct applies to pins: verify what is installed, not what is declared. Captured as a lesson in `state/lessons.md` from the Codex reviewer opt-in work.
+
+## Prose-substrate emission gaps
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-12-017 -->
+
+Downstream consumers of the fleet's prose substrate (frontmatter, lessons, review trails) only see what emitters write. A 2026-07 Example-Studio store survey found three gaps:
+
+1. `week-changelog` files carry zero frontmatter fleet-wide, the highest-leverage fix and a doctrine-repo template change.
+2. UE lessons are under-emitted.
+3. One game repo had 41 decisions with zero lessons and no review trail.
+
+Absence of a field in a consumer is first an emitter gap, not a consumer bug.
 
 ## Related
 

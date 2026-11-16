@@ -1,6 +1,6 @@
 ---
 name: cruft-sweep
-description: "Find reclaimable scratch and orphans; apply only if confirmed."
+description: "Find reclaimable scratch and orphans; apply on confirm."
 allowed-tools: ["Read", "Bash", "Glob", "Grep", "Agent", "AskUserQuestion"]
 argument-hint: "[--dry-run|--apply] [--class harness|scratch|orphans|empty-dirs|all]"
 disable-model-invocation: true

@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """sweep-terminal-handoffs.py — on-demand CLI fire for the terminal-handoff sweep.
 
 Purpose: the manual human-invoked surface over the sweep primitives now

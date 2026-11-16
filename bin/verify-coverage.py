@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 #
 # verify-coverage — CLI trampoline over claude-klabauter coordinator_core.ops.verify_coverage.
 #

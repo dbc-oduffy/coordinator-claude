@@ -22,11 +22,12 @@ adding disk-versus-HEAD shows that the file the index says is gone is sitting
 on disk with HEAD's own content. `classify()` therefore takes all three as
 separate inputs and refuses to conclude from any two.
 
-WHAT THIS DELIBERATELY DOES NOT DO. It does not distinguish the stale-index
-phantom from a deliberate `git rm --cached` -- measured, they are byte-identical
-in `git status` (`D ` plus `??`, file on disk). Both mean a path in HEAD is
-about to leave HEAD while its content sits on disk, so both are worth stopping;
-the caller offers an override rather than pretending to tell them apart.
+A DELIBERATE UNTRACK IS TOLD APART BY ITS IGNORE RULE, NOT BY `git status`.
+The stale-index phantom and a deliberate `git rm --cached` are byte-identical in
+`git status` (`D ` plus `??`, file on disk). What separates them is the commit
+itself: an untrack stages the `.gitignore` rule that ignores the path, and a
+stale index never does. The caller passes `untracked_by_staged_ignore` true
+only when this commit stages a `.gitignore` whose rules ignore the path.
 """
 
 from __future__ import annotations
@@ -95,6 +96,7 @@ def classify(
     *,
     exists_on_disk: Callable[[str], bool],
     disk_matches_head: Callable[[str], Optional[bool]],
+    untracked_by_staged_ignore: Callable[[str], bool] = lambda _path: False,
 ) -> "list[Finding]":
     """`rows` is the staged change set for the commit being made, not the
     repo's whole dirty state -- a `git commit -- <pathspec>` excluding an
@@ -114,6 +116,8 @@ def classify(
             continue  # ordinary deletion: the file really is gone
         if path in added:
             continue  # deleted and re-added in one commit; not a disappearance
+        if untracked_by_staged_ignore(path):
+            continue  # deliberate untrack: this commit stages the rule ignoring it
         same = disk_matches_head(path)
         if same is None:
             continue  # not in HEAD, so this commit cannot remove it from HEAD
@@ -123,8 +127,7 @@ def classify(
 
 def render_report(findings: "list[Finding]") -> str:
     """Says what will happen, not what is wrong -- a guard that only names a
-    rule gets overridden without being read. The override lives in the wiki
-    page the last line points at, never in this text."""
+    rule gets bypassed without being read."""
     lines = [
         f"BLOCKED: this commit deletes {len(findings)} path(s) still in HEAD and on disk"
         " (stale shared index?):",
@@ -132,6 +135,6 @@ def render_report(findings: "list[Finding]") -> str:
     lines += [f"  {f.render()}" for f in findings]
     lines += [
         "Fix: git reset -- <path>, then commit again.",
-        "Intended deletion: coordinator/docs/wiki/concurrent-em-git-operations/concurrent-em-hazards.md H2.",
+        "Intended untrack: stage the .gitignore rule that ignores the path in the same commit.",
     ]
     return "\n".join(lines)

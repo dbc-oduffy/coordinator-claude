@@ -237,8 +237,7 @@ def _record_invocation(name: str) -> None:
         # every converted target imports anyway.
         resolve_claude_klabauter_root = _cc_invoke_resolve_claude_klabauter_root()
         claude_klabauter_root = resolve_claude_klabauter_root()
-        if claude_klabauter_root not in sys.path:
-            sys.path.insert(0, claude_klabauter_root)
+        _place_engine_root(claude_klabauter_root)
 
         from coordinator_core.ops.shim_usage_census import record_invocation
 
@@ -266,11 +265,17 @@ def _cc_invoke_resolve_claude_klabauter_root():
 _cc_invoke_resolve_claude_klabauter_root = _cc_invoke_resolve_claude_klabauter_root
 
 
+def _place_engine_root(root: str) -> None:
+    """Pin the engine root at `sys.path[0]`; call after `_cc_invoke_resolve_claude_klabauter_root`."""
+    from cc_invoke import place_engine_root_on_path
+
+    place_engine_root_on_path(root)
+
+
 def _import_engine_module(dotted: str):
     resolve_claude_klabauter_root = _cc_invoke_resolve_claude_klabauter_root()
     claude_klabauter_root = resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    _place_engine_root(claude_klabauter_root)
     return importlib.import_module(dotted)
 
 
@@ -360,8 +365,7 @@ def _merge_assemble_cold_call(op: str, params: dict) -> dict:
 def _merge_assemble_dispatch(op: str, params: dict, print_fn, result_key: str, *, is_apply: bool) -> int:
     resolve_claude_klabauter_root = _cc_invoke_resolve_claude_klabauter_root()
     claude_klabauter_root = resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    _place_engine_root(claude_klabauter_root)
     lib_dir = str(BIN_DIR / "lib")
     if lib_dir not in sys.path:
         sys.path.insert(0, lib_dir)
@@ -608,8 +612,7 @@ def _backlog_grind_assemble_entry(argv: List[str]) -> int:
     try:
         resolve_claude_klabauter_root = _cc_invoke_resolve_claude_klabauter_root()
         claude_klabauter_root = resolve_claude_klabauter_root()
-        if claude_klabauter_root not in sys.path:
-            sys.path.insert(0, claude_klabauter_root)
+        _place_engine_root(claude_klabauter_root)
         import coordinator_core.backlog_grind_assemble as brief_mod
         import coordinator_core.backlog_grind_assemble.apply as apply_mod
         import coordinator_core.backlog_grind_assemble.grind_rows as grind_rows_mod
@@ -841,8 +844,7 @@ def _run_op_main_entry(name: str, dotted: str, fail_exit: int = 1) -> Callable[[
         try:
             resolve_claude_klabauter_root = _cc_invoke_resolve_claude_klabauter_root()
             claude_klabauter_root = resolve_claude_klabauter_root()
-            if claude_klabauter_root not in sys.path:
-                sys.path.insert(0, claude_klabauter_root)
+            _place_engine_root(claude_klabauter_root)
             from coordinator_core.cli_entry import run_op_main
         except RuntimeError as exc:
             print(f"{name}.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
@@ -877,8 +879,7 @@ def _check_pcli_drift_gate_entry(argv: List[str]) -> int:
     try:
         resolve_claude_klabauter_root = _cc_invoke_resolve_claude_klabauter_root()
         claude_klabauter_root = resolve_claude_klabauter_root()
-        if claude_klabauter_root not in sys.path:
-            sys.path.insert(0, claude_klabauter_root)
+        _place_engine_root(claude_klabauter_root)
         from coordinator_core.cli_entry import run_op_main
     except RuntimeError as exc:
         print(f"check-pcli-drift-gate.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Deterministic coordinator-plugin to host-plugin tree translator, driven by unimatrix-host-map.json.
 
 `generate(plugin_root, out_dir, host)` reads a Claude plugin source tree and writes the host's
@@ -7,11 +8,14 @@ Stdlib only; no subprocess, no LLM step.
 
 agy hooks.json is a top-level object keyed by hook name, each value {"<Event>": [...]} (shape from
 the agy 1.4.12 strict-validate relay; no agy doc on the build box). `agy plugin validate` proves the
-file loads, not that a hook fires: ${PLUGIN_DIR} expansion and a guard running need a live agy
+file loads, not that a hook fires: ${PLUGIN_ROOT} expansion and a guard running need a live agy
 session, which nothing here covers.
 """
 import json
+import os
+import posixpath
 import re
+import shlex
 import shutil
 from pathlib import Path
 
@@ -29,7 +33,7 @@ def load_table():
     return json.loads((Path(__file__).resolve().with_name(TABLE_NAME)).read_text(encoding="utf-8"))
 
 
-def _is_text(data):
+def _is_text(data) -> bool:
     if b"\x00" in data:
         return False
     try:
@@ -44,7 +48,7 @@ def _lf(text):
     return text if not text or text.endswith("\n") else text + "\n"
 
 
-def _json_bytes(obj):
+def _json_bytes(obj) -> bytes:
     return (json.dumps(obj, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
 
@@ -80,29 +84,41 @@ def _field(head, key):
     return None, None
 
 
+def _ensure_description(head, body, fallback) -> None:
+    """Add a one-line `description:` (first prose line of body, else fallback) when absent or empty; agy skips an item without one."""
+    i, val = _field(head, "description")
+    if val:
+        return
+    if i is not None:
+        del head[i]
+    first = next((ln.strip().lstrip("#>-* ").strip() for ln in body.split("\n")
+                  if ln.strip().lstrip("#>-* ").strip()), "") or fallback
+    head.append(f"description: {json.dumps(first[:200], ensure_ascii=False)}")
+
+
 class _Plan:
     """Collects translated files and the unmapped report; writes nothing until finished."""
 
-    def __init__(self, cfg, token_suffixes):
+    def __init__(self, cfg, token_suffixes) -> None:
         self.cfg = cfg
         self.files = {}
         self.unmapped = set()
         self.suffixes = tuple(token_suffixes)
 
-    def miss(self, kind, source, reason):
+    def miss(self, kind, source, reason) -> None:
         self.unmapped.add((kind, source, reason))
 
-    def put(self, rel, data, kind, source):
+    def put(self, rel, data, kind, source) -> bool:
         if rel in self.files:
             self.miss(kind, source, f"output path {rel} already produced by another source")
             return False
         self.files[rel] = data
         return True
 
-    def rewrite(self, text):
+    def rewrite(self, text) -> str:
         return TOKEN_RE.sub(lambda _m: self.cfg["plugin_root_token"], text)
 
-    def put_file(self, rel, src_path, kind, source):
+    def put_file(self, rel, src_path, kind, source) -> bool:
         """Copy one source file; text is LF-normalised and gets the plugin-root token rewritten."""
         data = src_path.read_bytes()
         if _is_text(data):
@@ -152,7 +168,7 @@ def _map_model(value, cfg):
     return None, f"model {value!r} is not a known tier"
 
 
-def _agents(plan, plugin_root):
+def _agents(plan, plugin_root) -> None:
     d = plugin_root / "agents"
     if not d.is_dir():
         return
@@ -163,20 +179,21 @@ def _agents(plan, plugin_root):
             continue
         text = plan.rewrite(_lf(p.read_text(encoding="utf-8")))
         head, body = _split_frontmatter(text)
-        if head is not None:
-            i, val = _field(head, "model")
-            if i is not None:
-                new, reason = _map_model(val, plan.cfg)
-                if new is None:
-                    del head[i]
-                    plan.miss("agent-model", src, reason)
-                else:
-                    head[i] = f"model: {new}"
-                text = _join_frontmatter(head, body)
+        head = list(head or [])
+        i, val = _field(head, "model")
+        if i is not None:
+            new, reason = _map_model(val, plan.cfg)
+            if new is None:
+                del head[i]
+                plan.miss("agent-model", src, reason)
+            else:
+                head[i] = f"model: {new}"
+        _ensure_description(head, body, _field(head, "name")[1] or Path(rel).stem)
+        text = _join_frontmatter(head, body)
         plan.put(src, text.encode("utf-8"), "agent", src)
 
 
-def _command_skills(plan, plugin_root):
+def _command_skills(plan, plugin_root) -> None:
     d = plugin_root / "commands"
     if not d.is_dir():
         return
@@ -197,10 +214,11 @@ def _command_skills(plan, plugin_root):
             head.insert(0, f"name: {name}")
         else:
             head[i] = f"name: {name}"
+        _ensure_description(head, body, name)
         _put_skill_md(plan, out, _join_frontmatter(head, body), src)
 
 
-def _put_skill_md(plan, out, text, src):
+def _put_skill_md(plan, out, text, src) -> None:
     data = text.encode("utf-8")
     cap = plan.cfg["max_text_bytes"]
     if len(data) > cap:
@@ -209,7 +227,7 @@ def _put_skill_md(plan, out, text, src):
     plan.put(out, data, "skill", src)
 
 
-def _skills(plan, plugin_root):
+def _skills(plan, plugin_root) -> None:
     d = plugin_root / "skills"
     if not d.is_dir():
         return
@@ -260,12 +278,231 @@ def _flatten_groups(groups, event, plan):
     return flat
 
 
-def _hook_name(event):
+def _hook_name(event) -> str:
     """agy hook name for one event's handlers: the event in kebab case (PreToolUse -> pre-tool-use)."""
     return re.sub(r"(?<!^)(?=[A-Z])", "-", event).lower()
 
 
-def _hooks(plan, plugin_root):
+SHIM_REL = "hooks/agy-hook-run.py"
+GUARD_REL = "unimatrix-host-guard.py"
+SHIM_SOURCE = '''"""agy hook launcher: runs the settings-home hook-run door with stdin mode `hook`, shell-neutral.
+
+argv: [--quiet] [--pass-2] [--host-guard <guard.py> --host agy] <hook-run args...>. --quiet drops the door's
+stderr; --pass-2 maps its exit 2 to 0; --host-guard first asks the host guard (shim, agy adapter, DIY nag)
+and answers with its deny or reasoned ask, else falls through to the door.
+An agy tool event (payload carries `toolCall`) is translated to the Claude shape for the door and the
+door's verdict back to an explicit agy decision (agy fails closed on `{}`); any other payload passes whole.
+"""
+import json
+import os
+import subprocess
+import sys
+import tomllib
+from pathlib import Path
+
+
+RESULT_KEYS = ("toolResult", "toolOutput", "toolResponse", "result", "output")
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
+def settings_home():
+    return Path(os.environ.get("COORDINATOR_SETTINGS_HOME") or Path.home() / ".coordinator-claude-settings")
+
+
+def engine_root():
+    """Published engine root: COORDINATOR_ENGINE_ROOT, else registry key repos.claude_klabauter; None on a miss."""
+    env = os.environ.get("COORDINATOR_ENGINE_ROOT")
+    if env and Path(env).is_dir():
+        return env
+    ml = Path(os.environ.get("MACHINE_LOCAL_REGISTRY_DIR") or settings_home() / "machine-local")
+    root = None
+    for name in ("registry.toml", "registry.local.toml"):
+        try:
+            data = tomllib.loads((ml / name).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        repos = data.get("repos")
+        root = (repos.get("claude_klabauter") if isinstance(repos, dict) else None) or data.get("repos.claude_klabauter") or root
+    return root if root and (Path(root) / "coordinator_core").is_dir() else None
+
+
+def guard_answer(payload, guard, host):
+    """The host guard's answer when it is a deny or an ask carrying a reason, else None (fall through to the door)."""
+    guard = Path(guard)
+    if not guard.is_file():
+        guard = settings_home() / "unimatrix" / guard.name
+    root = engine_root()
+    if not (root and guard.is_file()):
+        return None
+    try:
+        res = subprocess.run([sys.executable, str(guard), "--host", host, "--engine-root", root], input=payload,
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, creationflags=NO_WINDOW)
+        answer = json.loads(res.stdout)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(answer, dict) or res.returncode != 0:
+        return None
+    if answer.get("decision") == "deny" or (answer.get("decision") == "ask" and answer.get("reason")):
+        return answer
+    return None
+
+
+def agy_event(p):
+    """The hook event of an agy tool payload: its own name, else PostToolUse when it carries a tool result."""
+    name = p.get("hookEventName") or p.get("hook_event_name")
+    if name:
+        return str(name)
+    return "PostToolUse" if any(k in p for k in RESULT_KEYS) else "PreToolUse"
+
+
+def to_claude(raw):
+    """(payload bytes for the door, True) for an agy `toolCall` event, else (raw, False)."""
+    try:
+        p = json.loads(raw)
+    except ValueError:
+        return raw, False
+    call = p.get("toolCall") if isinstance(p, dict) else None
+    if not isinstance(call, dict):
+        return raw, False
+    args = call.get("args") if isinstance(call.get("args"), dict) else {}
+    name = str(call.get("name") or "")
+    if name == "run_command":
+        name, args = "Bash", {"command": str(args.get("CommandLine") or "")}
+    ws = p.get("workspacePaths")
+    cwd = str(ws[0]) if isinstance(ws, list) and ws else p.get("cwd") if isinstance(p.get("cwd"), str) else ""
+    out = {"hook_event_name": agy_event(p),
+           "session_id": str(p.get("conversationId") or "") or None, "cwd": cwd or None,
+           "tool_name": name, "tool_input": args}
+    return json.dumps(out).encode("utf-8"), True
+
+
+def to_agy(rc, out, err):
+    """The agy decision object for a door answer: deny and ask carry a reason, anything else is an explicit allow."""
+    try:
+        v = json.loads(out) if out.strip() else {}
+    except ValueError:
+        v = {}
+    v = dict(v) if isinstance(v, dict) else {}
+    nested = v.get("hookSpecificOutput")
+    if isinstance(nested, dict):
+        v.update(nested)
+    decision = str(v.get("permissionDecision") or v.get("decision") or "")
+    reason = str(v.get("permissionDecisionReason") or v.get("reason") or "").strip()
+    if decision in ("deny", "block") or (rc == 2 and not decision):
+        return {"decision": "deny", "reason": reason or err.strip() or "denied by coordinator guard"}
+    if decision in ("ask", "force_ask"):
+        return {"decision": decision, "reason": reason or "coordinator: confirm"}
+    return {"decision": "allow"}
+
+
+def main(argv):
+    quiet = "--quiet" in argv
+    pass_2 = "--pass-2" in argv
+    guard = argv[argv.index("--host-guard") + 1] if "--host-guard" in argv[:-1] else None
+    host = argv[argv.index("--host") + 1] if "--host" in argv[:-1] else "agy"
+    skip = {"--quiet", "--pass-2"}
+    if guard:
+        skip |= {"--host-guard", guard, "--host", host}
+    rest = [a for a in argv if a not in skip]
+    door = settings_home() / "bin" / ("hook-run.exe" if os.name == "nt" else "hook-run")
+    env = dict(os.environ, COORDINATOR_DOOR_STDIN_MODE="hook")
+    try:
+        payload = sys.stdin.buffer.read()
+    except (OSError, ValueError):
+        payload = b""
+    if guard:
+        answer = guard_answer(payload, guard, host)
+        if answer is not None:
+            sys.stdout.write(json.dumps(answer))
+            return 0
+    payload, agy = to_claude(payload)
+    extra = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE} if agy else {}
+    if not agy:
+        extra["stderr"] = subprocess.DEVNULL if quiet else None
+    try:
+        res = subprocess.run(
+            [str(door), *rest], env=env, input=payload, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), **extra,
+        )
+        rc = res.returncode
+    except OSError as exc:
+        sys.stderr.write("agy-hook-run: cannot run %s: %s\\n" % (door, exc))
+        return 127
+    if not agy:
+        return 0 if pass_2 and rc == 2 else rc
+    out = res.stdout.decode("utf-8", "replace")
+    err = res.stderr.decode("utf-8", "replace")
+    if err and not quiet:
+        sys.stderr.write(err)
+    if rc not in (0, 2):
+        sys.stdout.write(out)
+        return rc
+    if pass_2 and rc == 2:
+        rc = 0
+    sys.stdout.write("{}" if json.loads(payload)["hook_event_name"] == "PostToolUse" else json.dumps(to_agy(rc, out, err)))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
+'''
+DOOR_CMD_RE = re.compile(
+    r'COORDINATOR_DOOR_STDIN_MODE=hook "\$\{COORDINATOR_SETTINGS_HOME:-[^}]*\}/bin/hook-run"'
+    r"(?P<rest>(?: --advisory)? hooks\.\w+)(?P<quiet> 2>/dev/null)?"
+    r"(?P<pass2>; rc=\$\?; \[ \$rc -eq 2 \] && rc=0; exit \$rc)?"
+)
+BASH_ONLY_RE = re.compile(r"^\s*[A-Za-z_]\w*=|rc=\$\?|/dev/null|\$\{\w+:-")
+
+
+def _agy_python():
+    """Interpreter name agy resolves on PATH: Windows has `python`, never a working `python3`."""
+    return "python" if os.name == "nt" else "python3"
+
+
+def _agy_hook_command(command, out_dir):
+    """The shell-neutral launcher command for one Claude door hook command, else None.
+
+    The shim path is baked absolute: agy on Windows hands `${PLUGIN_ROOT}` to python unexpanded and
+    keeps literal quotes, so the path is quoted only when it holds a space.
+    """
+    m = DOOR_CMD_RE.fullmatch(command)
+    if not m:
+        return None
+    flags = (" --quiet" if m["quiet"] else "") + (" --pass-2" if m["pass2"] else "")
+    root = str(out_dir).replace(chr(92), "/").rstrip("/")
+    if m["rest"].strip() == "hooks.preuse_bash_dispatch":
+        flags += f" --host-guard {_quote_if_space(posixpath.dirname(root) + '/' + GUARD_REL)} --host agy"
+    return f"{_agy_python()} {_quote_if_space(f'{root}/{SHIM_REL}')}{flags}{m['rest']}"
+
+
+def _quote_if_space(path):
+    return f'"{path}"' if " " in path else path
+
+
+def _fold_args(command, args):
+    """One command line for a single-token `command` with an `args` list, else None.
+
+    agy runs only `command`; a bare `python3` would read the stdin payload as its program.
+    """
+    if not (isinstance(args, list) and args and all(isinstance(a, str) for a in args)):
+        return None
+    if not command or re.search(r"\s", command):
+        return None
+    exe = _agy_python() if command in ("python", "python3") else command
+    return _win_cmdline([exe, *args]) if os.name == "nt" else shlex.join([exe, *args])
+
+
+def _win_cmdline(argv):
+    """argv joined by the MS C runtime quoting rules (the inverse of CommandLineToArgvW)."""
+    def quote(a):
+        if a and not re.search(r'[\s"]', a):
+            return a
+        a = re.sub(r'(\\*)"', lambda m: m[1] * 2 + '\\"', a)
+        a = re.sub(r"(\\+)$", lambda m: m[1] * 2, a)
+        return f'"{a}"'
+    return " ".join(quote(a) for a in argv)
+
+
+def _hooks(plan, plugin_root) -> None:
     src = plugin_root / "hooks" / "hooks.json"
     if not src.is_file():
         return
@@ -276,12 +513,30 @@ def _hooks(plan, plugin_root):
         return
     drop = set(plan.cfg["hook_drop_fields"])
 
+    shim = []
+
     def clean(o):
         if isinstance(o, dict):
-            return {k: clean(v) for k, v in o.items() if k not in drop}
+            out = {k: clean(v) for k, v in o.items() if k not in drop}
+            command = out.get("command")
+            if isinstance(command, str):
+                folded = _fold_args(command, out.get("args"))
+                if folded:
+                    out["command"] = folded
+                    out.pop("args")
+                    return out
+                neutral = _agy_hook_command(command, plan.out_dir)
+                if neutral:
+                    out["command"] = neutral
+                    out.pop("shell", None)
+                    shim.append(True)
+                elif BASH_ONLY_RE.search(command):
+                    plan.miss("hook-command", "hooks/hooks.json", f"bash-only syntax in command {command[:60]!r}")
+            return out
         if isinstance(o, list):
             return [clean(v) for v in o]
-        return plan.rewrite(o) if isinstance(o, str) else o
+        # agy expands no ${PLUGIN_ROOT} in a hook arg on Windows: bake the dest dir into every string.
+        return plan.rewrite(o).replace(plan.cfg["plugin_root_token"], plan.out_dir) if isinstance(o, str) else o
 
     data = clean(data)
     events = data.get("hooks") if isinstance(data, dict) else None
@@ -300,9 +555,11 @@ def _hooks(plan, plugin_root):
                     group["matcher"] = _hook_matcher(group["matcher"], event, plan)
     named = {_hook_name(event): {event: events[event]} for event in sorted(events)} if isinstance(events, dict) else {}
     plan.put(plan.cfg["hooks_path"], _json_bytes(named), "hooks", "hooks/hooks.json")
+    if shim:
+        plan.put(SHIM_REL, SHIM_SOURCE.encode("utf-8"), "hooks", "hooks/hooks.json")
 
 
-def _rules(plan, plugin_root):
+def _rules(plan, plugin_root) -> None:
     text = _doctrine_text(plugin_root)
     if text is None:
         plan.miss("rules", DOCTRINE_SOURCES[0], "no global-doctrine/CLAUDE.md beside the plugin root")
@@ -323,7 +580,7 @@ def _rules(plan, plugin_root):
     plan.put(plan.cfg["rules_path"], data, "rules", DOCTRINE_SOURCES[0])
 
 
-def _manifest(plan, plugin_root):
+def _manifest(plan, plugin_root) -> None:
     """plugin.json at the output root: name, version, description, logo from the source manifest."""
     src = plugin_root / plan.cfg["source_manifest_path"]
     source = {}
@@ -348,7 +605,7 @@ def _manifest(plan, plugin_root):
     plan.put(plan.cfg["manifest_path"], _json_bytes(manifest), "manifest", plan.cfg["source_manifest_path"])
 
 
-def _copied_dirs(plan, plugin_root):
+def _copied_dirs(plan, plugin_root) -> None:
     for name in plan.cfg["copy_dirs"]:
         d = plugin_root / name
         if not d.is_dir():
@@ -359,7 +616,7 @@ def _copied_dirs(plan, plugin_root):
             plan.put_file(f"{name}/{rel}", p, "file", f"{name}/{rel}")
 
 
-def _unhandled_top_level(plan, plugin_root):
+def _unhandled_top_level(plan, plugin_root) -> None:
     handled = {"agents", "commands", "skills", "hooks", *plan.cfg["copy_dirs"], *plan.cfg["ignore_top_level"]}
     for child in sorted(plugin_root.iterdir(), key=lambda c: c.name):
         if child.name not in handled and child.name not in SKIP_NAMES:
@@ -385,7 +642,7 @@ def _prepare_out(out_dir, plugin_root):
     return out
 
 
-def generate(plugin_root, out_dir, host="agy"):
+def generate(plugin_root, out_dir, host: str = "agy"):
     """Write `host`'s plugin tree for `plugin_root` into `out_dir`.
 
     Returns {"written": [sorted posix rel paths, UNMAPPED.json included],
@@ -401,6 +658,7 @@ def generate(plugin_root, out_dir, host="agy"):
     if not plugin_root.is_dir():
         raise ValueError(f"plugin root {plugin_root} is not a directory")
     plan = _Plan(cfg, cfg.get("token_suffixes", ()))
+    plan.out_dir = out_dir.resolve().as_posix()
     if not cfg:
         for kind, source in _inventory(plugin_root):
             plan.miss(kind, source, NO_MAP)
@@ -422,3 +680,16 @@ def generate(plugin_root, out_dir, host="agy"):
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(plan.files[rel])
     return {"written": written, "unmapped": unmapped}
+
+
+def main(argv: list[str]) -> int:
+    """Library module: only `--help` is answered; anything else exits 2 with nothing to run."""
+    if any(a in ("-h", "--help") for a in argv):
+        print("usage: unimatrix-plugin-gen [-h]\ntranslate a coordinator plugin tree into a host-plugin tree (library module)")
+        return 0
+    print("unimatrix-plugin-gen: library module; nothing to run", file=__import__("sys").stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(__import__("sys").argv[1:]))

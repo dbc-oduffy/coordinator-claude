@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """pm-brief — thin CLI over `coordinator/bin/lib/pm_brief.py`.
 
 `render --for executor|reviewer <plan>` prints the `## PM intent (verbatim)` block that module

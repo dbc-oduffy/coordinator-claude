@@ -1,4 +1,4 @@
-# Unix shebang.
+#!/usr/bin/env python3
 """classify-env-var-callers.py — mechanical bucket enumerator for the engine-root
 ENV VAR retirement (C20, docs/plans/2026-08-20-an-engine-root-is-not-named-for-the-repo.md).
 

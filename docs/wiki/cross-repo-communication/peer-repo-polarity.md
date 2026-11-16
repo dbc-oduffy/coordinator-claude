@@ -1,3 +1,11 @@
+---
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
+    omitted_reasons:
+      archived_spec: private-source
+---
+
 # Peer-Repo Polarity — UE Specialization vs. Common-Language Core
 
 States which sibling repo owns which capability across the UE-specialization / common-language-core split.
@@ -19,6 +27,9 @@ After multi-rag-coexistence (PR-10/13/15) split engine-RAG production out of exa
 **The rule** (codified in project-rag-core's `feedback_addon_vs_core_polarity` memory):
 
 > **UE-specialization migrates OUT to addon; new common-language corpora (Python / TS / Rust) stay IN-TREE as core. Don't invert.**
+
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-1-034 -->
+The rule above was first codified 2026-05-13; the wiki holds the layout.
 
 Inverting this — putting UE-aware analysis into core, or putting language-agnostic infrastructure into the addon — re-introduces the polarity error PR-10/13/15 fixed.
 

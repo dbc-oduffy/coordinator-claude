@@ -10,7 +10,7 @@ allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskU
 
 **Trigger:** a reviewable artifact exists (plan/design doc/RFC, code change, roadmap spine/sprint slice) — outgoing when unreviewed, incoming when a reviewer's findings have landed.
 
-**When NOT to use:** frozen weekly diff at `/workweek-complete` Step 7 → `coordinator:parallel-code-review`. Stuck/oscillating → self-monitor, don't dispatch a reviewer. Pure mechanical citation check → `docs-checker` directly. `--surface plan` mid-drafting, `--surface diff` mid-implementation, or `--surface roadmap` before the PM has shape-approved the spine → keep working. A finding about how one stub will be BUILT is plan altitude → that stub's own plan review. `--surface diff` pure test-output classification → capture output to a file, run `bin/weekly-gate-tests.py --test-output` on it.
+**When NOT to use:** frozen weekly diff at `/workweek-complete` Step 7 → `coordinator:parallel-code-review`. Stuck/oscillating → self-monitor, don't dispatch a reviewer. Pure mechanical citation check → `docs-checker` directly. `--surface plan` mid-drafting, `--surface diff` mid-implementation, or `--surface roadmap` before the PM has shape-approved the spine → keep working. A finding about how one stub will be BUILT is plan altitude → that stub's own plan review. `--surface diff` pure test-output classification → capture output to a file, run `"$_py" <plugin-root>/bin/weekly-gate-tests.py --test-output` on it.
 
 `--surface` is resolved before this skill loads. Surface-scoped pre-flight, tiers, sequencing and prior-art mutability come from `review-assemble brief` (segments: `coordinator/skills/review/residue/`).
 
@@ -37,7 +37,8 @@ No producer automates reviewer selection yet. Until then:
 - **the Director of Engineering:** cross-team/consumer-leak signal → standalone primary (director-altitude posture in brief; no `mode` arg), skip the Staff Engineer.
 - `--reviewers "a,b"` skips auto-detection; report "PM-directed review: [a] then [b]."
 - One reviewer suffices unless a second would likely *contradict*.
-- **Peer lens (opt-in, EM-run):** a live Codex or agy peer may be consulted as an additional reviewer, never a persona; not a dispatched step, never gating, silent when no peer is live. Contract: [live-peer-consult.md § Peer lens in pipelines](../../docs/wiki/cross-repo-communication/live-peer-consult.md#peer-lens-in-pipelines).
+- **Peer lens (opt-in, EM-run):** a live Codex or agy peer may be consulted as an additional reviewer, never a persona; not a dispatched step, never gating, silent when no peer is live. Contract: [docs/wiki/cross-repo-communication/live-peer-consult.md § Peer lens in pipelines](../../docs/wiki/cross-repo-communication/live-peer-consult.md#peer-lens-in-pipelines).
+- **Family binding (opt-in):** a run whose brief names `coordinator/pipelines/stage-family-binding.yaml` runs review stages on codex via `coordinator:family-stage-runner`, Claude fallback on `BLOCKED`/`FAILED`.
 
 Pipeline phases aren't optional — walk the assembled phase list.
 

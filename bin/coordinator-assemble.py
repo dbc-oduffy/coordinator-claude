@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # coordinator-assemble.py — one dispatcher, a subcommand per current
 # `-assemble` entry point, batching multiple subcommands into ONE
 # interpreter invocation.

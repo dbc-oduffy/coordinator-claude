@@ -529,7 +529,7 @@ Sibling EMs in all repos may amend this wiki on receipt — doctrine-seeding und
 - Wrong-version installs that satisfy PATH presence but fail runtime requirements
 - Shims that delegate to absent interpreters
 
-The `--preflight` gate (`scripts/setup.py --preflight`) uses **functional probes** from `coordinator_core.install.prereq_probe` (native Python port) — each probe executes a minimal runtime operation to confirm the tool actually works, not just exists. This is FB-2 (functional-not-existence probe) as a required rule for any install-surface prerequisite check added to the coordinator. Existence checks are acceptable only for optional informational rows in the status table (never for hard or advisory gates).
+The `--preflight` gate (`python3 scripts/setup.py --preflight`) uses **functional probes** from `coordinator_core.install.prereq_probe` (native Python port) — each probe executes a minimal runtime operation to confirm the tool actually works, not just exists. This is FB-2 (functional-not-existence probe) as a required rule for any install-surface prerequisite check added to the coordinator. Existence checks are acceptable only for optional informational rows in the status table (never for hard or advisory gates).
 
 ### Advisory-WARN gate severity for post-consumer gates
 

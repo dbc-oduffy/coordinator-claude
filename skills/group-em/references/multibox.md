@@ -46,6 +46,9 @@ Two primitives, both the engine's:
 - **Compute shards.** Splitting one long job is an op-level shard runner, not a Claude session.
   (`engine pending`)
 
+Embedding and semantic-index builds (project-rag, project-rag-ue-addon) are placed on the
+Windows box, never granted a Mac capacity slot.
+
 The G-EM owns the placement GO/HOLD terms and the event definition. A box marked UE/p4-absent in
 the registry never receives UE work. Cockpit session spawn is a future primitive (`after
 hardware`); until then a remote session is a headless `claude -p` job over the shell key.

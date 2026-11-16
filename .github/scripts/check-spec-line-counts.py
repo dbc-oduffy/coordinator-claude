@@ -18,7 +18,7 @@ SPEC_PATTERNS = [
     "*/pipelines/*/PIPELINE.md",
 ]
 
-def main():
+def main() -> int:
     errors = []
 
     if not PLUGINS_ROOT.is_dir():

@@ -44,6 +44,7 @@ to Sonnet at low effort.
     and leave the original row's writes untouched;
   - an unquoted `on:` key read as boolean: quote it (`"on":`).
   Each edit is the repair the bar line names; any class not cited by a bar line stays untouched.
+- A census entry or plan row you write names no hardcoded drive root for a data/cache/scratch/run-output root; it names a settings-home key, a missing key a typed refusal naming the key (`coordinator/docs/wiki/coordinator-tripwires/a-hardcoded-data-root-is-not-exempt-under-an-escape-token.md`).
 - No `ui_carve_out`: a proposed carve-out is an `Escalate to PM` line in your summary.
 - No scaffold, no `status` change, no `mise_prepped_*` key, no body edit beyond a named class.
 - Never fill a capability row with a plausible guess to clear a refusal. Declare empty only where

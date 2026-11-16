@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """query-record-history.py — CLI trampoline over the records.history engine op.
 
 No shebang line: like this directory's other generator-owned two-leg

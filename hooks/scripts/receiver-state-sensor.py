@@ -96,7 +96,7 @@ try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_engine_root  # noqa: E402
 except Exception:
     # Fail-open rather than crash on import if deployed without its sibling _engine_root.py.
-    def _resolve_engine_root():  # type: ignore[misc]
+    def _resolve_engine_root() -> None:  # type: ignore[misc]
         return None
 
 
@@ -129,7 +129,9 @@ def _log_degradation(
                 )
                 if out.returncode != 0 or not out.stdout.strip():
                     return
-                log_dir = Path(out.stdout.strip()) / "coordinator-sessions" / "logs"
+                from _session_hub_path import hub_for_common
+
+                log_dir = hub_for_common(Path(out.stdout.strip())) / "logs"
                 log_dir.mkdir(parents=True, exist_ok=True)
                 stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                 parts = [f"[{stamp}] {token}"]

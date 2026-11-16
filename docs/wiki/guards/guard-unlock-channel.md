@@ -23,7 +23,10 @@ A deny fires. In order:
    able to do.
 3. **Never route around it.** A sentinel file, a `COORDINATOR_OVERRIDE_*` / `COORDINATOR_ALLOW_*`
    variable, a relaunch to reset one, or a request that a person clear the deny are all the same
-   violation: they turn a guard defect into a human chore.
+   violation: they turn a guard defect into a human chore. So is reshaping the call to slip past
+   the matcher (a split path string, a python or heredoc reroute, a private index), even for a plain
+   false positive: send the owner the exact command and denial instead
+   ([A-GUARD-DENYING-AN-EM-COMMIT-IS-A-GUARD-DEFECT](../coordinator-tripwires/a-guard-denying-an-em-commit-is-a-guard-defect.md)).
 
 A guard that gates irreversible harm still holds. The route for it is the same: the owner fixes
 the guard (narrows its scope, adds the machine step it was missing, or removes it). Nobody

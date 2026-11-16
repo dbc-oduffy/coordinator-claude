@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Make each local unimatrix mirror look exactly like a session the harness wrote itself.
 
 - Key file: <pid>.<sha256(socket path)>.key. On Windows the harness hashes the pipe
@@ -48,4 +49,7 @@ def main():
 
 
 if __name__ == "__main__":
+    if any(_a in ("-h", "--help") for _a in __import__("sys").argv[1:]):
+        print("usage: unimatrix-rekey [-h]\nrewrite local unimatrix mirror key files to match harness-written sessions")
+        raise SystemExit(0)
     main()

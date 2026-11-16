@@ -56,7 +56,7 @@ DISPOSITION (C6c, docs/plans/2026-08-06-hook-spawn-fan-in-finish-and-extend.md
 § C6c -- the C1 test applied up front): explicitly no-subprocess by design,
 no `coordinator_core` reference. The only read/write beyond the in-process
 git-root walk is the once-per-session `exploration-tier-dispatch-offered`
-marker file it creates itself under `<git_common_dir>/coordinator-sessions/
+marker file it creates itself under `<session hub>/
 <session_id>/` -- generic per-session dedupe bookkeeping, never a read of
 this repo's own doctrine working-data (docs/plans, state/*, agents/*.md, etc.). Same
 "common_dir" scope shape `coordinator_core.hooks.track_touched_files`
@@ -85,7 +85,8 @@ _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 
-from _message_envelope import CHANNEL_ADDITIONAL_CONTEXT, compose, emit  # noqa: E402
+from _message_envelope import CHANNEL_ADDITIONAL_CONTEXT, Message, compose, emit  # noqa: E402
+from _session_hub_path import hub_for_common  # noqa: E402
 try:
     from _git_common_dir import resolve_git_common_dir as _resolve_git_common_dir  # noqa: E402
 except Exception:
@@ -167,7 +168,7 @@ _OFFER_PROSE = (
 )
 
 
-def _compose_offer_message():
+def _compose_offer_message() -> Message:
     """The pure composer, isolated from stdin/exit-code plumbing -- see
     module docstring for the load-bearing "why unnamed" rule this message
     still states. The token-cost figures and the mechanism explanation
@@ -225,7 +226,7 @@ def _claim_offer_marker(cwd: str, session_id: str) -> bool:
         common_dir = _resolve_git_common_dir(git_root)
         if not common_dir:
             return True
-        session_dir = os.path.join(common_dir, "coordinator-sessions", session_id)
+        session_dir = str(hub_for_common(Path(common_dir)) / session_id)
         # A session id the hub gate rejects gets no directory minted for its marker,
         # which leaves dedup impossible -- the same fail-open-toward-offering exit.
         if not session_id_is_real(session_id):

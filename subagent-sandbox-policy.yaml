@@ -83,6 +83,8 @@ report_type_map:
   coordinator:executor: run-report
   coordinator:enricher: run-report
   coordinator:distill-writer: run-report
+  coordinator:distill-synth: run-report
+  coordinator:lesson-synth: run-report
   coordinator:code-reviewer: review-findings
   coordinator:code-reviewer-weekly: review-findings
   coordinator:plan-coverage-checker: review-findings
@@ -127,6 +129,7 @@ report_type_map:
   coordinator:exit-criterion-judge: run-report
   coordinator:objective-reacher: run-report
   coordinator:group-em-assistant: run-report
+  coordinator:family-stage-runner: run-report
   coordinator:repo-scout: assessment
   coordinator:repo-specialist: assessment
   coordinator:research-scout: assessment
@@ -250,6 +253,7 @@ dispatch_tier:
   
   
   coordinator:group-em-assistant: exploration
+  coordinator:family-stage-runner: exploration
   
   
   coordinator:atlas-clarity-reviewer: review-execution
@@ -257,6 +261,8 @@ dispatch_tier:
   
   coordinator:workflow-maker: exploration
   coordinator:distill-writer: exploration
+  coordinator:distill-synth: exploration
+  coordinator:lesson-synth: exploration
   
   
   coordinator:premise-checker: review-execution
@@ -479,6 +485,10 @@ contract_blocks:
   coordinator:workflow-maker:
     - inline-return-cap
   coordinator:distill-writer:
+    - inline-return-cap
+  coordinator:distill-synth:
+    - inline-return-cap
+  coordinator:lesson-synth:
     - inline-return-cap
   coordinator:falsifier-integrity-reviewer:
     - inline-return-cap

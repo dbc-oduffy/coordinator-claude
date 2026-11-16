@@ -1,6 +1,4 @@
-# Unix shebang — see resolve-repo-path.py's header note: gen-launcher-shim.py's
-# --ensure-unix mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD); this
-# line is no longer regenerated but is kept for parity with its bin/ siblings.
+#!/usr/bin/env python3
 """check-doctrine-citations.py — refuse a doctrine citation that resolves to
 nothing, or to more than one doctrine tree.
 

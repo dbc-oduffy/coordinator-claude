@@ -16,7 +16,7 @@ TARGETS = [
 
 MEMORY_TYPE_VALUES = {"user", "feedback", "project", "reference"}
 
-def validate_file(path: pathlib.Path, required_fields: list[str], errors: list):
+def validate_file(path: pathlib.Path, required_fields: list[str], errors: list) -> None:
     text = path.read_text(encoding="utf-8")
     if not text.startswith("---"):
         errors.append(f"{path}: missing frontmatter delimiter (must start with ---)")
@@ -47,7 +47,7 @@ def validate_file(path: pathlib.Path, required_fields: list[str], errors: list):
             errors.append(f"{path}: 'allowed-tools' must be a YAML list")
 
 
-def validate_memory_file(path: pathlib.Path, errors: list):
+def validate_memory_file(path: pathlib.Path, errors: list) -> None:
     """Validate memory file frontmatter with enum check on 'type'."""
     text = path.read_text(encoding="utf-8")
     if not text.startswith("---"):
@@ -79,7 +79,7 @@ def validate_memory_file(path: pathlib.Path, errors: list):
         errors.append(f"{path}: 'type' must be one of {sorted(MEMORY_TYPE_VALUES)}, got '{mem_type}'")
 
 
-def main():
+def main() -> int:
     errors = []
 
     if not PLUGINS_ROOT.is_dir():

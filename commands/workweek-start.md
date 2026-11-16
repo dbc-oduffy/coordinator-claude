@@ -1,6 +1,6 @@
 ---
 name: workweek-start
-description: "Weekly orient — review last week, set this week's priorities."
+description: "Weekly orient: review last week, set priorities."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
 argument-hint: ""
 ---
@@ -72,6 +72,9 @@ it or record why not.
 
 **Anchor-freshness flag.** `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-anchor-freshness"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\check-anchor-freshness.exe"`, same arguments) — render the flag
 line as printed; silence is not a finding. Coordinator plugin triple only.
+
+**LSP pin freshness.** `python "${CLAUDE_PLUGIN_ROOT}/scripts/lsp_front_pin_freshness.py"` — render each `BUMP <key> pinned=… latest=…` row as a bump item
+(bump: edit `scripts/lsp_front_pins.json`, run `scripts/lsp_front_measure.py` before and after, keep only if not slower, commit); the offline `skipped` line is a could-not-check, not a finding. Report-only; never bump here.
 
 **Scratch purge + hold nag.** `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" fleet.scratch_hygiene '{"repo_root":"<repo-root>","cadence":"workweek_start","apply":false}'`
 (Shape per `resolve-coordinator-bin.md`). Dry-run first; re-run with `"apply":true` only when the
@@ -176,7 +179,7 @@ goal artifact it produced:
 ### Goal-Coverage Sweep
 
 After authoring this week's goals, run the read-only coverage scan over all active goals via
-`bin/goal-coverage-scan.py --format text`. For each zero-coverage goal, prompt individually:
+`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/goal-coverage-scan" --format text` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\goal-coverage-scan.exe"`, same arguments). For each zero-coverage goal, prompt individually:
 _"Goal `<title>` has no in-flight work — spin off a stub? (routes to `/spinoff` or
 `/roadmap-planning`)"_ — propose-only, wait for the PM's literal invocation. No zero-coverage
 goals: note the count and continue. No active goals: skip silently.
@@ -250,8 +253,15 @@ internally; never sequence prune and maintenance as separate call-site steps.
 ## Step 10: Chain into /workday-start
 
 A new week's first session is also a new workday. Invoke `Skill(coordinator:workday-start)`
-unconditionally — it short-circuits itself if already run today. The one sanctioned index refresh
+unconditionally — it short-circuits itself if already run today. The structural index refresh
 lives in `Skill(coordinator:workday-start)`; this command starts none.
+
+**Weekly embedding refresh.** After the chain, only on the fleet embed box (`machine-local get coordinator.machine_slug` equals `machine-local get fleet.embed_box`;
+unset key = refusal naming the key, no fallback box; every other box, branch owners included, skips this pass),
+for every repo whose vectors are behind HEAD whoever owns its branch, run project-rag's `project_rag_cli.py reindex --incremental` (`machine-local get repos.project_rag`;
+existing vectors reused, never a bare or full reindex) only after `box-memory-snapshot.py --admit-peak <GiB>` admits; HOLD
+(exit 4) or any other non-admission means skip and name that repo in the summary, never silently. Per-box caps are machine-local config. The UE engine corpus is
+excluded (`coordinator/docs/wiki/coordinator-tripwires/a-branch-owner-builds-the-index-and-no-trigger-embeds.md`).
 
 After the chained `/workday-start` returns, emit the combined summary below.
 

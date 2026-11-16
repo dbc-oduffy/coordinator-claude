@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """warm-read-load-probe.py -- what does a fixed op mix cost the warm server's pool workers in read bytes and CPU.
 
 Resolves the live warm server (process scan for `coordinator_core/warm/server.py`, confirmed against
@@ -28,6 +29,7 @@ from pathlib import Path
 
 import lib  # noqa: F401,E402 -- bootstraps coordinator/bin/lib onto sys.path
 from cc_invoke import require_colocated_engine_on_path  # noqa: E402
+from python_interp import python_argv  # noqa: E402
 
 _REPO = Path(require_colocated_engine_on_path(__file__))
 
@@ -354,8 +356,11 @@ def _run_driver(code: str, engine_root: Path, cwd: Path, spec: dict, timeout: fl
     env = dict(os.environ)
     for key in ("PYTEST_CURRENT_TEST", "COORDINATOR_SESSION_ID", "CLAUDE_SESSION_ID"):
         env.pop(key, None)
+    argv = python_argv("-I", "-c", code, str(engine_root))
+    if argv is None:
+        raise FileNotFoundError("no console Python interpreter resolvable")
     proc = subprocess.run(
-        [sys.executable, "-I", "-c", code, str(engine_root)],
+        argv,
         input=json.dumps(spec),
         capture_output=True,
         text=True,

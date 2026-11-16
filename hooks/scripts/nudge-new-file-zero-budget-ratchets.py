@@ -154,7 +154,7 @@ def _git_ls_files_error_unmatch(repo_root: str, relpath: str) -> bool:
     return proc.returncode == 0
 
 
-def _classify_leg(candidate: Path):
+def _classify_leg(candidate: Path) -> tuple[str, Path, str] | None:
     """`(leg, root, rel)` for `candidate` if it resolves inside this repo's own tree
     ("local") or a resolvable engine-plane checkout ("engine"); `None` if neither --
     fail-open, no nudge for a path this hook can't place."""

@@ -74,12 +74,18 @@ def configured_window(settings: dict | None = None) -> float | None:
 
 
 def threshold_tokens(window_size: object, settings: dict | None = None) -> tuple[float | None, str]:
-    """(tokens at which auto-compaction fires, provenance) or (None, why-unknown)."""
+    """(tokens at which auto-compaction fires, provenance) or (None, why-unknown).
+
+    `settings` is the parsed user settings dict. A bare `env` block (no `env` or `autoCompactWindow`
+    key) is accepted as `{"env": block}` for callers that still pass `_settings_env()`.
+    """
     model_window = _number(window_size)
     if model_window is None:
         return None, "window size unknown"
     if settings is None:
         settings = _settings()
+    elif "env" not in settings and WINDOW_KEY not in settings:
+        settings = {"env": settings}
     env_block = settings.get("env")
     window = min(configured_window(settings) or model_window, model_window)
     pct = configured(PCT_ENV, env_block if isinstance(env_block, dict) else {})
@@ -108,7 +114,7 @@ def apply_default_to_file(path: Path) -> bool:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp-%d" % os.getpid())
     try:
-        tmp.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+        tmp.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8", newline="\n")
         os.replace(tmp, path)
     except OSError:
         tmp.unlink(missing_ok=True)

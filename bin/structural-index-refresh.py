@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """structural-index-refresh -- never-blocking ceremony hook for project-rag's `ensure`.
 
 Keeps `<repo>/.structural-index/` current by running project-rag's
@@ -40,13 +41,14 @@ import time
 from pathlib import Path
 from typing import Optional
 
-# The published transform runs this source with no `__file__`; there the
-# engine is already importable.
-if "__file__" in globals():
-    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
-    from cc_invoke import ensure_engine_on_path
+def _bootstrap() -> None:
+    """Put `lib` and the engine on `sys.path`. The published transform runs this source with
+    no `__file__`; there the engine is already importable."""
+    if "__file__" in globals():
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+        from cc_invoke import ensure_engine_on_path
 
-    ensure_engine_on_path(__file__)
+        ensure_engine_on_path(__file__)
 
 
 def _python() -> str:
@@ -396,6 +398,7 @@ def flag_staleness(root: Path, env: Optional[dict] = None) -> Optional[str]:
 
 
 def main(argv: Optional[list] = None) -> int:
+    _bootstrap()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", default=".", help="repo root (default: cwd)")
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)

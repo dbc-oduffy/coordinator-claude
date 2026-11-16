@@ -94,6 +94,7 @@ from __future__ import annotations
 import ast
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 PACKAGE_NAME = "coordinator_core"
@@ -405,7 +406,9 @@ def _extract_top_level_imports(py_source: str, filename: str) -> tuple[set[str],
     return bare_names, module_refs
 
 
-def _extract_from_tree(tree: ast.Module) -> tuple[set[str], set[str], set[str]]:
+def _extract_from_tree(
+    tree: ast.Module, nodes: list[ast.stmt] | None = None
+) -> tuple[set[str], set[str], set[str]]:
     """`_extract_top_level_imports`'s body over an already-parsed module.
 
     Split out so the walk parses each file ONCE: this single walk populates
@@ -426,7 +429,7 @@ def _extract_from_tree(tree: ast.Module) -> tuple[set[str], set[str], set[str]]:
     bare_names: set[str] = set()
     never_published: set[str] = set()
     module_refs: set[str] = set()
-    for node in _unguarded_import_nodes(tree):
+    for node in _unguarded_import_nodes(tree) if nodes is None else nodes:
         if isinstance(node, ast.ImportFrom):
             if node.level:
                 continue
@@ -469,7 +472,7 @@ def _resolves_in_tree(tree_root: Path, entry: str) -> bool:
     return candidate.with_suffix(".py").is_file() or candidate.is_dir()
 
 
-def _package_init_attribute_names(tree_root: Path) -> set[str]:
+def _package_init_attribute_names(tree_root: Path, cache=None) -> set[str]:
     """Names `coordinator_core/__init__.py` itself binds or declares
     exported, checked ONLY against `from coordinator_core import X` (the
     ambiguous bare shape — see `_extract_top_level_imports`). Two sources,
@@ -487,11 +490,30 @@ def _package_init_attribute_names(tree_root: Path) -> set[str]:
     Returns an empty set if `__init__.py` is absent from the tree (e.g. row
     1 someday stops publishing it) — a bare `from coordinator_core import X`
     then has nothing to resolve against but `_resolves_in_tree`, as it
-    should."""
+    should.
+
+    With `cache` (a `GateResultCache`), the names are served by the file's
+    content sha256 and parsed only on a miss."""
     init_file = tree_root / "__init__.py"
     if not init_file.is_file():
         return set()
-    tree = ast.parse(init_file.read_text(encoding="utf-8"), filename="__init__.py")
+    raw = init_file.read_bytes()
+    key = cache.key("", raw, _INIT_ATTRS_DIGEST) if cache is not None else None
+    if key is not None:
+        hit = cache.get(key)
+        if isinstance(hit, list):
+            return set(hit)
+    names = _init_attribute_names(raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n"))
+    if key is not None:
+        cache.put(key, sorted(names))
+    return names
+
+
+_INIT_ATTRS_DIGEST = "import-closure-init-attrs"
+
+
+def _init_attribute_names(source: str) -> set[str]:
+    tree = ast.parse(source, filename="__init__.py")
     names: set[str] = set()
     for node in tree.body:
         if isinstance(node, ast.ImportFrom):
@@ -515,10 +537,34 @@ def _module_present(base: Path, dotted: str) -> bool:
     return candidate.with_suffix(".py").is_file() or (candidate / "__init__.py").is_file()
 
 
+def _first_party_candidates(nodes: list[ast.stmt]) -> set[str]:
+    """Dotted module names the unguarded absolute imports in `nodes` name, minus
+    `coordinator_core` and `NEVER_PUBLISHED_ROOTS`. Pure content: the stdlib
+    filter is applied by `_dropped_first_party_modules` at use, because the
+    stdlib name set belongs to the running interpreter, not to the file."""
+    names: set[str] = set()
+    for node in nodes:
+        if isinstance(node, ast.ImportFrom):
+            if node.level or not node.module:
+                continue
+            found = [node.module]
+        else:
+            found = [alias.name for alias in node.names]
+        for name in found:
+            top = name.split(".", 1)[0]
+            if top != PACKAGE_NAME and top not in NEVER_PUBLISHED_ROOTS:
+                names.add(name)
+    return names
+
+
 def _dropped_first_party_modules(
-    tree: ast.Module, rel: str, tree_root: Path, source_root: Path
+    candidates: "set[str] | list[str]",
+    rel: str,
+    tree_root: Path,
+    source_root: Path,
+    present: dict[tuple[Path, str], bool],
 ) -> set[str]:
-    """Dotted modules an unguarded absolute import in `tree` names that the
+    """Dotted modules among `candidates` (`_first_party_candidates`) that the
     source tree carries and the restricted tree dropped.
 
     Candidate bases, same rule as the landing detector: the tree root, the
@@ -526,34 +572,80 @@ def _dropped_first_party_modules(
     inside `tree_root` is present; one resolving only under `source_root` is
     dropped. stdlib, `coordinator_core`, `NEVER_PUBLISHED_ROOTS` and names
     found in neither tree (third-party, other publish rows) are never
-    reported — cross-row resolution stays out of scope."""
+    reported — cross-row resolution stays out of scope. `present` memoizes
+    `_module_present` for one call (the same base/name pair recurs across
+    files)."""
+
+    def is_present(base: Path, name: str) -> bool:
+        key = (base, name)
+        if key not in present:
+            present[key] = _module_present(base, name)
+        return present[key]
+
     importer_dir = Path(rel).parent
     bases = (Path(), importer_dir, Path("src"))
     dropped: set[str] = set()
-    for node in _unguarded_import_nodes(tree):
-        if isinstance(node, ast.ImportFrom):
-            if node.level or not node.module:
-                continue
-            names = [node.module]
-        else:
-            names = [alias.name for alias in node.names]
-        for name in names:
-            top = name.split(".", 1)[0]
-            if (
-                top == PACKAGE_NAME
-                or top in NEVER_PUBLISHED_ROOTS
-                or top in sys.stdlib_module_names
-            ):
-                continue
-            if any(_module_present(tree_root / base, name) for base in bases):
-                continue
-            if any(_module_present(source_root / base, name) for base in bases):
-                dropped.add(name)
+    for name in candidates:
+        if name.split(".", 1)[0] in sys.stdlib_module_names:
+            continue
+        if any(is_present(tree_root / base, name) for base in bases):
+            continue
+        if any(is_present(source_root / base, name) for base in bases):
+            dropped.add(name)
     return dropped
 
 
+_FACTS_DIGEST = "import-closure-facts"
+"""Partition of the shared `GateResultCache` this gate's per-file facts live in;
+the content hash is the rest of the key, so the facts are path-independent."""
+
+
+def _file_facts(raw: bytes, rel: str, cache) -> dict:
+    """Import facts of one file's bytes: `{"bare", "refs", "never", "ext"}` as
+    sorted lists, or `{"syntax_error": True}`. Served from `cache` (a
+    `GateResultCache`, keyed by the content sha256) when present; parsed and
+    stored otherwise. Never reads the filesystem, so a verdict built from it
+    still resolves every entry against the live tree."""
+    key = cache.key("", raw, _FACTS_DIGEST) if cache is not None else None
+    if key is not None:
+        hit = cache.get(key)
+        if isinstance(hit, dict) and (
+            hit.get("syntax_error") is True or all(isinstance(hit.get(k), list) for k in _FACT_FIELDS)
+        ):
+            return hit
+    # read_text's universal-newline translation, so a cold parse matches the pre-cache path.
+    source = raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    try:
+        tree = ast.parse(source, filename=rel)
+    except SyntaxError:
+        facts: dict = {"syntax_error": True}
+    else:
+        nodes = _unguarded_import_nodes(tree)
+        bare_names, module_refs, never_published = _extract_from_tree(tree, nodes)
+        facts = dict(
+            zip(
+                _FACT_FIELDS,
+                (
+                    sorted(bare_names),
+                    sorted(module_refs),
+                    sorted(never_published),
+                    sorted(_first_party_candidates(nodes)),
+                ),
+            )
+        )
+    if key is not None:
+        cache.put(key, facts)
+    return facts
+
+
+_FACT_FIELDS = ("bare", "refs", "never", "ext")
+
+
 def find_import_closure_violations(
-    tree_root: Path, source_root: Path | None = None
+    tree_root: Path,
+    source_root: Path | None = None,
+    cache=None,
+    progress: Callable[[int, int], None] | None = None,
 ) -> tuple[int, list[tuple[str, str]]]:
     """Walk every `.py` file physically inside `tree_root` and return
     `(examined_count, violations)`, where each violation is a
@@ -580,29 +672,45 @@ def find_import_closure_violations(
     entries. `_package_init_attribute_names` exists because `from
     coordinator_core import X` is ambiguous between a submodule and a
     re-exported attribute; a dotted path is not ambiguous, and exempting it
-    would restore the hole this gate closed."""
+    would restore the hole this gate closed.
+
+    `cache` (a `GateResultCache`, or None) serves each file's import facts by
+    content sha256, so unchanged bytes are never re-parsed across calls or
+    fresh staging copies; resolution against `tree_root` is never cached. The
+    caller keys the cache on this module's source hash and flushes it.
+    `progress(done, total)` is called after each file."""
     violations: list[tuple[str, str]] = []
     examined = 0
-    init_attrs = _package_init_attribute_names(tree_root)
-    for py_file in sorted(tree_root.rglob("*.py")):
+    init_attrs = _package_init_attribute_names(tree_root, cache)
+    resolved: dict[str, bool] = {}
+    present: dict[tuple[Path, str], bool] = {}
+
+    def resolves(entry: str) -> bool:
+        if entry not in resolved:
+            resolved[entry] = _resolves_in_tree(tree_root, entry)
+        return resolved[entry]
+
+    py_files = sorted(tree_root.rglob("*.py"))
+    for done, py_file in enumerate(py_files, 1):
+        if progress is not None:
+            progress(done, len(py_files))
         rel = py_file.relative_to(tree_root).as_posix()
-        source = py_file.read_text(encoding="utf-8")
-        try:
-            tree = ast.parse(source, filename=rel)
-        except SyntaxError:
+        facts = _file_facts(py_file.read_bytes(), rel, cache)
+        if facts.get("syntax_error"):
             continue
-        bare_names, module_refs, never_published = _extract_from_tree(tree)
         examined += 1
-        for entry in sorted(bare_names):
-            if not _resolves_in_tree(tree_root, entry) and entry not in init_attrs:
+        for entry in facts["bare"]:
+            if not resolves(entry) and entry not in init_attrs:
                 violations.append((rel, entry))
-        for entry in sorted(module_refs):
-            if not _resolves_in_tree(tree_root, entry):
+        for entry in facts["refs"]:
+            if not resolves(entry):
                 violations.append((rel, entry))
-        for entry in sorted(never_published):
+        for entry in facts["never"]:
             violations.append((rel, entry))
         if source_root is not None:
-            for entry in sorted(_dropped_first_party_modules(tree, rel, tree_root, source_root)):
+            for entry in sorted(
+                _dropped_first_party_modules(facts["ext"], rel, tree_root, source_root, present)
+            ):
                 violations.append((rel, entry))
     return examined, violations
 
@@ -615,7 +723,7 @@ _COMMIT_FROM_IMPORT_RE = re.compile(r"^\s*from\s+" + PACKAGE_NAME + r"[\w.]*\s+i
 _TEST_DIR_NAMES = frozenset({"tests", "test"})
 
 
-_CAT_FILE_CHUNK = 400
+_CAT_FILE_CHUNK = 100
 """Blobs per `cat-file --batch` spawn in `_read_commit_py_blobs`."""
 
 
@@ -627,17 +735,21 @@ def _git_bytes(repo: Path, args: list[str], stdin: bytes | None = None) -> bytes
     from coordinator_core.git.run import run_git
 
     r = run_git(args, cwd=str(repo), input=stdin, binary=True)
+    # One transient stall (pack contention mid-publish) must not refuse the whole row: these reads are
+    # read-only, so re-run once on a timeout. A second timeout, or any non-timeout failure, fails closed.
+    if r.timed_out:
+        r = run_git(args, cwd=str(repo), input=stdin, binary=True)
     if not r.ok:
         why = "timed out" if r.timed_out else f"({r.returncode}): {r.stderr.strip()}"
         raise CommitReadError(f"git {' '.join(args[:2])} failed {why}")
     return r.stdout_bytes
 
 
-def _read_commit_py_blobs(repo: Path, commit: str, roots: tuple[str, ...]) -> tuple[dict[str, str], set[str]]:
-    """`(py_sources, dirs)` for `commit`: every `.py` blob under `roots` keyed by
-    repo-relative posix path, and every directory any tracked entry sits in.
-    Two git spawns total (`ls-tree`, one batched `cat-file`); the worktree is
-    never read."""
+def _list_commit_py_entries(
+    repo: Path, commit: str, roots: tuple[str, ...]
+) -> tuple[list[tuple[str, str]], set[str]]:
+    """`([(path, blob_sha)], dirs)`: every `.py` blob under `roots` in `commit`
+    and every directory any tracked entry sits in. One `ls-tree` spawn."""
     listing = _git_bytes(repo, ["ls-tree", "-r", "-z", commit, "--", *roots])
     dirs: set[str] = set()
     wanted: list[tuple[str, str]] = []
@@ -652,10 +764,20 @@ def _read_commit_py_blobs(repo: Path, commit: str, roots: tuple[str, ...]) -> tu
             dirs.add("/".join(parts[:i]))
         if kind == "blob" and mode != "120000" and path.endswith(".py"):
             wanted.append((path, sha))
+    return wanted, dirs
+
+
+def _read_commit_py_blobs(repo: Path, commit: str, roots: tuple[str, ...]) -> tuple[dict[str, str], set[str]]:
+    """`(py_sources, dirs)` for `commit`: every `.py` blob under `roots` keyed by
+    repo-relative posix path, and every directory any tracked entry sits in.
+    Two git spawns total (`ls-tree`, one batched `cat-file`); the worktree is
+    never read."""
+    wanted, dirs = _list_commit_py_entries(repo, commit, roots)
     sources: dict[str, str] = {}
     # Trap: one cat-file over every blob (~2400 at 2026-11) measured 1.6-1.8s alone and timed out
     # at 19s under publish load against run_git's 2s local budget, refusing the engine row.
-    # Chunks keep each spawn inside that budget; the budget is never widened.
+    # Chunks keep each spawn inside that budget; the budget is never widened. 400 (0.66s idle) timed out
+    # twice at 100% box CPU on 11-15, refusing the engine row; 100 keeps a 4x margin.
     for start in range(0, len(wanted), _CAT_FILE_CHUNK):
         chunk = wanted[start : start + _CAT_FILE_CHUNK]
         stream = _git_bytes(repo, ["cat-file", "--batch"], "".join(f"{s}\n" for _, s in chunk).encode("ascii"))
@@ -755,27 +877,317 @@ def find_commit_from_import_name_violations(
     `__init__.py`) and a module defining `__getattr__` or star-importing never
     flag. Raises `CommitReadError` on a failed git read: callers fail closed."""
     sources, dirs = _read_commit_py_blobs(repo, commit, roots)
+    return _from_import_violations(sources, dirs, sorted(sources))
+
+
+# Textual pre-filter: a blob with no import line naming the package (and no line continuation that
+# could hide one) binds no alias, so its parse is skipped.
+_MAY_IMPORT_PACKAGE = re.compile(r"\b(?:from|import)\b[^\n]*\bcoordinator_core\b")
+_ATTR_NS_DIGEST = "commit-module-attr-namespace"
+_ATTR_IMPORTER_DIGEST = "commit-module-attr-importer"
+
+
+def _attr_cached(cache, source: str, digest: str, build):
+    """`build()` served from `cache` keyed on the blob's bytes; a malformed hit is rebuilt."""
+    key = cache.key("", source.encode("utf-8"), digest) if cache is not None else None
+    if key is not None:
+        hit = cache.get(key)
+        if isinstance(hit, dict):
+            return hit
+    facts = build()
+    if key is not None:
+        cache.put(key, facts)
+    return facts
+
+
+def _attr_namespace_facts(source: str, path: str) -> dict:
+    """`{"names": sorted, "opaque": bool}` of a module blob's top-level namespace."""
+    try:
+        tree = ast.parse(source, filename=path)
+    except SyntaxError:
+        return {"names": [], "opaque": True}
+    names, opaque = _module_defined_names(tree)
+    if "global" in source:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Global):
+                names.update(node.names)
+    return {"names": sorted(names), "opaque": opaque}
+
+
+def _attr_importer_facts(source: str, path: str) -> dict:
+    """Everything the attr check needs from one importer blob, resolution-free:
+    `imports` ([`from`, module, name, asname] / [`as`, dotted, asname]), `rebound`,
+    `probed` and `reads` ([alias, attr] for every non-dunder attribute load)."""
+    if not _MAY_IMPORT_PACKAGE.search(source) and "\\\n" not in source and "\\\r" not in source:
+        return {"imports": [], "rebound": [], "probed": [], "reads": []}
+    try:
+        tree = ast.parse(source, filename=path)
+    except SyntaxError:
+        return {"syntax_error": True}
+    imports: list[list] = []
+    for node in _unguarded_import_nodes(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.level or not node.module:
+                continue
+            if node.module != PACKAGE_NAME and not node.module.startswith(PACKAGE_NAME + "."):
+                continue
+            imports.extend(["from", node.module, a.name, a.asname] for a in node.names)
+        elif isinstance(node, ast.Import):
+            imports.extend(
+                ["as", a.name, a.asname]
+                for a in node.names
+                if a.asname and a.name.startswith(PACKAGE_NAME + ".")
+            )
+    if not imports:
+        return {"imports": [], "rebound": [], "probed": [], "reads": []}
+    rebound: set[str] = set()
+    probed: set[tuple[str, str]] = set()
+    reads: set[tuple[str, str]] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
+            rebound.add(node.id)
+        elif isinstance(node, ast.arg):
+            rebound.add(node.arg)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            rebound.add(node.name)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            rebound.add(node.name)
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in ("hasattr", "getattr")
+            and len(node.args) >= 2
+            and isinstance(node.args[0], ast.Name)
+            and isinstance(node.args[1], ast.Constant)
+            and isinstance(node.args[1].value, str)
+        ):
+            probed.add((node.args[0].id, node.args[1].value))
+        elif (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.ctx, ast.Load)
+            and isinstance(node.value, ast.Name)
+            and not (node.attr.startswith("__") and node.attr.endswith("__"))
+        ):
+            reads.add((node.value.id, node.attr))
+    return {
+        "imports": imports,
+        "rebound": sorted(rebound),
+        "probed": sorted(map(list, probed)),
+        "reads": sorted(map(list, reads)),
+    }
+
+
+def find_commit_module_attr_violations(
+    repo: Path,
+    commit: str,
+    roots: tuple[str, ...] = COMMIT_NAME_ROOTS,
+    cache=None,
+    progress: Callable[[int, int], None] | None = None,
+) -> tuple[int, list[tuple[str, str]]]:
+    """Check every `<alias>.<attr>` read in a non-test `.py` under `roots`, where
+    `alias` is bound by an unguarded level-0 `from coordinator_core[.X] import
+    mod [as alias]` or `import coordinator_core.X.mod as alias` naming a module
+    of `commit`, against that module's blob in `commit` (never the worktree).
+    Returns `(examined_importer_count, violations)`; each violation is
+    `(importer_path, "coordinator_core.X.mod.attr")`.
+
+    `attr` resolves when the module's top-level namespace (or a `global`
+    declaration in it) defines it, or the module is a package holding submodule
+    `attr`. Dunder attrs, store/delete targets, `hasattr`/`getattr`-probed
+    attrs, aliases rebound by any non-import binding in the importer or bound
+    to two different modules in it, and modules defining `__getattr__` or
+    star-importing never flag. Raises `CommitReadError` on a failed git read.
+    Reads are one `ls-tree` plus batched `cat-file`. `cache` (a
+    `GateResultCache`, or None) serves each blob's parse facts by its content
+    hash, so an unchanged blob is never re-parsed; resolution runs against
+    `commit` every time. The caller keys the cache on this module's source hash
+    and flushes it. `progress(done, total)` is called after each importer."""
+    sources, dirs = _read_commit_py_blobs(repo, commit, roots)
+    return _module_attr_violations(sources, dirs, sorted(sources), cache, progress)
+
+
+def _module_attr_violations(
+    sources,
+    dirs: set[str],
+    importers: list[str],
+    cache=None,
+    progress: Callable[[int, int], None] | None = None,
+) -> tuple[int, list[tuple[str, str]]]:
+    """Shared resolution: `importers` checked against the `sources` mapping
+    (`in` / `[]` by repo-relative path) and `dirs`."""
     namespace_cache: dict[str, tuple[set[str], bool]] = {}
 
     def namespace_of(path: str) -> tuple[set[str], bool]:
         if path not in namespace_cache:
+            facts = _attr_cached(
+                cache, sources[path], _ATTR_NS_DIGEST, lambda: _attr_namespace_facts(sources[path], path)
+            )
+            namespace_cache[path] = (set(facts.get("names", ())), bool(facts.get("opaque", True)))
+        return namespace_cache[path]
+
+    def module_file(dotted: str) -> tuple[str, bool] | None:
+        base = dotted.replace(".", "/")
+        if f"{base}/__init__.py" in sources:
+            return f"{base}/__init__.py", True
+        if f"{base}.py" in sources:
+            return f"{base}.py", False
+        return None
+
+    violations: set[tuple[str, str]] = set()
+    examined = 0
+    for done, importer in enumerate(importers, 1):
+        if progress is not None:
+            progress(done, len(importers))
+        if _is_test_path(importer) or importer not in sources or "coordinator_core" not in sources[importer]:
+            continue
+        facts = _attr_cached(
+            cache, sources[importer], _ATTR_IMPORTER_DIGEST, lambda: _attr_importer_facts(sources[importer], importer)
+        )
+        if facts.get("syntax_error"):
+            continue
+        aliases: dict[str, str] = {}
+        ambiguous: set[str] = set()
+
+        def bind(name: str, dotted: str) -> None:
+            if aliases.setdefault(name, dotted) != dotted:
+                ambiguous.add(name)
+
+        for kind, module, *rest in facts.get("imports", ()):
+            if kind == "from":
+                name, asname = rest
+                parent = module_file(module)
+                dotted = f"{module}.{name}"
+                if name == "*" or module_file(dotted) is None:
+                    continue
+                if parent is not None and name in namespace_of(parent[0])[0]:
+                    continue
+                bind(asname or name, dotted)
+            elif module_file(module):
+                bind(rest[0], module)
+        if not aliases:
+            continue
+        rebound = set(facts.get("rebound", ()))
+        probed = {tuple(p) for p in facts.get("probed", ())}
+        live = {a: d for a, d in aliases.items() if a not in rebound and a not in ambiguous}
+        if not live:
+            continue
+        examined += 1
+        for alias_name, attr in facts.get("reads", ()):
+            if alias_name not in live or (alias_name, attr) in probed:
+                continue
+            dotted = live[alias_name]
+            module_path, is_package = module_file(dotted)
+            defined, opaque = namespace_of(module_path)
+            if opaque or attr in defined:
+                continue
+            base = dotted.replace(".", "/")
+            if is_package and (
+                f"{base}/{attr}.py" in sources
+                or f"{base}/{attr}/__init__.py" in sources
+                or f"{base}/{attr}" in dirs
+            ):
+                continue
+            violations.add((importer, f"{dotted}.{attr}"))
+    return examined, sorted(violations)
+
+
+class _OverlayBlobs:
+    """Read-only mapping over a commit's `.py` entries with `overlay` bytes laid
+    on top (`None` = deleted); a blob is read through `reader(sha)` only when
+    the resolver asks for it."""
+
+    def __init__(self, entries, overlay, reader):
+        self._entries = dict(entries)
+        self._overlay = overlay
+        self._reader = reader
+
+    def __contains__(self, path):
+        if path in self._overlay:
+            return self._overlay[path] is not None
+        return path in self._entries
+
+    def __getitem__(self, path):
+        if path in self._overlay and self._overlay[path] is not None:
+            return self._overlay[path]
+        if path not in self._overlay and path in self._entries:
+            raw = self._reader(self._entries[path])
+            return (raw or b"").decode("utf-8", "replace")
+        raise KeyError(path)
+
+
+def find_would_be_tree_from_import_violations(
+    repo: Path, base_commit: str, overlay: dict, reader, roots: tuple[str, ...] = COMMIT_NAME_ROOTS
+) -> tuple[int, list[tuple[str, str]]]:
+    """`find_commit_from_import_name_violations`'s resolution over the tree
+    `base_commit` would become with `overlay` applied (`{path: source | None}`,
+    `None` = deleted), judged for the overlay's non-test `.py` importers only.
+    `reader(blob_sha) -> bytes | None` reads base blobs; only the importers'
+    targets are read. One git spawn. Raises `CommitReadError` on a failed listing."""
+    sources, dirs, importers = _would_be_tree(repo, base_commit, overlay, reader, roots)
+    return _from_import_violations(sources, dirs, importers)
+
+
+def find_would_be_tree_violations(
+    repo: Path, base_commit: str, overlay: dict, reader, roots: tuple[str, ...] = COMMIT_NAME_ROOTS
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """`(from_import_violations, module_attr_violations)` over one would-be tree
+    and one listing spawn."""
+    sources, dirs, importers = _would_be_tree(repo, base_commit, overlay, reader, roots)
+    return (
+        _from_import_violations(sources, dirs, importers)[1],
+        _module_attr_violations(sources, dirs, importers)[1],
+    )
+
+
+def _would_be_tree(repo: Path, base_commit: str, overlay: dict, reader, roots: tuple[str, ...]):
+    """`(sources, dirs, importers)` for `base_commit` with `overlay` applied."""
+    entries, dirs = _list_commit_py_entries(repo, base_commit, roots)
+    for path, source in overlay.items():
+        if source is not None:
+            parts = path.split("/")
+            dirs.update("/".join(parts[:i]) for i in range(1, len(parts)))
+    sources = _OverlayBlobs(entries, overlay, reader)
+    importers = sorted(
+        p for p, s in overlay.items()
+        if s is not None and p.endswith(".py") and any(p.startswith(r + "/") for r in roots)
+    )
+    return sources, dirs, importers
+
+
+def _from_import_violations(sources, dirs: set[str], importers: list[str]) -> tuple[int, list[tuple[str, str]]]:
+    """Shared resolution: `importers` checked against the `sources` mapping
+    (`in` / `[]` by repo-relative path) and `dirs`."""
+    # A module may be both an importer and another importer's target. The
+    # namespace cache alone used to parse that same committed source again.
+    # All readers below are read-only, so share its AST for this one immutable
+    # commit snapshot; do not retain it across calls/commits or read worktree data.
+    parsed_cache: dict[str, ast.Module | None] = {}
+    namespace_cache: dict[str, tuple[set[str], bool]] = {}
+
+    def parsed(path: str) -> ast.Module | None:
+        if path not in parsed_cache:
             try:
-                namespace_cache[path] = _module_defined_names(ast.parse(sources[path], filename=path))
+                parsed_cache[path] = ast.parse(sources[path], filename=path)
             except SyntaxError:
-                namespace_cache[path] = (set(), True)
+                parsed_cache[path] = None
+        return parsed_cache[path]
+
+    def namespace_of(path: str) -> tuple[set[str], bool]:
+        if path not in namespace_cache:
+            tree = parsed(path)
+            namespace_cache[path] = _module_defined_names(tree) if tree is not None else (set(), True)
         return namespace_cache[path]
 
     violations: list[tuple[str, str]] = []
     examined = 0
-    for importer in sorted(sources):
-        if _is_test_path(importer):
+    for importer in importers:
+        if _is_test_path(importer) or importer not in sources:
             continue
         source = sources[importer]
         if not _COMMIT_FROM_IMPORT_RE.search(source):
             continue
-        try:
-            tree = ast.parse(source, filename=importer)
-        except SyntaxError:
+        tree = parsed(importer)
+        if tree is None:
             continue
         examined += 1
         for node in _unguarded_import_nodes(tree):

@@ -38,6 +38,8 @@ reappear (guarded by a grep-based test).
 """
 
 from __future__ import annotations
+from types import ModuleType
+from typing import Any
 
 import os
 from pathlib import Path
@@ -165,7 +167,7 @@ def _warn_floor_notice(root: str, verdict) -> None:
         pass
 
 
-def _load_engine_floor():
+def _load_engine_floor() -> ModuleType:
     """The sibling `_engine_floor` module, importable whatever sys.path holds."""
     import sys
 
@@ -188,7 +190,7 @@ def _load_engine_floor():
         return mod
 
 
-def _apply_engine_floor(root, cls, prov):
+def _apply_engine_floor(root, cls, prov) -> tuple[Any, Any, Any]:
     """Floor-check a published root; ALWAYS returns `(root, cls, prov)` unchanged.
 
     behind and indeterminate verdicts emit one stderr notice each; clean is

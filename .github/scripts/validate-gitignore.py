@@ -17,7 +17,7 @@ GLOBAL_DENY_FILES = re.compile(r"^\*\.\*\s*$")  # *.*
 ROOT_DENY_ALL = re.compile(r"^/\*\s*$")         # /*
 
 
-def validate_gitignore(path: pathlib.Path, errors: list):
+def validate_gitignore(path: pathlib.Path, errors: list) -> None:
     if not path.exists():
         return  # no .gitignore is fine
 
@@ -73,7 +73,7 @@ def validate_gitignore(path: pathlib.Path, errors: list):
                 "Policy requires allow-all-then-exclude.")
 
 
-def main():
+def main() -> int:
     errors = []
 
     validate_gitignore(pathlib.Path(".gitignore"), errors)

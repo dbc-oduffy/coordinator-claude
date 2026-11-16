@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 coordinator-prepare-commit-msg — append Session-Id and Deliverable-Id trailers
 to every commit made inside an active coordinator session.
@@ -10,7 +11,7 @@ Git hook signature (prepare-commit-msg):
   argv[3]  SHA1          (optional: present only for --amend / squash)
 
 Behaviour:
-  1. Resolve the git dir once (``git rev-parse --git-dir``, ONE subprocess —
+  1. Resolve the git dir once (``_resolve_git_dir``, ZERO subprocesses —
      needed for locating ``session-shape.json``) and the current session-id
      via the three-tier env ladder (KS-6, 2026-08-07 — widened to match
      ``coordinator_core.session.core.SESSION_ENV_PRECEDENCE``, the canonical
@@ -37,8 +38,8 @@ Behaviour:
      tiers uniformly.
   3a. Deliverable-Id tier 0 (artifact-first, 2026-08-04): before any
      session-keyed tier below, derive this commit's own staged pathspec
-     (``git diff --cached --name-only``, ONE subprocess, only spawned when a
-     Deliverable-Id trailer is actually missing) and check whether any
+     (``commit_resolution.names``, the staged set shared across the commit's
+     hooks, only read when a Deliverable-Id trailer is actually missing) and check whether any
      staged artifact carries its own ``deliverable_id`` frontmatter — see
      ``_resolve_deliverable_id_from_paths`` below for the multi-baton-session
      defect this closes (2026-08-04 cross-repo memo, example-market-data-repo-em
@@ -330,7 +331,7 @@ def _resolve_session_id(git_dir: str) -> str:
     cheaply import ``coordinator_core`` there. A change to the precedence
     order or tier set in ``core.py`` MUST be mirrored here by hand.
 
-    Full 3-tier ladder: ``COORDINATOR_SESSION_ID`` -> ``CLAUDE_SESSION_ID``
+    Caller ladder: ``COORDINATOR_SESSION_ID`` -> ``CODEX_THREAD_ID`` -> ``CLAUDE_SESSION_ID``
     -> ``CLAUDE_CODE_SESSION_ID`` — widened from the prior 2-tier (legacy
     env -> platform env) chain this function used to implement, to match
     the canonical reference (see ``SESSION_ENV_PRECEDENCE``'s own docstring
@@ -355,6 +356,9 @@ def _resolve_session_id(git_dir: str) -> str:
     for the Deliverable-Id lookups below, which still need it. Do not
     restore this tier without a new writer for the sentinel file."""
     sid = os.environ.get("COORDINATOR_SESSION_ID", "").strip()
+    if sid:
+        return sid
+    sid = os.environ.get("CODEX_THREAD_ID", "").strip()
     if sid:
         return sid
     sid = os.environ.get("CLAUDE_SESSION_ID", "").strip()
@@ -393,9 +397,17 @@ def _resolve_content_root() -> str:
 def _resolve_deliverable_id_at(git_dir: str, session_id: str) -> str:
     if not git_dir or not session_id:
         return ""
-    shape_path = os.path.join(
-        git_dir, "coordinator-sessions", session_id, "session-shape.json"
-    )
+    # Inline twin of session_hub_path.hub_for_common, built here on purpose: the hook cannot import the
+    # engine on its hot path. The else branch is the bare-repo hub, identical to the resolver.
+    if os.path.basename(os.path.normpath(git_dir)) == ".git":
+        hub = os.path.join(
+            os.path.dirname(os.path.normpath(git_dir)),
+            ".coordinator-local",
+            "coordinator-sessions",
+        )
+    else:
+        hub = os.path.join(git_dir, "coordinator-sessions")
+    shape_path = os.path.join(hub, session_id, "session-shape.json")
     try:
         with open(shape_path, encoding="utf-8") as fh:
             data = json.load(fh)
@@ -412,20 +424,20 @@ def _resolve_deliverable_id_at(git_dir: str, session_id: str) -> str:
     return ""
 
 
-def _resolve_staged_paths(timeout: float = 10.0) -> list:
-    """``git diff --cached --name-only``, ONE subprocess — derived here
-    because this hook, unlike ``git_native.commit_scoped()``'s callers,
-    receives no pathspec argument of its own (git invokes ``prepare-commit-
-    msg`` with only the commit-message-file path; the staged set is never
-    handed to it). Windows-safe (``creationflags``/``stdin=DEVNULL``) and
-    BOUNDED (``timeout``) — this runs on the commit hot path, so a hang here
-    is strictly worse than a missing trailer.
+def _resolve_staged_paths(timeout: float = 10.0) -> "list | None":
+    """Staged paths via ``commit_resolution.names`` (one shared
+    ``git diff-index --cached`` per commit across every hook; no git dir means no
+    repo, so ``[]``). Derived here because this hook, unlike
+    ``git_native.commit_scoped()``'s callers, receives no pathspec argument
+    of its own (git invokes ``prepare-commit-msg`` with only the
+    commit-message-file path; the staged set is never handed to it). BOUNDED
+    (``timeout``) — this runs on the commit hot path, so a hang here is
+    strictly worse than a missing trailer.
 
-    Fail-soft, unconditionally: not a repo, git unavailable, a spawn error,
-    a timeout, a non-zero exit, or a genuinely empty stage all return ``[]``
-    — never raises. An empty result reads identically to "tier 0 has
-    nothing to say" at the call site, which is exactly the fallback-to-
-    session-tiers behaviour this hook must degrade to.
+    Never raises. A genuinely empty stage returns ``[]``; a derivation
+    failure (unresolvable claude-klabauter checkout, git unavailable, spawn error,
+    timeout, non-zero exit) returns ``None`` after one stderr advisory; the
+    commit proceeds without a tier-0 Deliverable-Id.
 
     This function does not itself import ``coordinator_core`` — see
     ``_no_console_creationflags()``'s docstring for why the console-
@@ -438,8 +450,7 @@ def _resolve_staged_paths(timeout: float = 10.0) -> list:
     off a bare ``sys.path`` in a real hook invocation, and a resolution
     failure here is reported once rather than surfacing separately at each
     downstream tier that would otherwise re-attempt the same bootstrap. A
-    resolution failure still degrades to ``[]`` (never blocks the commit),
-    matching the module's fail-soft contract, but is noted on stderr,
+    resolution failure returns ``None`` and is noted on stderr,
     matching the visible-not-silent convention this file already uses for
     tier-0 ambiguity (``_resolve_deliverable_id``) — a silently empty tier-0
     lookup here previously masqueraded as "nothing staged" indefinitely.
@@ -452,26 +463,21 @@ def _resolve_staged_paths(timeout: float = 10.0) -> list:
             "derivation (tier-0 Deliverable-Id resolution) skipped for this "
             "commit.\n"
         )
+        return None
+    git_dir = _resolve_git_dir()
+    if not git_dir:
         return []
     try:
-        out = subprocess.run(
-            ["git", "diff", "--cached", "--name-only"],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            stdin=subprocess.DEVNULL,
-            **_no_console_creationflags(),
-        )
+        from coordinator_core.hooks import commit_resolution
+
+        return [p for p in commit_resolution.names(git_dir, timeout) if p.strip()]
     except Exception as exc:
         sys.stderr.write(
             "coordinator-prepare-commit-msg: staged-path derivation failed "
-            f"({exc}); tier-0 Deliverable-Id resolution skipped for this "
-            "commit.\n"
+            f"({exc}); commit proceeds without a path-derived Deliverable-Id. "
+            "Add a `Deliverable-Id:` trailer to set one.\n"
         )
-        return []
-    if out.returncode != 0:
-        return []
-    return [line for line in (out.stdout or "").splitlines() if line.strip()]
+        return None
 
 
 def _ensure_claude_klabauter_on_syspath() -> str:
@@ -982,11 +988,9 @@ def main(argv: list) -> int:
 
     git_dir = _resolve_git_dir()
     session_id = _resolve_session_id(git_dir)
-    if not session_id:
-        return 0
-
-    if not _UUID_RE.fullmatch(session_id):
-        return 0
+    # Provider attribution is independent of session-id availability.
+    if not _UUID_RE.fullmatch(session_id or ""):
+        session_id = ""
 
     trailer_args = _engine_trailer_args(commit_msg_file, git_dir)
     if trailer_args is None:
@@ -1016,7 +1020,8 @@ def _engine_trailer_args(commit_msg_file: str, git_dir: str) -> "list | None":
     try:
         from coordinator_core.git.commit_trailers import compute_missing_trailer_args
 
-        paths = None if _has_trailer_line(commit_msg_file, "Deliverable-Id:") else _resolve_staged_paths()
+        has_deliverable = _has_trailer_line(commit_msg_file, "Deliverable-Id:")
+        paths = None if has_deliverable else _resolve_staged_paths()
         trailer_args = compute_missing_trailer_args(commit_msg_file, os.getcwd(), paths)
     except Exception:
         return None
@@ -1039,12 +1044,11 @@ def _mirrored_trailer_args(commit_msg_file: str, git_dir: str, session_id: str) 
     try:
         need_session_id = not _has_trailer_line(commit_msg_file, "Session-Id:")
         need_deliverable_id_check = not _has_trailer_line(commit_msg_file, "Deliverable-Id:")
-        need_attribution = not _has_trailer_line(commit_msg_file, "Co-Authored-By:")
     except Exception:
         return []
 
     trailer_args: list = []
-    if need_session_id:
+    if need_session_id and session_id:
         trailer_args += ["--trailer", f"Session-Id: {session_id}"]
     trailer_args += _operator_trailer_args(commit_msg_file, git_dir)
     if need_deliverable_id_check:
@@ -1052,9 +1056,54 @@ def _mirrored_trailer_args(commit_msg_file: str, git_dir: str, session_id: str) 
         deliverable_id = _resolve_deliverable_id(git_dir, session_id, staged_paths)
         if deliverable_id:
             trailer_args += ["--trailer", f"Deliverable-Id: {deliverable_id}"]
-    if need_attribution:
-        trailer_args += ["--trailer", f"Co-Authored-By: {ATTRIBUTION_TRAILER_VALUE}"]
+    provider = (os.environ.get("COORDINATOR_AGENT_PROVIDER") or os.environ.get("COORDINATOR_AGENT_VENDOR") or "").strip().lower()
+    if not provider:
+        provider = "codex" if os.environ.get("CODEX_THREAD_ID") else "claude"
+    attribution = {
+        "claude": ATTRIBUTION_TRAILER_VALUE,
+        "codex": "Codex <noreply@openai.com>",
+        "agy": "agy <noreply@google.com>",
+        "grok": "Grok <noreply@x.ai>",
+        "mistral": "Mistral <noreply@mistral.ai>",
+        "deepseek": "DeepSeek <noreply@deepseek.com>",
+    }.get(provider)
+    if attribution and not _fallback_provider_attribution_present(commit_msg_file, attribution):
+        trailer_args += ["--trailer", f"Co-Authored-By: {attribution}"]
     return trailer_args
+
+
+def _fallback_provider_attribution_present(path: str, value: str) -> bool:
+    """Mirror provider reconciliation when the engine cannot be imported."""
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+        block = _extract_trailer_block(text)
+        if not block:
+            return False
+        lines = text.splitlines()
+        while lines and not lines[-1].strip():
+            lines.pop()
+        head, tail = lines[:-len(block)], lines[-len(block):]
+        kept, present, dropping = [], False, False
+        address = value.rsplit("<", 1)[-1].rstrip(">")
+        for line in tail:
+            if _TRAILER_CONT_RE.match(line):
+                if not dropping:
+                    kept.append(line)
+                continue
+            dropping = False
+            match = re.search(r"<([^<>]+)>\s*$", line)
+            if line.lower().startswith("co-authored-by:") and match and match.group(1).strip().casefold() == address:
+                if line.split(":", 1)[1].strip() == value and not present:
+                    present = True
+                else:
+                    dropping = True
+                    continue
+            kept.append(line)
+        if kept != tail:
+            Path(path).write_text("\n".join(head + kept).rstrip() + "\n", encoding="utf-8", newline="\n")
+        return present
+    except (OSError, UnicodeError):
+        return True
 
 
 #: Must equal `coordinator_core.git.commit_trailers.ATTRIBUTION_TRAILER_VALUE`;

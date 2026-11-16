@@ -32,8 +32,8 @@ triggered by the asyncRewake wakeup itself -- do NOT re-arm a new watcher
 (infinite re-arming loop prevention per the Staff Engineer #6 / AC16).
 
 Lock invariant: PID lock at
-  <git COMMON dir>/coordinator-sessions/$SESSION_ID/stop-watcher.pid
-  (resolved via `_resolve_git_common_dir`, not `$GIT_ROOT/.git` directly --
+  <session hub>/$SESSION_ID/stop-watcher.pid
+  (hub via `_session_hub_path.hub_for_common` over `_resolve_git_common_dir`, not `$GIT_ROOT/.git` directly --
   portability fix, see that helper's docstring)
 The parent (this invocation) does NOT register any exit/atexit cleanup for the
 lock -- the lock must outlive the parent while the detached child sleeps. The
@@ -164,6 +164,14 @@ except Exception:
     # crash on import.
     def _resolve_git_common_dir(git_root: str) -> str:
         return ""
+
+try:
+    from _session_hub_path import hub_for_common as _hub_for_common  # noqa: E402
+except Exception:
+    # Defensive fallback -- a deploy missing its sibling _session_hub_path.py
+    # falls back to the legacy `<common>/coordinator-sessions` join.
+    def _hub_for_common(common: Path) -> Path:
+        return Path(common) / "coordinator-sessions"
 
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -371,7 +379,7 @@ def _main_impl() -> int:
     common_dir = _resolve_git_common_dir(git_root)
     if not common_dir:
         return 0
-    sessions_dir = Path(common_dir) / "coordinator-sessions"
+    sessions_dir = _hub_for_common(Path(common_dir))
     lock_dir = sessions_dir / session_id
     lock = lock_dir / "stop-watcher.pid"
 

@@ -8,6 +8,7 @@ box-holder record. Zero-spawn on the resolve path (registry TOML read directly);
 """
 
 from __future__ import annotations
+from types import ModuleType
 
 import os
 import subprocess
@@ -28,7 +29,7 @@ _TEMPLATE = Path(__file__).resolve().parent.parent.parent / "templates" / "group
 class HomeRefused(Exception):
     """The configured home sits inside a checkout; `.checkout` names it."""
 
-    def __init__(self, home: str, checkout: str):
+    def __init__(self, home: str, checkout: str) -> None:
         self.home = home
         self.checkout = checkout
         super().__init__(f"group-em home {home} is inside checkout {checkout}")
@@ -209,7 +210,7 @@ def ensure_home(template: Path | None = None, refresh: bool = False) -> Path:
     return home
 
 
-def _nomination_module():
+def _nomination_module() -> ModuleType | None:
     try:
         root = _engine_root.resolve_claude_klabauter_root()
         if not root:

@@ -65,7 +65,10 @@ _REGISTRY_READ_TIMEOUT_TOKEN = "machine-local registry read timed out"
 
 _ENGINE_ROOT_NEW_VAR = "COORDINATOR_ENGINE_ROOT"
 
-_MACHINE_LOCAL_READ_TIMEOUT_SECS = 10
+#: Kill ceiling for a machine-local spawn (== coordinator_core.machine_local_spawn
+#: .ML_SPAWN_TIMEOUT_S). This module is a sibling of coordinator_core by design, so it
+#: carries the bound inline; subprocess.run kills and reaps the direct child on expiry.
+_MACHINE_LOCAL_READ_TIMEOUT_SECS = 2.0
 
 
 class _RegistryReadTimeout(RuntimeError):
@@ -491,7 +494,7 @@ def _resolve_engine_root(caller_file: str | None = None) -> str:
     internal call sites, onto the new name directly is left to a later
     chunk; until then both names resolve identically and are interchangeable.
     """
-    def _delegate_to_gate(candidate: str, *, source: str) -> str:
+    def _delegate_to_gate(candidate: str, *, source: str, honour_test_pin: bool = False) -> str:
         """Bootstrap ``coordinator_core.engine_root`` from ``candidate`` and
         return the gated final answer from ``coordinator_engine_root_with_class()``.
 
@@ -523,6 +526,17 @@ def _resolve_engine_root(caller_file: str | None = None) -> str:
             key, so it can never collide with (or be served from) the
             canonical module's cached entry.
         """
+        # Test-marked only (the marker pair of `ipc.allow_unstamped_dispatch_under_pytest`,
+        # never both present in production): the stamp gate refuses an unstamped checkout
+        # and answers the published engine, so a test child pinned to its checkout would
+        # silently run published code. Only the env rung asks for this.
+        if (
+            honour_test_pin
+            and os.environ.get("PYTEST_CURRENT_TEST")
+            and os.environ.get("COORDINATOR_PYTEST_ALLOW_UNSTAMPED_DISPATCH") == "1"
+            and os.path.isdir(os.path.join(candidate, "coordinator_core"))
+        ):
+            return candidate
         if _is_same_tree_as_canonical(candidate):
             _path_before = list(sys.path)
             sys.path[:] = [candidate] + [p for p in sys.path if p != candidate]
@@ -562,7 +576,11 @@ def _resolve_engine_root(caller_file: str | None = None) -> str:
     # literal duplication note near _ENGINE_ROOT_NEW_VAR/_ENGINE_ROOT_OLD_VAR.
     existing = os.environ.get(_ENGINE_ROOT_NEW_VAR, "")
     if existing:
-        return _delegate_to_gate(existing, source=f"{_ENGINE_ROOT_NEW_VAR} environment variable")
+        return _delegate_to_gate(
+            existing,
+            source=f"{_ENGINE_ROOT_NEW_VAR} environment variable",
+            honour_test_pin=True,
+        )
 
     # Rung 1.5 (NEW): cheap direct-file-read pointer, checked ahead of the
     # expensive bash-spawn resolver below. On Windows this avoids spawning a

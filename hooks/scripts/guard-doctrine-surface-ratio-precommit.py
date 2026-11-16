@@ -133,6 +133,7 @@ commit via plumbing would need a different enforcement point than this one.
 """
 
 from __future__ import annotations
+from typing import Callable
 
 import importlib.util
 import subprocess
@@ -162,7 +163,7 @@ from _doctrine_surface_netting import (  # noqa: E402
 from doctrine_surface_tiers import admission_cap_for, tier_boundaries_for  # noqa: E402
 
 
-def _load_split_recognizer():
+def _load_split_recognizer() -> Callable[..., bool]:
     """`is_sanctioned_split` (C10) lives in a hyphenated-basename module,
     same reason the sibling test suite loads the guard itself via
     `importlib.util.spec_from_file_location` rather than `import_module`.
@@ -552,7 +553,7 @@ def _persist_baseline_fail_open(baseline: dict) -> None:
         pass
 
 
-def _build_tier_of(rows: "list[tuple[int, int, str]]"):
+def _build_tier_of(rows: "list[tuple[int, int, str]]") -> Callable[[str], str]:
     """Closes over each row's pre-edit `old_bytes` (already parsed) to
     build the `Callable[[str], str]` the pure netting functions require --
     resolves a path to its CREDIT-SCOPE POOL (`"surface"` or `"file"`) via

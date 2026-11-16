@@ -1719,6 +1719,15 @@
         ]
       },
       {
+        "id": "postuse-declaration-gate.py",
+        "script": "scripts/postuse-declaration-gate.py",
+        "tool_names": [
+          "Edit",
+          "MultiEdit",
+          "Write"
+        ]
+      },
+      {
         "id": "postuse-split-readme-autosync.py",
         "script": "scripts/postuse-split-readme-autosync.py",
         "tool_names": [
@@ -1764,6 +1773,16 @@
         ]
       },
       {
+        "id": "project-rag-detect.py",
+        "script": "scripts/project-rag-detect.py",
+        "tool_names": [
+          "clear",
+          "compact",
+          "resume",
+          "startup"
+        ]
+      },
+      {
         "id": "runtime-tripwire-em-check.py",
         "script": "scripts/runtime-tripwire-em-check.py",
         "tool_names": []
@@ -1795,11 +1814,6 @@
       }
     ],
     "retired": [
-      {
-        "id": "nudge-foreground-agent-dispatch.py",
-        "script": "scripts/nudge-foreground-agent-dispatch.py",
-        "reason": "Deregistered from hooks.json; folded into a pure-Python port inside enforce-agent-dispatch-mode.py that makes no engine-plane call at all."
-      },
       {
         "id": "runtime-tripwire-stop-watcher.py",
         "script": "scripts/runtime-tripwire-stop-watcher.py",

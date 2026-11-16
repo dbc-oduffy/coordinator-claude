@@ -1,0 +1,10 @@
+# coordinator-managed: repo-setup clangd.template (index scope; delete this line to take ownership)
+If:
+  PathMatch:
+    - scratch/.*
+    - data/.*
+    - exports?/.*
+    - (.*/)?exports?/.*
+    - (.*/)?node_modules/.*
+Index:
+  Background: Skip

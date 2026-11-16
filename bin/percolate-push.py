@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """percolate-push.py — the operator's one short command for the push
 step `percolate-round.py` deliberately never automates.
 
@@ -846,13 +847,45 @@ def _cmd_push(args: argparse.Namespace) -> int:
 
     try:
         with _publish_slot_mod.held_slot(Path(dest), label="percolate-push") as slot_token:
-            return _push_under_slot(args, target, dest, percolate_root, slot_token)
+            code = _push_under_slot(args, target, dest, percolate_root, slot_token)
     except _publish_slot_mod.PublishSlotHeldError as exc:
         print(f"percolate-push: BUSY: {exc}", file=sys.stderr)
         return _EXIT_LOCK_BUSY
     except _publish_lease_mod.PublishLeaseError as exc:
         print(f"percolate-push: publish slot unavailable: {exc}", file=sys.stderr)
         return _EXIT_FAIL
+
+    if code == _EXIT_OK and target == "claude-klabauter" and not (args.open_only or args.promote):
+        _report_fleet_adoption(dest)
+    return code
+
+
+def _report_fleet_adoption(dest: str) -> None:
+    """Fan a candidate klabauter push out to the fleet and print the adoption
+    block. Runs after the publish slot is released: the fan-out waits on remote
+    boxes and must not hold peers' publish slot. Additive output; never raises
+    and never changes the exit code."""
+    try:
+        # Trap: --abbrev-ref applies to every rev after it, so the sha rev must precede it.
+        head = _run(["git", "-C", dest, "rev-parse", "HEAD", "--abbrev-ref", "HEAD"])
+        if head.returncode != 0:
+            return
+        parts = head.stdout.split()
+        if len(parts) != 2 or parts[1] != "candidate":
+            return
+        sha = parts[0]
+        from coordinator_core.percolate import fleet_adoption  # type: ignore[import-not-found]
+
+        rows = fleet_adoption.fan_out(sha)
+        print(fleet_adoption.render(sha, rows))
+        not_adopted = [r.box for r in rows if r.verdict == fleet_adoption.NOT_ADOPTED]
+        cannot_ask = [f"{r.box} ({r.reason})" for r in rows if r.verdict == fleet_adoption.CANNOT_ASK]
+        if not_adopted:
+            print(f"percolate-push: NOT FLEET-LIVE: {', '.join(not_adopted)}", file=sys.stderr)
+        if cannot_ask:
+            print(f"percolate-push: CANNOT ASK: {', '.join(cannot_ask)}", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 -- the push already succeeded
+        print(f"percolate-push: fleet adoption report failed: {exc}", file=sys.stderr)
 
 
 def _push_under_slot(

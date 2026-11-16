@@ -7,6 +7,9 @@ argument-hint: "[optional context]"
 
 # Session Handoff — Save State for Next Session
 
+**Non-Claude EM:** this skill is the Claude-native path; a non-Claude EM takes the engine-op path at
+`coordinator/docs/wiki/non-claude-workers/non-claude-em-path.md`.
+
 ## Handoff Lineage
 
 **Predecessor is the baton this session was born with.** A CONTINUATION always has one; the
@@ -54,6 +57,11 @@ Then refresh and republish the structural index if drifted:
 (`resolve-coordinator-bin.md`).
 
 Procedure detail arrives with this invocation from `coordinator/skills/handoff/residue/`. Background (optional): `coordinator/docs/wiki/skills-corpus/handoff-residue.md`.
+
+**Live probes are inventoried (`A-SESSION-LAUNCHED-PROBE-IS-WINDOWLESS-BOUNDED-AND-INVENTORIED`).**
+List every long-running or periodic probe this session launched and left alive (pid, command,
+bound) in the handoff; the successor stops each before its first action. Rule:
+`coordinator/docs/wiki/coordinator-tripwires/a-session-launched-probe-is-windowless-bounded-and-inventoried.md`.
 
 **`d5` releases the plan artifact-claim only; the path-touch plane is a separate close-time
 check.** Before this session ends, run `session-claim-cli list-claims-by-session <sid>` and

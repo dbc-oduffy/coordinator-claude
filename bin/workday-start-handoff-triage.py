@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """workday-start-handoff-triage.py — self-contained naked-Python port of the
 `/workday-start` Step 0.8 / Step 1.1 / Step 1.2 orientation-triage logic.
 

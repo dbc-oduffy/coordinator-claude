@@ -10,6 +10,7 @@ Contract: stdin PostToolUse JSON; stdout always empty; exit 0 on every path. A g
 call. The HEAD-based drift test stays the backstop for what the hook skips.
 """
 from __future__ import annotations
+from types import ModuleType
 
 import contextlib
 import importlib.util
@@ -30,7 +31,7 @@ def _generator_candidates(file_path: Path) -> list[Path]:
     return found
 
 
-def _load_generator(file_path: Path):
+def _load_generator(file_path: Path) -> ModuleType | None:
     for candidate in _generator_candidates(file_path):
         if candidate.is_file():
             spec = importlib.util.spec_from_file_location("_split_readme_generator", candidate)

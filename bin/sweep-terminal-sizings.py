@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """sweep-terminal-sizings.py — on-demand CLI fire for the terminal-sizings sweep.
 
 Purpose: the manual human/ceremony-invoked surface over

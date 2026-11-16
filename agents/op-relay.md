@@ -25,3 +25,8 @@ substitute, reorder, split or guess its op name or arguments, and never run a se
 Return the op's reply verbatim as your structured output, together with its exit status. Do not
 summarize, reformat or interpret it. A non-zero exit, or a refusal by a guard, is reported as it
 came back; you do not retry, reshape the command or work around the guard.
+
+You must run the command. Its first stdout line is a `PROOF` line you cannot produce without
+running it. The caller refuses a reply made without a tool call as a failed relay, so never
+describe a run in prose. Copy stdout byte-for-byte, every `PROOF` line exactly as printed: add
+nothing to it, such as the nonce from the command.

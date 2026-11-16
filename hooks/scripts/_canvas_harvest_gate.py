@@ -195,7 +195,7 @@ def _resolve(repo_root: Path, cited: str) -> Optional[Path]:
     return target
 
 
-def _select_record(text: str, repo_root: Path, artifact_id: str):
+def _select_record(text: str, repo_root: Path, artifact_id: str) -> tuple[Optional[Path], object]:
     """(record_path, record) for the candidate carrying `artifact_id`, else (None, code)."""
     saw_missing = saw_unparseable = False
     for cited in dict.fromkeys(m.group(0) for m in _RECORD_PATH_RE.finditer(text)):
@@ -294,7 +294,7 @@ def _same_time(a, b) -> bool:
     return _parse_time(a) == _parse_time(b)
 
 
-def _judge(url: str, text: str, repo_root: Path, session_id: Optional[str]):
+def _judge(url: str, text: str, repo_root: Path, session_id: Optional[str]) -> Refusal | Advisory | None:
     """A `Refusal`, an `Advisory` (admitted, drift unchecked), or None (admitted)."""
     artifact_id = url.rsplit("/", 1)[1]
     path, selected = _select_record(text, repo_root, artifact_id)

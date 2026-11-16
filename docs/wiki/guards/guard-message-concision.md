@@ -914,7 +914,7 @@ would be a worse fit than leaving it as its own renderer.
 
 A Bash confinement guard that blocks `python3 -m pytest` and `python3 -c` (the reachable-looking
 test invocations) had refusal text that never named the actual reachable path —
-`project_rag_scripts/run_tier_tests.py --tier <tier> <files>`. A dispatched executor that doesn't
+`python3 project_rag_scripts/run_tier_tests.py --tier <tier> <files>`. A dispatched executor that doesn't
 already know that script exists, or that it accepts passthrough pytest args, has no route from the
 error text to a working command. It either stalls, or — the worse failure, because it's silent —
 reports untested work as done.

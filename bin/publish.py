@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """coordinator/bin/publish.py — percolate publish driver: sync dispatch spine.
 
 Native-Python port of `setup/publish.sh`'s main loop (DoE 16302166, 2026-07-21) — SYNC
@@ -167,6 +168,7 @@ _BOOTSTRAPPED_NAMES = (
     "_CLOSURE_PACKAGE_NAME",
     "find_import_closure_violations",
     "find_commit_from_import_name_violations",
+    "find_commit_module_attr_violations",
     "CommitReadError",
     "bin_lib_imports",
     "check_plugin_payload",
@@ -255,6 +257,12 @@ def _bootstrap_engine() -> None:
         except ImportError:
             CommitReadError = None
             find_commit_from_import_name_violations = None
+        try:
+            from percolate.import_closure import (  # noqa: E402
+                find_commit_module_attr_violations,
+            )
+        except ImportError:
+            find_commit_module_attr_violations = None
         from percolate import bin_lib_imports  # noqa: E402
         from percolate.doc_path_refs import (  # noqa: E402
             check_payload as check_plugin_payload,
@@ -644,8 +652,11 @@ def _import_claude_klabauter_percolate() -> ClaudeKlabauterPercolate:
 
 def locate_percolate_store(setup_dir: Path) -> Path:
     """The production DoE percolate-store the engine repo's engine consumes for every
-    target (§ `setup/percolate-hooks/percolate-store.yaml`'s own header)."""
-    return setup_dir / "percolate-hooks" / "percolate-store.yaml"
+    target (§ `setup/percolate-hooks/percolate-store.yaml`'s own header), as
+    committed at the round's source ref: rename rules must match the sources
+    they rename, or a file added at the ref ships under its unrenamed name."""
+    store = setup_dir / "percolate-hooks" / "percolate-store.yaml"
+    return _committed_setup_file(store) or store
 
 
 def assert_percolate_store_ready(engine_claude_klabauter: ClaudeKlabauterPercolate, store_path: Path) -> dict:
@@ -1005,6 +1016,8 @@ def dispatch_percolate_post_rsync(
 
     effective_source_count = _compute_effective_source_count(engine_claude_klabauter, effective_source_dir, section)
 
+    _sweep_wall_start = time.perf_counter()
+    _sweep_cpu_start = time.process_time()
     try:
         wire = engine_claude_klabauter.run_percolate(
             str(store_path),
@@ -1021,6 +1034,13 @@ def dispatch_percolate_post_rsync(
     except Exception as exc:  # noqa: BLE001 - AC15 phase-raise fail-closed path
         raise EngineUnavailableError(f"{target.name}: post_rsync phase raised: {exc}") from exc
 
+    print(
+        f"  [timing] {target.name}: content_transform_sweep: "
+        f"{time.perf_counter() - _sweep_wall_start:.3f}s wall / "
+        f"{time.process_time() - _sweep_cpu_start:.3f}s cpu (driver only, excludes subprocesses); "
+        f"files={len(wire.get('visited_files', []))}",
+        file=sys.stdout,
+    )
     _assert_no_guard_failures(wire.get("guard_results", []), target.name, "post_rsync")
     if visited_sink is not None:
         for relative_id in wire.get("visited_files", []):
@@ -1074,7 +1094,7 @@ def _resolve_inject_src_placeholders(section: dict, percolate_root: Optional[Pat
     if not inject_entries:
         return section
     content_root = str(percolate_root / "coordinator")
-    claude_klabauter_content_root = str(_REPO_ROOT)
+    claude_klabauter_content_root = str(_source_repo())
     resolved_entries = []
     for entry in inject_entries:
         resolved_entry = dict(entry)
@@ -3445,7 +3465,13 @@ def dispatch_end_of_run_live_identifier_gate(
             def _transform(text: str, rel: str, _params=params) -> str:
                 return _pct_engine._apply_content_transforms(text, _params, rel)  # noqa: SLF001
 
-            hits = _live.scrubbed_in_tree(target.source_dir, _transform)
+            cache, digest = _gate_result_cache(target, _live, "live-identifier", _pct_engine, params)
+            hits = _live.scrubbed_in_tree(
+                target.source_dir, _transform, cache=cache, params_digest=digest,
+                progress=_gate_heartbeat(f"{target.name} live identifiers"),
+            )
+            if cache is not None:
+                cache.flush()
         except Exception as exc:  # noqa: BLE001 - AC15 fail-closed
             print(
                 f"  Error: end-of-run live-identifier gate raised for {target.name}: {exc}",
@@ -3511,18 +3537,75 @@ def _row_published_payload(target, files: "list[tuple[str, Path]]") -> "list[tup
     return files
 
 
-def _repo_key_gate_cache(target, rkl, pct_engine, params):
-    """`(cache, transform identity, shared file walk)` for the repo-key gate. The cache
-    lives in the destination's git dir, so it is never published and survives the
-    throwaway staging trees; a destination with no `.git` directory runs uncached."""
-    files = _row_published_payload(target, rkl.list_files(target.source_dir))
-    git_dir = getattr(target, "dest_dir", None)
-    git_dir = git_dir / ".git" if git_dir is not None else None
+def _gate_result_cache(target, gate_module, gate_id, pct_engine, params):
+    """`(cache, transform identity)` for one end-of-run gate. The cache lives in the
+    destination REPO's git dir (the nearest `.git` at or above `dest_dir`, since a row
+    published into a subdirectory has none of its own), so it is never published and
+    survives the throwaway staging trees. A verdict is served only when the file's bytes,
+    the transform identity and the gate module's source (which holds its identifier
+    lists) all match. No destination repo: uncached."""
+    cache = _gate_cache_for(target, gate_module, gate_id)
+    if cache is None:
+        return None, ""
+    return cache, pct_engine._transform_identity(params)  # noqa: SLF001
+
+
+def _gate_cache_for(target, gate_module, gate_id):
+    """The destination repo's `GateResultCache` for `gate_module` (keyed on its source
+    hash), or None when there is no destination repo."""
+    dest_dir = getattr(target, "dest_dir", None)
+    repo = _dest_repo_root(Path(dest_dir)) if dest_dir is not None else None
+    git_dir = repo / ".git" if repo is not None else None
     if git_dir is None or not git_dir.is_dir():
-        return None, "", files
+        return None
     from coordinator_core.percolate.gate_result_cache import GateResultCache, gate_version_of
-    cache = GateResultCache(git_dir / "claude-klabauter-gate-result", "repo-key-literal", gate_version_of(rkl.__file__))
-    return cache, pct_engine._transform_identity(params), files  # noqa: SLF001
+    return GateResultCache(git_dir / "claude-klabauter-gate-result", gate_id, gate_version_of(gate_module.__file__))
+
+
+def _import_closure_gate(target, restricted_tmp_src):
+    """`(examined, violations)` of the import-closure gate over the restricted tree, its
+    per-file import facts cached in the destination repo and a `[progress]` line every
+    30s. A cache that cannot load or flush degrades to an uncached run."""
+    lib = sys.modules[find_import_closure_violations.__module__]
+    try:
+        cache = _gate_cache_for(target, lib, "import-closure")
+    except Exception:  # noqa: BLE001 - a cache is an optimisation, never a verdict
+        cache = None
+    result = find_import_closure_violations(
+        restricted_tmp_src,
+        source_root=target.source_dir,
+        cache=cache,
+        progress=_gate_heartbeat(f"{target.name} import closure"),
+    )
+    if cache is not None:
+        cache.flush()
+    return result
+
+
+def _repo_key_gate_cache(target, rkl, pct_engine, params):
+    """`(cache, transform identity, shared file walk)` for the repo-key gate."""
+    files = _row_published_payload(target, rkl.list_files(target.source_dir))
+    cache, digest = _gate_result_cache(target, rkl, "repo-key-literal", pct_engine, params)
+    return cache, digest, files
+
+
+_GATE_HEARTBEAT_SECS = 30.0
+
+
+def _gate_heartbeat(label: str, *, out: "IO[str] | None" = None, every: float = _GATE_HEARTBEAT_SECS,
+                    clock: "Callable[[], float]" = time.monotonic):
+    """A `progress(done, total)` callback that prints one line at most every `every`
+    seconds, so a gate walking thousands of files shows it is alive (and where) instead
+    of sitting silent until its leg timeout."""
+    last = [clock()]
+
+    def _tick(done: int, total: int) -> None:
+        now = clock()
+        if now - last[0] >= every:
+            last[0] = now
+            print(f"  [progress] {label}: {done}/{total} files", file=out or sys.stdout, flush=True)
+
+    return _tick
 
 
 def dispatch_end_of_run_repo_key_literal_gate(
@@ -3562,7 +3645,8 @@ def dispatch_end_of_run_repo_key_literal_gate(
 
             cache, digest, files = _repo_key_gate_cache(target, _rkl, _pct_engine, params)
             hits = _rkl.drifted_in_tree(
-                target.source_dir, _transform, cache=cache, params_digest=digest, files=files
+                target.source_dir, _transform, cache=cache, params_digest=digest, files=files,
+                progress=_gate_heartbeat(f"{target.name} repo-key drift"),
             )
             # The baseline is measured on the klabauter export only; other rows (the
             # doctrine plugin names claude-klabauter as its prereq) carry codenames by design.
@@ -3575,6 +3659,7 @@ def dispatch_end_of_run_repo_key_literal_gate(
                 cache=cache,
                 params_digest=digest,
                 files=files,
+                progress=_gate_heartbeat(f"{target.name} codename residual"),
             ) if target.name.startswith("claude-klabauter") else []
             if cache is not None:
                 cache.flush()
@@ -4106,7 +4191,12 @@ def dispatch_end_of_run_plugin_payload_gate(
             ok = False
             continue
         # The engine mirror's `lib/` is claude-klabauter's `coordinator/lib` (row claude-klabauter-lib).
-        docs, imports, plan = check_plugin_payload(payload_root, payload_root, engine_root=_REPO_ROOT / "coordinator")
+        docs, imports, plan = check_plugin_payload(
+            payload_root,
+            payload_root,
+            engine_root=_REPO_ROOT / "coordinator",
+            pyproject=_engine_source_root() / "pyproject.toml",
+        )
         print(
             f"  Plugin-payload gate (assembled mirror, {len(rows)} row(s)): {len(docs)} doc ref(s), "
             f"{len(imports)} import(s), install --plan {'FAILED' if plan else 'ok'}.",
@@ -5178,11 +5268,11 @@ def _seed_published_engine_pin(
     from coordinator_core.machine_resolver import registry_get
     from percolate.published_engine_pin import PublishedEnginePinError, resolve_published_engine_pin
 
-    top_result = _git_rev_parse_detailed(_REPO_ROOT, "--show-toplevel")
+    top_result = _git_rev_parse_detailed(_source_repo(), "--show-toplevel")
     if top_result.stdout is None:
         print("  Published-engine pin: engine toplevel unresolvable; pinning working HEAD.", file=out)
         return None
-    toplevel = Path(top_result.stdout)
+    toplevel = _chain_export_source_repo(Path(top_result.stdout)) or Path(top_result.stdout)
     top_resolved = toplevel.resolve()
 
     if not any(
@@ -6296,6 +6386,39 @@ class GateResult(NamedTuple):
     shadow_roots: "tuple[Path, ...]" = ()
 
 
+#: Mirrors `checkpoint_reds` (BUG_HOME, `_NAME_MARK`, the `introduced_red` / `status` keys);
+#: duplicated because this script never imports coordinator_core. Pinned in
+#: coordinator/bin/tests/test_publish_refuses_open_introduced_red.py.
+_INTRODUCED_RED_HOME = "state/bug-backlog"
+_INTRODUCED_RED_NAME_MARK = "-introduced-red-"
+_INTRODUCED_RED_KEY = "introduced_red"
+_INTRODUCED_RED_STATUS_KEY = "status"
+
+
+def _open_introduced_red_rows(roots: "Iterable[Path]") -> "list[str]":
+    """Sorted ids of open introduced-red fix rows under each root's bug-backlog dir.
+
+    One directory listing per root, no spawn; an absent dir or unreadable row yields nothing.
+    """
+    ids: "set[str]" = set()
+    key = re.compile(rf"^{_INTRODUCED_RED_KEY}:\s*true\s*$", re.MULTILINE)
+    status = re.compile(rf"""^{_INTRODUCED_RED_STATUS_KEY}:\s*["']?open["']?\s*$""", re.MULTILINE)
+    for root in roots:
+        home = Path(root) / _INTRODUCED_RED_HOME
+        try:
+            names = sorted(e.name for e in os.scandir(home) if _INTRODUCED_RED_NAME_MARK in e.name and e.name.endswith(".yaml"))
+        except OSError:
+            continue
+        for name in names:
+            try:
+                text = (home / name).read_text(encoding="utf-8")
+            except OSError:
+                continue
+            if key.search(text) and status.search(text):
+                ids.add(name[: -len(".yaml")].rsplit("-", 1)[-1])
+    return sorted(ids)
+
+
 def _narrow_allowlist_to_shadow(
     allowlist_csv: str, default_root: Path, source_map: "Mapping[str, Path]"
 ) -> str:
@@ -6355,6 +6478,58 @@ def _commit_import_name_gate(
     for importer, entry in violations:
         print(f"    {importer}: {entry}", file=err)
     print("  Remedy: commit the file or hunk that defines each name, then republish.", file=err)
+    return False
+
+
+def _commit_module_attr_gate(
+    target: "ResolvedTarget",
+    sha: str,
+    *,
+    out: IO[str] = sys.stdout,
+    err: IO[str] = sys.stderr,
+) -> bool:
+    """Fail-closed preflight: every `<module>.<attr>` read of an imported
+    coordinator_core module in the published roots must resolve against the blobs
+    of `sha`, never the worktree. Prints the examined-file denominator; False
+    refuses the row."""
+    _bootstrap_engine()
+    if find_commit_module_attr_violations is None or CommitReadError is None:
+        print(
+            f"  Commit module-attr gate: skipped, the pinned percolate lib @ {sha} predates it.",
+            file=out,
+        )
+        return True
+    lib = sys.modules[find_commit_module_attr_violations.__module__]
+    try:
+        cache = _gate_cache_for(target, lib, "commit-module-attr")
+    except Exception:  # noqa: BLE001 - a cache is an optimisation, never a verdict
+        cache = None
+    try:
+        examined, violations = find_commit_module_attr_violations(
+            target.source_dir.parent,
+            sha,
+            cache=cache,
+            progress=_gate_heartbeat(f"{target.name} commit module-attr", out=out),
+        )
+    except CommitReadError as exc:
+        print(f"  Error: commit module-attr gate could not read {sha}: {exc}", file=err)
+        return False
+    if cache is not None:
+        cache.flush()
+    print(
+        f"  Commit module-attr gate: {len(violations)} violation(s) over {examined} importer file(s) examined @ {sha}.",
+        file=out,
+    )
+    if not violations:
+        return True
+    print(
+        f"  Error: {len(violations)} module attribute(s) do not resolve in commit {sha} — "
+        "the caller ships, the attribute exists only uncommitted or off this commit's ancestry:",
+        file=err,
+    )
+    for importer, entry in violations:
+        print(f"    {importer}: {entry}", file=err)
+    print("  Remedy: commit the file or hunk that defines each attribute, then republish.", file=err)
     return False
 
 
@@ -6491,7 +6666,9 @@ def run_pre_sync_gates(
             # earlier row's late pin) already recorded. `late=True`: any pin
             # happening here is by definition after round start.
             sha = _round_pin_source_sha(root, round_pinned_shas, out=out, late=True)
-            shadow[root] = _git_materialize_ref(root, ref=sha)
+            shadow[root] = _git_materialize_ref(
+                root, ref=sha, withheld=_WITHHELD_PATHS if _withholds_root(root) else None
+            )
             root_shas[root] = sha
             print(f"  Provenance: {root} shipped from {sha}", file=out)
             for cached_shadow_toplevel in _MATERIALIZED_REF_CACHE.values():
@@ -6503,6 +6680,15 @@ def run_pre_sync_gates(
         _print_row_refusal(target.name, err=err)
         return GateResult(proceed=False, source_dir=target.source_dir, shadow_roots=tuple(shadow_toplevels))
     effective_source_dir = shadow[target.source_dir]
+
+    # Irreversible-harm refusal: reads committed fix-row records at the materialized
+    # ref, never working-tree dirt, so DR-390 (a dirty tree never refuses) is not crossed.
+    open_reds = _open_introduced_red_rows(set(shadow.values()) | shadow_toplevels)
+    if open_reds:
+        print(f"  Error: open introduced-red fix row(s): {', '.join(open_reds)}.", file=err)
+        print("  Remedy: fix the red and close the row, or prove it a base red.", file=err)
+        _print_row_refusal(target.name, err=err)
+        return GateResult(proceed=False, source_dir=target.source_dir, shadow_roots=tuple(shadow_toplevels))
 
     # These gates read raw source directly (docs/plans/2026-08-04-publish-
     # from-a-committed-ref.md C1b), so they run AFTER materialization.
@@ -6647,7 +6833,7 @@ def run_pre_sync_gates(
         # which OTHER row carries `coordinator_core`, which this gate
         # deliberately does not have.
         closure_examined, closure_violations = (
-            find_import_closure_violations(restricted_tmp_src, source_root=target.source_dir)
+            _import_closure_gate(target, restricted_tmp_src)
             if target.source_dir.name == _CLOSURE_PACKAGE_NAME and only_paths is None
             else (0, [])
         )
@@ -6691,7 +6877,11 @@ def run_pre_sync_gates(
                 name_gate_sha = None
             if name_gate_sha is None:
                 print(f"  Error: commit import-name gate refused {target.name}: no commit to read.", file=err)
-            if name_gate_sha is None or not _commit_import_name_gate(target, name_gate_sha, out=out, err=err):
+            if (
+                name_gate_sha is None
+                or not _commit_import_name_gate(target, name_gate_sha, out=out, err=err)
+                or not _commit_module_attr_gate(target, name_gate_sha, out=out, err=err)
+            ):
                 shutil.rmtree(restricted_tmp_src, ignore_errors=True)
                 print("", file=out)
                 return GateResult(proceed=False, source_dir=target.source_dir, shadow_roots=tuple(shadow_toplevels))
@@ -8030,8 +8220,39 @@ def _is_git_repo(path: Path) -> bool:
 def _engine_toplevel_key() -> str:
     """`round_pinned_shas` key of this repo's git toplevel; walk-only, no spawn."""
     _bootstrap_engine()
+    source = _source_repo()
+    if source != _REPO_ROOT:
+        return str(source)
     top = _resolve_show_toplevel(str(_REPO_ROOT))
     return str(Path(top)) if top is not None else ""
+
+
+def _chain_export_source_repo(root: Path) -> "Optional[Path]":
+    """The repo whose commit a chain export (percolate-round's `claude-klabauter-publish-chain/<sha>`) stands
+    for: its `.git` file names `<repo>/.git`, so the key is `<repo>`.
+
+    Trap: keying the export dir itself never matches `git rev-parse --show-toplevel` of the source
+    root, so `--source-ref` was ignored and HEAD pinned. A linked worktree's gitdir ends
+    `.git/worktrees/<n>`, not `.git`, and keeps its own key."""
+    dot_git = root / ".git"
+    if not dot_git.is_file():
+        return None
+    try:
+        text = dot_git.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = re.match(r"gitdir:\s*(.+?)\s*$", text.strip())
+    if match is None:
+        return None
+    git_dir = Path(match.group(1))
+    if not git_dir.is_absolute() or git_dir.name != ".git" or not git_dir.parent.is_dir():
+        return None
+    return git_dir.parent
+
+
+def _engine_source_root() -> Path:
+    """`_REPO_ROOT`, or the source repo it is a chain export of."""
+    return _chain_export_source_repo(_REPO_ROOT) or _REPO_ROOT
 
 
 def _refresh_source_ref(source_root: Path, pinned_shas: "dict[str, str]") -> str:
@@ -8059,6 +8280,20 @@ def _root_fully_published(
         return False
     feeding = rows_feeding_root.get(repo_root)
     return feeding is not None and feeding <= set(succeeded_row_names)
+
+
+def _unstamped_root_entry(
+    feeding_rows: "Optional[frozenset[str]]",
+    succeeded_row_names: "Sequence[str]",
+    *,
+    committed: bool,
+) -> "Optional[tuple[list[str], list[str]]]":
+    """(unpublished feeding rows, all feeding rows) for a root that committed without covering every
+    store row feeding it; None when nothing was committed or every feeding row succeeded."""
+    if not committed or not feeding_rows:
+        return None
+    missing = sorted(feeding_rows - set(succeeded_row_names))
+    return (missing, sorted(feeding_rows)) if missing else None
 
 
 _EXPECTED_MANIFEST_REL = ".coordinator/expected-manifest.json"
@@ -8342,6 +8577,48 @@ def _git_capture(path: Path, *args: str) -> Optional[str]:
     return result.stdout.strip()
 
 
+def _nearest_existing_dir(path: Path) -> Path:
+    """`path`, or its closest ancestor that is a directory on disk. A root absent from the
+    working tree still has a committed location; `git -C` needs a directory that exists."""
+    anchor = path
+    while not anchor.is_dir() and anchor.parent != anchor:
+        anchor = anchor.parent
+    return anchor
+
+
+def _git_toplevel_and_prefix(root: Path) -> "Tuple[_GitRevParseResult, str]":
+    """Git toplevel of `root` and `root`'s toplevel-relative prefix (trailing `/` when non-empty),
+    resolved from the nearest existing ancestor so a root deleted from the working tree but
+    committed still locates."""
+    anchor = _nearest_existing_dir(root)
+    toplevel_result = _git_rev_parse_detailed(anchor, "--show-toplevel")
+    if toplevel_result.stdout is None:
+        return toplevel_result, ""
+    prefix = _git_rev_parse(anchor, "--show-prefix") or ""
+    tail = root.relative_to(anchor).as_posix() if root != anchor else ""
+    if tail and tail != ".":
+        prefix += tail + "/"
+    return toplevel_result, prefix
+
+
+def _root_present_in_commit(root: Path, round_pinned_shas: "dict[str, str]") -> bool:
+    """True when `root` is a directory in the commit this round publishes (its toplevel's round
+    pin), whatever the working tree holds. A root git cannot answer for falls back to the live
+    directory check; the materialization gate then refuses it loud."""
+    try:
+        sha = _round_pin_source_sha(root, round_pinned_shas, out=io.StringIO(), late=True)
+    except GitMaterializeError:
+        return root.is_dir()
+    toplevel_result, _prefix = _git_toplevel_and_prefix(root)
+    if toplevel_result.stdout is None:
+        return root.is_dir()
+    toplevel = Path(toplevel_result.stdout)
+    tracked = _tracked_paths_at_sha(toplevel, sha)
+    if not tracked:
+        return root.is_dir()
+    return _path_tracked_at_sha(root, toplevel, tracked)
+
+
 def _git_rev_parse(path: Path, *args: str) -> Optional[str]:
     """Runs `git -C <path> rev-parse <args>` and returns stripped stdout, or
     `None` on any non-zero exit or `OSError` (e.g. `git` not on `PATH`) —
@@ -8354,7 +8631,7 @@ def _git_rev_parse(path: Path, *args: str) -> Optional[str]:
     return _git_rev_parse_detailed(path, *args).stdout
 
 
-_MATERIALIZED_REF_CACHE: "dict[tuple[str, str], Path]" = {}
+_MATERIALIZED_REF_CACHE: "dict[tuple[str, ...], Path]" = {}
 _REQUIRED_PATHSPEC_CACHE: "dict[tuple[str, str], tuple[str, ...]]" = {}
 _TRACKED_PATHS_AT_SHA_CACHE: "dict[tuple[str, str], set]" = {}
 
@@ -8400,6 +8677,8 @@ def _path_tracked_at_sha(path: Path, toplevel: Path, tracked: "set") -> bool:
         rel = path.resolve().relative_to(toplevel.resolve()).as_posix()
     except ValueError:
         return False
+    if rel == ".":
+        return bool(tracked)
     if rel in tracked:
         return True
     prefix = rel + "/"
@@ -8446,7 +8725,7 @@ def _all_inject_srcs_resolved(setup_dir: Path, percolate_root: Path) -> "List[st
     if not isinstance(targets_section, dict):
         return []
     content_root = str(percolate_root / "coordinator")
-    claude_klabauter_content_root = str(_REPO_ROOT)
+    claude_klabauter_content_root = str(_source_repo())
     srcs: "List[str]" = []
     for section in targets_section.values():
         if not isinstance(section, dict):
@@ -8537,7 +8816,7 @@ def _required_pathspec_for_toplevel(
     if cached is not None:
         return cached
 
-    if toplevel.resolve() != _REPO_ROOT.resolve():
+    if toplevel.resolve() != _source_repo().resolve():
         _REQUIRED_PATHSPEC_CACHE[key] = ()
         return ()
 
@@ -8553,7 +8832,12 @@ def _required_pathspec_for_toplevel(
         # to `sys.stderr` once per run; this pathspec-scoping call re-runs
         # the same 4-tier resolution and would otherwise print the exact
         # same diagnostics a second time on the first archive extraction.
-        rows = _load_rows(setup_dir, target_filter="", err=io.StringIO())
+        # The committed registry, as main loads it: a row the pinned ref has but the working copy
+        # dropped is still published, so its root must still be archived.
+        rows = _load_rows(
+            setup_dir, target_filter="", err=io.StringIO(),
+            portable_targets_file=_committed_portable_targets_file(setup_dir),
+        )
     except TargetsError:
         rows = []
     for row in rows:
@@ -8763,6 +9047,26 @@ _source_ref_override = ""
 #: published-engine pin, which the default round keeps).
 _source_ref_explicit = False
 
+#: Set by `_main` from `--withheld-paths-json`: path -> pre-checkpoint sha (None: absent there),
+#: applied to the shadow of the pinned source commit; empty outside a withholding round.
+_WITHHELD_PATHS: "dict[str, Optional[str]]" = {}
+
+#: Set by `_main` beside `_WITHHELD_PATHS`: the range base the mirror stamp carries.
+_WITHHELD_WALK_BASE: "Optional[str]" = None
+
+#: Set by `_main` beside `_WITHHELD_PATHS`: the git toplevel the withheld paths are relative to.
+_WITHHELD_TOPLEVEL: "Optional[str]" = None
+
+
+def _withholds_root(root: Path) -> bool:
+    """True when `_WITHHELD_PATHS` applies to the git toplevel holding `root` (the round's source
+    repo, which is not always this repo)."""
+    if not _WITHHELD_PATHS:
+        return False
+    top = _resolve_show_toplevel(str(root))
+    key = str(Path(top)) if top is not None else ""
+    return bool(key) and key == (_WITHHELD_TOPLEVEL or _engine_toplevel_key())
+
 #: Set by `_main` from `--percolate-root`; `_required_pathspec_for_toplevel` scopes the archive to it.
 _PERCOLATE_ROOT_OVERRIDE: "Optional[str]" = None
 
@@ -8770,6 +9074,38 @@ _PERCOLATE_ROOT_OVERRIDE: "Optional[str]" = None
 #: scratch-clone round and reset on every exit. Read by `_load_rows` and
 #: `_publish_mirror_key_for_repo_root`.
 _DEST_ROOT_OVERRIDE: "Optional[Any]" = None
+
+
+def _skip_remote_refresh_for_originless_scratch(repo_root: Path) -> bool:
+    """Only an explicitly rerooted, distinct originless scratch repo has no upstream to fetch.
+
+    The local baseline branch still governs publication gates and build stamping.
+    A missing origin on a live/unrelated checkout remains a refresh error. Any
+    unreadable Git configuration also stays on the normal fail-closed path.
+    """
+    override = _DEST_ROOT_OVERRIDE
+    if override is None:
+        return False
+    canonical = lambda path: os.path.normcase(os.path.realpath(str(path)))
+    current = canonical(repo_root)
+    clone = canonical(override.clone_root)
+    live = canonical(override.live_root)
+    if current != clone or clone == live:
+        return False
+    toplevel = _git_capture(Path(repo_root), "rev-parse", "--show-toplevel")
+    if toplevel is None or canonical(toplevel) != current:
+        return False
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "config", "--get-all", "remote.origin.url"],
+            capture_output=True, text=True, check=False, timeout=10,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    # Git's exit 1 and empty streams mean the key is absent. An empty but
+    # configured URL returns 0 and must not turn a broken origin into a bypass.
+    return result.returncode == 1 and not result.stdout and not result.stderr
 
 
 def _load_rows(setup_dir: Path, **kwargs: Any) -> List[str]:
@@ -8862,13 +9198,17 @@ def _export_engine_at_ref(repo_root: Path, ref: str) -> Path:
 
 
 def _committed_portable_targets_file(setup_dir: Path) -> Optional[Path]:
-    """`setup/publish-targets.portable` as committed at the round's source ref,
-    written to a temp file, when the working copy differs from it; else None.
+    """`setup/publish-targets.portable` as committed at the round's source ref.
 
     The round ships committed bytes, so its row set and field 7 come from the
     commit too: a peer's uncommitted row edit naming files not yet committed
     otherwise refuses the row (`_build_allowlisted_source`: entry not found)."""
-    portable = setup_dir / "publish-targets.portable"
+    return _committed_setup_file(setup_dir / "publish-targets.portable")
+
+
+def _committed_setup_file(portable: Path) -> Optional[Path]:
+    """`portable` as committed at the round's source ref, written to a temp file
+    (same basename) when the working copy differs from it; else None."""
     ref = _source_ref_override or "HEAD"
     try:
         result = subprocess.run(
@@ -8884,14 +9224,12 @@ def _committed_portable_targets_file(setup_dir: Path) -> Optional[Path]:
         return None
     from coordinator_core.temp_layout import managed_tempdir  # noqa: PLC0415
 
-    fd, tmp = tempfile.mkstemp(
-        prefix="publish-targets-committed-", suffix=".portable", dir=managed_tempdir()
-    )
-    with os.fdopen(fd, "wb") as fh:
-        fh.write(result.stdout)
-    atexit.register(lambda: Path(tmp).unlink(missing_ok=True))
-    print(f"  Row registry read at {ref}: the working copy of {portable} has uncommitted edits.")
-    return Path(tmp)
+    tmp_dir = Path(tempfile.mkdtemp(prefix="publish-committed-", dir=managed_tempdir()))
+    tmp = tmp_dir / portable.name
+    tmp.write_bytes(result.stdout)
+    atexit.register(lambda: shutil.rmtree(tmp_dir, ignore_errors=True))
+    print(f"  {portable.name} read at {ref}: the working copy has uncommitted edits.")
+    return tmp
 
 
 def _round_pin_source_sha(
@@ -8927,7 +9265,7 @@ def _round_pin_source_sha(
     hard-failing the round for a case the round-start pass simply never
     saw. The `late=True` print makes that late pin visible in the
     provenance log instead of reading identically to a round-start pin."""
-    toplevel_result = _git_rev_parse_detailed(root, "--show-toplevel")
+    toplevel_result = _git_rev_parse_detailed(_nearest_existing_dir(root), "--show-toplevel")
     if toplevel_result.stdout is None:
         if toplevel_result.not_a_work_tree:
             raise GitMaterializeError(f"{root} is not inside a git work tree — cannot pin a round source sha")
@@ -9053,7 +9391,76 @@ def _scoped_engine_stamp_sha(root: Path, pinned_sha: str, *, out: IO[str] = sys.
     return scoped
 
 
-def _git_materialize_ref(root: Path, ref: str = "HEAD") -> Path:
+def _withheld_digest(withheld: "Mapping[str, Optional[str]]") -> str:
+    """Stable digest of a withheld mapping: the widened `_MATERIALIZED_REF_CACHE` key part."""
+    import hashlib
+
+    return hashlib.sha256(json.dumps(sorted(withheld.items())).encode("utf-8")).hexdigest()[:16]
+
+
+def _overlay_withheld(toplevel: Path, shadow_dir: Path, withheld: "Mapping[str, Optional[str]]") -> None:
+    """Rewrites each withheld path in `shadow_dir` to its blob at the path's base sha, and removes
+    one absent there. One `git cat-file --batch` answers every path and every distinct base: a
+    `<base>^{tree}` probe per base fails closed on an unresolvable sha, and a `<base>:<path>`
+    request per path returns its blob or `missing`. A path whose base is None is removed with no
+    request. A withheld path naming a tree, or containing a newline, raises `GitMaterializeError`."""
+    requests: "list[tuple[str, str, str]]" = []
+    probes: "set[str]" = set()
+    for path, base in withheld.items():
+        if not base:
+            continue
+        if "\n" in path:
+            raise GitMaterializeError(f"withheld path {path!r} contains a newline")
+        if base not in probes:
+            probes.add(base)
+            requests.append(("probe", base, f"{base}^{{tree}}"))
+        requests.append(("blob", base, path))
+    blobs: "dict[tuple[str, str], Optional[bytes]]" = {}
+    if requests:
+        result = subprocess.run(
+            ["git", "-C", str(toplevel), "cat-file", "--batch"],
+            input=("".join(f"{base}:{path}\n" if kind == "blob" else f"{path}\n" for kind, base, path in requests)).encode("utf-8"), capture_output=True, check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        if result.returncode != 0:
+            raise GitMaterializeError(
+                f"git cat-file --batch failed for {toplevel} (exit {result.returncode}): "
+                f"{result.stderr.decode('utf-8', 'replace').strip()}"
+            )
+        out, pos = result.stdout, 0
+        for kind_tag, base, path in requests:
+            request = path if kind_tag == "probe" else f"{base}:{path}"
+            eol = out.index(b"\n", pos)
+            header = out[pos:eol].decode("utf-8", "replace").split(" ")
+            pos = eol + 1
+            payload: "Optional[bytes]" = None
+            kind = "missing"
+            if header[-1] == "ambiguous":
+                raise GitMaterializeError(f"git cat-file {request!r} failed for {toplevel}: ambiguous object name")
+            if header[-1] != "missing":
+                kind, size = header[1], int(header[2])
+                payload = out[pos:pos + size]
+                pos += size + 1
+            if kind_tag == "probe":
+                if kind == "missing":
+                    raise GitMaterializeError(f"git cat-file {request!r} failed for {toplevel}: base is unresolvable")
+                continue
+            if kind not in ("missing", "blob"):
+                raise GitMaterializeError(f"withheld path {request!r} is a {kind}, not a blob")
+            blobs[(base, path)] = payload
+    for path, base in withheld.items():
+        target = shadow_dir / path
+        payload = blobs.get((base, path)) if base else None
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target, ignore_errors=True)
+        elif payload is None or target.is_symlink():
+            target.unlink(missing_ok=True)
+        if payload is not None:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(payload)
+
+
+def _git_materialize_ref(root: Path, ref: str = "HEAD", withheld: "Optional[Mapping[str, Optional[str]]]" = None) -> Path:
     """Materializes `root` as it exists at the committed `ref` into an
     on-disk shadow tree, and returns the shadow path corresponding to
     `root` (not the shadow of the whole toplevel).
@@ -9080,8 +9487,12 @@ def _git_materialize_ref(root: Path, ref: str = "HEAD") -> Path:
     structural claims it has not established (see incident: a concurrent-
     publish lock collision on `dist/mirror-native/` was misreported as
     "not inside a git work tree" for a path that was, in fact, tracked).
+
+    `withheld` (path -> pre-checkpoint sha, None when absent there) is overlaid on the
+    extracted tree by `_overlay_withheld`; it widens the cache key by a digest, so a
+    withholding and a plain materialization of one sha never share a shadow.
     """
-    toplevel_result = _git_rev_parse_detailed(root, "--show-toplevel")
+    toplevel_result, prefix = _git_toplevel_and_prefix(root)
     if toplevel_result.stdout is None:
         if toplevel_result.not_a_work_tree:
             raise GitMaterializeError(f"{root} is not inside a git work tree — cannot materialize {ref!r}")
@@ -9091,8 +9502,6 @@ def _git_materialize_ref(root: Path, ref: str = "HEAD") -> Path:
         )
     toplevel = Path(toplevel_result.stdout)
 
-    prefix = _git_rev_parse(root, "--show-prefix") or ""
-
     sha_result = _git_rev_parse_detailed(toplevel, ref)
     if sha_result.stdout is None:
         raise GitMaterializeError(
@@ -9100,13 +9509,21 @@ def _git_materialize_ref(root: Path, ref: str = "HEAD") -> Path:
         )
     sha = sha_result.stdout
 
-    cache_key = (str(toplevel), sha)
+    cache_key = (str(toplevel), sha) + (
+        (_withheld_digest(withheld),) if withheld else ()
+    )
     shadow_toplevel = _MATERIALIZED_REF_CACHE.get(cache_key)
     if shadow_toplevel is None:
         # a single post-extraction line carries the same MISS signal as
         # the removed pre-extraction print, without reading as two separate events.
         _materialize_start = time.perf_counter()
         shadow_toplevel = _extract_git_archive(toplevel, sha)
+        if withheld:
+            try:
+                _overlay_withheld(toplevel, shadow_toplevel, withheld)
+            except Exception:
+                shutil.rmtree(shadow_toplevel, ignore_errors=True)
+                raise
         print(
             f"  [timing] _git_materialize_ref: cache MISS for {cache_key!r}: extracted in "
             f"{time.perf_counter() - _materialize_start:.3f}s",
@@ -9506,10 +9923,18 @@ def _print_outcome_block(
     exit_note: Optional[str] = None,
     dry_run: bool = False,
     out: "Optional[IO[str]]" = None,
+    unstamped_roots: "Optional[Mapping[str, tuple[Sequence[str], Sequence[str]]]]" = None,
+    stamp_results: "Optional[Mapping[str, str]]" = None,
 ) -> None:
     """The last lines of a publish run: per row published / REFUSED, the gate's
     reason, and the next step, then the exit code. Printed after the timing
-    summary so the tail of the log is the verdict."""
+    summary so the tail of the log is the verdict.
+
+    `unstamped_roots` maps a destination root's name to (unpublished feeding
+    rows, every row feeding it): a root committed without its
+    Percolate-Source-Head/Signature trailers because those rows did not publish.
+    `stamp_results` maps every destination root the round landed to `stamped <sha>` or
+    `not stamped: <reason>`; a run that reached a root never prints `result: OK` without one."""
     if out is None:
         out = sys.stdout
     with contextlib.suppress(Exception):
@@ -9526,6 +9951,12 @@ def _print_outcome_block(
         print(f"  {name}: REFUSED/FAILED -- did not publish", file=out)
         print(f"      reason:    {reason}", file=out)
         print(f"      next step: {next_step}", file=out)
+    for root_name, (missing_rows, feeding_rows) in (unstamped_roots or {}).items():
+        print(f"  {root_name}: UNSTAMPED -- committed without Percolate-Source-Head/Signature trailers", file=out)
+        print(f"      unpublished rows: {', '.join(missing_rows)}", file=out)
+        print(f"      next step: coordinator-publish {','.join(feeding_rows)}", file=out)
+    for root_name, verdict_text in (stamp_results or {}).items():
+        print(f"  {root_name}: {verdict_text}", file=out)
     if exit_note:
         print(f"  {exit_note}", file=out)
     verdict = "OK" if exit_code == 0 else "NOT OK"
@@ -9570,6 +10001,45 @@ def _dest_repo_root(dest_dir: Path) -> Optional[Path]:
         if (candidate / ".git").exists():
             return candidate
     return None
+
+
+def _withheld_untracked_top_level_files(target: "ResolvedTarget") -> "List[Path]":
+    """Top-level files in an owned-subdir row's destination that the row's source holds, its
+    allowlist withholds and the destination repo does not track: files this publisher's own
+    tooling dropped there (`docs/reference/op-catalog.md`), never another publisher's.
+    Empty when any fact is unprovable (no allowlist inclusion, no git root, a failed `ls-files`)."""
+    dest_dir = target.dest_dir
+    if not dest_dir.is_dir() or not _dest_is_owned_subdir(dest_dir):
+        return []
+    repo_root = _dest_repo_root(dest_dir)
+    names = [
+        p.name
+        for p in sorted(dest_dir.iterdir())
+        if p.is_file() and not p.name.startswith(".") and (target.source_dir / p.name).is_file()
+    ]
+    if repo_root is None or not names:
+        return []
+    names = sorted(_paths_the_row_allowlist_denies(target, names))
+    if not names:
+        return []
+    rels = [(dest_dir / n).relative_to(repo_root).as_posix() for n in names]
+    listing = _git_capture(repo_root, "ls-files", "-z", "--", *rels)
+    if listing is None:
+        return []
+    tracked = {line for line in listing.split("\0") if line}
+    return [dest_dir / n for n, rel in zip(names, rels) if rel not in tracked]
+
+
+def _sweep_withheld_untracked_top_level_files(target: "ResolvedTarget") -> "List[Path]":
+    """Removes `_withheld_untracked_top_level_files` and returns what it removed."""
+    removed: "List[Path]" = []
+    for path in _withheld_untracked_top_level_files(target):
+        try:
+            path.unlink()
+        except OSError:
+            continue
+        removed.append(path)
+    return removed
 
 
 def _candidate_top_level_orphans(
@@ -9883,12 +10353,17 @@ def _sync_commit_message(
         f"{len(present_paths)} added-or-updated, {len(deleted_paths)} removed)"
         f"{source_sha_suffix}"
     )
+    withheld_trailer = (
+        f"Source-Withheld-Base: {_WITHHELD_WALK_BASE}" if _WITHHELD_WALK_BASE and _WITHHELD_PATHS and source_sha_suffix else ""
+    )
     if not deleted_paths:
-        return subject
+        return f"{subject}\n\n{withheld_trailer}" if withheld_trailer else subject
     shown = sorted(deleted_paths)[:_REMOVED_NAME_CAP]
     body = "\n".join(f"Removed: {p}" for p in shown)
     if len(deleted_paths) > len(shown):
         body += f"\n...and {len(deleted_paths) - len(shown)} more removed"
+    if withheld_trailer:
+        body += f"\n\n{withheld_trailer}"
     return f"{subject}\n\n{body}"
 
 
@@ -11027,6 +11502,26 @@ def _publish_staging_parent(dest_dir: Path) -> Path:
 #: mirror runs while an earlier row's directory still waits for the round's union overlay.
 _MINTED_STAGING_DIRS: "set[Path]" = set()
 
+#: The minting pid rides in the directory name (`...publish-staging-p<pid>-<random>`), never in a
+#: file inside it: staging content is synced as payload, a name is not.
+_STAGING_OWNER_TAG = "p"
+
+
+def _staging_owner_alive(name: str, prefix: str) -> "Optional[bool]":
+    """Whether the process that minted staging dir `name` is still running; `None` when the
+    name carries no owner pid (a dir minted before owner tagging) or liveness cannot be probed,
+    so the caller falls back to the age rule. A reused pid reads as alive: the dir is kept.
+    This process's own pid is also `None`: a warm engine outlives rounds, so its pid proves
+    nothing about a dir it no longer tracks, and the age rule decides."""
+    match = re.match(rf"{_STAGING_OWNER_TAG}(\d+)-", name[len(prefix):])
+    if match is None or int(match.group(1)) == os.getpid():
+        return None
+    try:
+        from coordinator_core.group_em.session_registry import pid_alive
+    except ImportError:
+        return None
+    return pid_alive(int(match.group(1)))
+
 
 def _create_publish_staging_dir(dest_dir: Path) -> Path:
     """Mints a fresh, EMPTY, destination-adjacent staging directory (same volume as `dest_dir`,
@@ -11042,7 +11537,10 @@ def _create_publish_staging_dir(dest_dir: Path) -> Path:
             staging_parent.mkdir(parents=True, exist_ok=True)
         try:
             staging_dir = Path(
-                tempfile.mkdtemp(prefix=f".{dest_dir.name}.publish-staging-", dir=str(staging_parent))
+                tempfile.mkdtemp(
+                    prefix=f".{dest_dir.name}.publish-staging-{_STAGING_OWNER_TAG}{os.getpid()}-",
+                    dir=str(staging_parent),
+                )
             )
             break
         except FileNotFoundError:
@@ -11079,14 +11577,11 @@ def _sweep_stale_publish_staging_dirs(
     lifecycle with their own refuse-on-detection handling at swap time and
     are explicitly excluded here — this sweep must never touch that mechanism.
 
-    Liveness discriminator: directory MTIME age, not a PID/liveness check.
-    `mkdtemp` requires no PID bookkeeping and this glob has no reliable way
-    to recover which process (if any) owns a candidate directory — a PID
-    file would be another thing to get wrong under `kill -9`, and a stale
-    PID reused by an unrelated process would falsely read as live anyway.
-    Age is simpler and portable (pathlib/shutil only, no shell-out, no
-    per-OS process-liveness API). `max_age_seconds` defaults to one hour;
-    a directory this process minted is never swept (§ `_MINTED_STAGING_DIRS`).
+    Liveness discriminator: the minting pid in the directory name
+    (§ `_staging_owner_alive`) — a dead owner's dir is removed at any age, a
+    live owner's is never removed. Only a dir with no owner pid in its name
+    falls back to directory MTIME age (`max_age_seconds`, default one hour).
+    A directory this process minted is never swept (§ `_MINTED_STAGING_DIRS`).
 
     `dest_dir.name` is `glob.escape`d before interpolation: an un-escaped
     `*`/`?`/`[...]` in the name would let the glob under- or over-match
@@ -11110,18 +11605,23 @@ def _sweep_stale_publish_staging_dirs(
         if not staging_parent.is_dir():
             return
         now = time.time()
-        escaped_prefix = glob.escape(f".{dest_dir.name}.publish-staging-")
+        literal_prefix = f".{dest_dir.name}.publish-staging-"
+        escaped_prefix = glob.escape(literal_prefix)
         for candidate in staging_parent.glob(f"{escaped_prefix}*"):
             if candidate.name.endswith(".prior"):
                 continue
             if not candidate.is_dir() or candidate.resolve() in _MINTED_STAGING_DIRS:
                 continue
-            try:
-                age = now - candidate.stat().st_mtime
-            except OSError:
+            owner_alive = _staging_owner_alive(candidate.name, literal_prefix)
+            if owner_alive:
                 continue
-            if age < max_age_seconds:
-                continue
+            if owner_alive is None:
+                try:
+                    age = now - candidate.stat().st_mtime
+                except OSError:
+                    continue
+                if age < max_age_seconds:
+                    continue
             if dry_run:
                 print(f"  [dry-run] would sweep stale publish-staging dir: {candidate}", file=out)
                 continue
@@ -11441,12 +11941,22 @@ def _discard_publish_staging_dir(staging_dir: Optional[Path]) -> None:
     or once the round has consumed it; the real destination is never touched. Goes through
     `_rmtree_clear_readonly_onerror`: a Windows read-only attribute under a bare
     `ignore_errors=True` leaves the directory only partially removed."""
-    if staging_dir is not None and staging_dir.exists():
+    if staging_dir is None:
+        return
+    # `_rmtree_clear_readonly_onerror` swallows a per-entry OSError, so a transient handle on
+    # Windows leaves the tree partly removed with no raise; one retry covers it.
+    for _attempt in (1, 2):
+        if not staging_dir.exists():
+            break
         shutil.rmtree(staging_dir, onerror=_rmtree_clear_readonly_onerror)
+    if not staging_dir.exists():
+        _MINTED_STAGING_DIRS.discard(staging_dir.resolve())
 
 
 def _remove_minted_staging_dirs() -> None:
-    """Best-effort removal of every staging dir this process minted and still holds."""
+    """Best-effort removal of every staging dir this process minted and still holds. Called at the
+    end of every round and from `main`'s `finally`, so a row that skipped its own discard (an
+    exception between the mint and the row's latch, an aborted union assembly) leaves none."""
     for staging_dir in list(_MINTED_STAGING_DIRS):
         try:
             _discard_publish_staging_dir(staging_dir)
@@ -11673,9 +12183,11 @@ def process_target(
     # hold: unconditional WHEN it runs, gated on WHETHER it removes.
     _sweep_stale_publish_staging_dirs(target.dest_dir, totals, dry_run=dry_run, out=out)
 
+    if round_pinned_shas is None:
+        round_pinned_shas = {}
     for root in _contributing_roots(target):
-        if not root.is_dir():
-            print(f"  Error: source path does not exist: {root}", file=sys.stderr)
+        if not _root_present_in_commit(root, round_pinned_shas):
+            print(f"  Error: source path does not exist in the committed tree: {root}", file=sys.stderr)
             _print_row_refusal(target.name, err=sys.stderr)
             _decline_row(totals, timing_sink, target.name, "source path absent")
             return
@@ -12087,6 +12599,14 @@ def process_target(
                 candidate_orphans = _candidate_top_level_orphans(
                     publish_sync_module, effective_source_dir, target.dest_dir
                 )
+                withheld = _withheld_untracked_top_level_files(target)
+                if withheld:
+                    print(
+                        f"  {target.name}: removing {len(withheld)} untracked file(s) the allowlist "
+                        "withholds after a successful round: " + ", ".join(p.name for p in withheld),
+                        file=out,
+                    )
+                    candidate_orphans = [n for n in candidate_orphans if n not in {p.name for p in withheld}]
                 if candidate_orphans:
                     print(
                         f"  WARNING: {target.name}: orphan sweep skipped "
@@ -12686,6 +13206,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Alias of --commit.",
     )
+    p.add_argument(
+        "--withheld-paths-json",
+        default=None,
+        metavar="PATH",
+        help=(
+            'JSON {"walk_base": sha|null, "paths": {path: base_sha|null}}: each path ships '
+            "at its base_sha blob (absent when null), not the shipped commit's."
+        ),
+    )
     _bootstrap_engine()
     p.add_argument(
         PUBLISH_DEST_ROOT_OVERRIDE_FLAG,
@@ -12997,6 +13526,8 @@ class _RoundGateResult:
     uncommitted_after_commit: "set[Path]"
     residue_roots: "set[Path]"
     deduped_roots: "list[Path]"
+    unstamped_roots: "dict[str, tuple[list[str], list[str]]]" = field(default_factory=dict)
+    stamp_results: "dict[str, str]" = field(default_factory=dict)
 
 
 #: Stamp and door artifacts the round derives: they ride a commit only when something else survives.
@@ -13431,11 +13962,14 @@ def _rebuild_round_door(
 
     if warm:
         _seed_union_from_head(repo_root, union_root, _DOOR_INPUT_RELS)
+    # The baked root is where the door will run: on a scratch-clone round that is the live root,
+    # never the clone (the clone path leaks the operator's home into the shipped provenance).
+    baked_root = _DEST_ROOT_OVERRIDE.to_live(repo_root) if _DEST_ROOT_OVERRIDE is not None else repo_root
     try:
         if engine_stamp is None:
-            rebuilt = rebuild_door_for_mirror(union_root, repo_root)
+            rebuilt = rebuild_door_for_mirror(union_root, baked_root)
         else:
-            rebuilt = rebuild_door_for_mirror(union_root, repo_root, engine_stamp=engine_stamp)
+            rebuilt = rebuild_door_for_mirror(union_root, baked_root, engine_stamp=engine_stamp)
     except DoorInstallError as exc:
         print(f"publish.py: FATAL — door rebuild for {repo_root}: {exc}", file=sys.stderr)
         return False, {}
@@ -13465,13 +13999,14 @@ def _source_deleted_paths(targets: "Iterable[ResolvedTarget]") -> "frozenset[str
         pathspecs.add(target.source_dir)
         routed = _parse_source_map(getattr(target, "source_map", "") or "")
         pathspecs.update(root / entry for entry, root in routed.items())
+    src_root = _source_repo()
     specs = sorted(
-        {spec.relative_to(_REPO_ROOT).as_posix() for spec in pathspecs if spec.is_relative_to(_REPO_ROOT)}
+        {spec.relative_to(src_root).as_posix() for spec in pathspecs if spec.is_relative_to(src_root)}
     )
     if not specs:
         return frozenset()
     out = _git_capture(
-        _REPO_ROOT, "log", "--format=", "--name-only", "--no-renames", "--diff-filter=D", "--", *specs
+        src_root, "log", "--format=", "--name-only", "--no-renames", "--diff-filter=D", "--", *specs
     )
     return frozenset(line for line in (out or "").splitlines() if line)
 
@@ -13490,9 +14025,10 @@ def _removals_this_source_shipped(
     kept: "set[str]" = set()
     for r in removals:
         root = _removal_source_root(target, r)
-        if not root.is_relative_to(_REPO_ROOT):
+        src_root = _source_repo()
+        if not root.is_relative_to(src_root):
             continue
-        prefix = root.relative_to(_REPO_ROOT).as_posix()
+        prefix = root.relative_to(src_root).as_posix()
         if (r if prefix == "." else f"{prefix}/{r}") in shipped_then_deleted:
             kept.add(r)
     if target.allowlist:
@@ -13538,7 +14074,7 @@ def _ignore_reaped_dest_rels(
             return frozenset()
         toplevel = plan.toplevel
     else:
-        toplevel = _REPO_ROOT
+        toplevel = _source_repo()
     if toplevel is None:
         return frozenset()
     try:
@@ -13552,7 +14088,7 @@ def _ignore_reaped_dest_rels(
 
     _bootstrap_engine()
     from coordinator_core.git.git_dir import resolve_git_common_dir  # noqa: PLC0415
-    from coordinator_core.git.git_objects import read_object  # noqa: PLC0415
+    from coordinator_core.git.git_objects import read_object, retry_past_stall  # noqa: PLC0415
     from coordinator_core.git.git_state import (  # noqa: PLC0415
         _parse_tree_entries,
         head_tree_sha,
@@ -13563,11 +14099,12 @@ def _ignore_reaped_dest_rels(
 
     try:
         src_common = resolve_git_common_dir(Path(toplevel))
+        # One transient pack stall must not abort a whole publish round: re-read once past the latch.
         if warm:
-            info = read_commit(Path(toplevel), plan.head)
+            info = retry_past_stall(src_common, lambda: read_commit(Path(toplevel), plan.head))
             src_tree = None if info is None else info.tree
         else:
-            src_tree = head_tree_sha(Path(toplevel))
+            src_tree = retry_past_stall(src_common, lambda: head_tree_sha(Path(toplevel)))
             key = f"{source_rel}/{ignore_rel}" if source_rel else ignore_rel
         if src_tree is None:
             return frozenset()
@@ -13641,10 +14178,17 @@ def _paths_the_row_allowlist_denies(target: "ResolvedTarget", removals: "Iterabl
     if not entries:
         return set()
 
+    def _covered(names: "frozenset[str]", dirs: "frozenset[str]", rel: str) -> bool:
+        # `_path_covers` for every entry at once: `rel` itself, or any ancestor directory of it.
+        return rel in names or any(rel[:i] in dirs for i, ch in enumerate(rel) if ch == "/")
+
+    entry_dirs = frozenset(e.rstrip("/") for e in entries)
+    exclusion_dirs = frozenset(x.rstrip("/") for x in exclusions)
+    entry_names, exclusion_names = frozenset(entries), frozenset(exclusions)
     return {
         r
         for r in removals
-        if any(_path_covers(x, r) for x in exclusions) or not any(_path_covers(e, r) for e in entries)
+        if _covered(exclusion_names, exclusion_dirs, r) or not _covered(entry_names, entry_dirs, r)
     }
 
 
@@ -13950,9 +14494,10 @@ def _swap_over_mid_stage(runs: "Sequence[Any]", held_s: float) -> bool:
 
 @contextlib.contextmanager
 def _quiesced_engine_roots(roots: "Sequence[Path]"):
-    """Hold the handover-pending breadcrumb, hold publish.marker and stop the warm pair for each
-    engine root across the body, then release every hold; a body that completes first starts the
-    successor pair under the held markers and waits for it to answer. The breadcrumb is taken
+    """Hold the handover-pending breadcrumb and publish.marker for each engine root across the
+    body, leaving the old warm pair answering, then release every hold; a body that completes
+    first starts the successor pair under the held markers, waits for it to answer, then stops
+    the old pair (`round.start_successor_pair_in_hold`). The breadcrumb is taken
     here and released by this function's own ExitStack on every exit, so it spans stop-and-copy
     only. Raises `_QuiesceRefused` before the body runs when a root cannot be stopped, so nothing
     lands. Empty `roots` is a no-op."""
@@ -13968,30 +14513,22 @@ def _quiesced_engine_roots(roots: "Sequence[Path]"):
     from coordinator_core.warm import live_runs as _live_runs
 
     with contextlib.ExitStack() as stack:
-        # The handover-pending hold spans drain, stop and swap, so a new leg queues at admission
-        # while only the legs already in flight are waited on; a staged run between legs does not
-        # hold the stop. A lapsed drain refuses unless the operator override is active.
-        for _lock_root in roots:
-            stack.enter_context(hold_handover_pending(Path(_lock_root)))
+        # The handover-pending hold spans drain, probe, copy and the successor handover, so a new leg
+        # queues at admission while only the legs already in flight are waited on; a staged run
+        # between legs does not hold the swap. A lapsed drain refuses unless the operator override is active.
+        for _breadcrumb_root in roots:
+            stack.enter_context(hold_handover_pending(Path(_breadcrumb_root)))
         for _lock_root in roots:
             _mid_stage, _held_s = _live_runs.drain_for_handover(Path(_lock_root))
             if _mid_stage and not _swap_over_mid_stage(_mid_stage, _held_s):
                 raise _QuiesceRefused(_live_runs.format_refusal(_mid_stage, _held_s) + "\nnot copying")
+
+        from coordinator_core.warm import skew as _skew
+
+        _old_stamps = {Path(_r): _skew.read_engine_stamp_bytes(Path(_r)) for _r in roots}
         for _lock_root in roots:
-            # Slow teardown is absorbed here, before the marker degrades hooks: the marker is
-            # taken only once the pair is confirmed gone, and the stop under it mops up respawns.
-            try:
-                _pre_result = _pair_stop.stop_warm_pair(Path(_lock_root))
-            except (_MissingPsutilError, _WinLivenessAmbiguous, OSError) as exc:
-                raise _QuiesceRefused(
-                    f"could not quiesce the warm engine under {_lock_root} ({exc!r}); not copying"
-                ) from exc
-            # Only a pid the pre-stop failed to end refuses here; a respawn is the marked stop's.
-            if _pre_result.stuck():
-                raise _QuiesceRefused(
-                    f"warm engine still alive under {_lock_root}; not copying:\n"
-                    f"{_pre_result.render_survivors()}"
-                )
+            # The old pair keeps answering through the copy; it is stopped only after the
+            # successor answers (`start_successor_pair_in_hold`).
             try:
                 stack.enter_context(
                     hold_publish_marker(Path(_lock_root), holder=f"publish.py:{os.getpid()}")
@@ -14010,23 +14547,49 @@ def _quiesced_engine_roots(roots: "Sequence[Path]"):
                         f"warm engine processes under {_lock_root} cannot be "
                         f"stopped; nothing stopped, not copying:\n{_blocked_text}"
                     )
-                _pair_result = _pair_stop.stop_warm_pair(Path(_lock_root))
             except (_MissingPsutilError, _WinLivenessAmbiguous, OSError) as exc:
                 raise _QuiesceRefused(
                     f"could not quiesce the warm engine under {_lock_root} ({exc!r}); not copying"
                 ) from exc
-            if not _pair_result.ok():
-                raise _QuiesceRefused(
-                    f"warm engine still alive under {_lock_root}; not copying:\n"
-                    f"{_pair_result.render_survivors()}"
-                )
-        yield
-        # Body done (copy complete): start and await the successor pair under the still-held
-        # markers; a raising body skips this and releases without a spawn.
-        from coordinator_core.percolate.round import start_successor_pair_in_hold as _start_pair
+        from coordinator_core.percolate.round import (
+            hold_stamp_through_copy as _hold_stamp,
+            start_successor_pair_in_hold as _start_pair,
+        )
 
+        # The copy's stamp write is pinned back as it lands, so clients keep the old token and the
+        # old pair until the successor answers.
+        _stamp_holds = {
+            Path(_r): stack.enter_context(_hold_stamp(Path(_r), _old_stamps.get(Path(_r)))) for _r in roots
+        }
+        yield
+        # Body done (copy complete): start the successor under the still-held markers, wait for
+        # it to answer, then stop the old pair; a raising body skips this and releases with the
+        # old pair untouched.
         for _lock_root in roots:
-            _start_pair(Path(_lock_root))
+            _stamp_holds[Path(_lock_root)].stop()
+            _start_pair(
+                Path(_lock_root),
+                old_stamp=_old_stamps.get(Path(_lock_root)),
+                new_stamp=_stamp_holds[Path(_lock_root)].new_stamp,
+            )
+
+
+@contextlib.contextmanager
+def _quiesced_per_repo(is_engine_root: "Callable[[Path], bool]"):
+    """Yield `switch(repo_root)`: call it at the top of each per-repo iteration. It closes the previous
+    repo's hold (a clean close starts that root's successor pair) and opens
+    `_quiesced_engine_roots([repo_root])` only when `repo_root` is an engine root, so a non-engine repo
+    lands with no hold and each engine root is held for its own land only. An exception in the body
+    unwinds the current hold as a failure (no successor start)."""
+    holds = contextlib.ExitStack()
+
+    def switch(repo_root: Path) -> None:
+        holds.close()
+        if is_engine_root(repo_root):
+            holds.enter_context(_quiesced_engine_roots([repo_root]))
+
+    with holds:
+        yield switch
 
 
 def _notify_land_event(event: str, round_id: str, repo_names: "Sequence[str]") -> None:
@@ -14120,6 +14683,9 @@ def _hold_publish_slots(
                     holder = publish_slot.make_holder(resolve_session_id())
                 token = publish_slot.acquire_slot(root, holder)
                 stack.callback(_release_slot_reported, root, token, err)
+                # Entered after the release callback: the stack unwinds LIFO, so the heartbeat stops
+                # before the release. An inherited token is the parent round's to renew, never ours.
+                stack.enter_context(publish_slot.slot_heartbeat(root, token))
         except publish_slot.PublishSlotHeldError as exc:
             print(f"[publish.py] BUSY: {exc}", file=err)
             gate.exit_code = 75
@@ -14180,7 +14746,7 @@ def _run_round(
     import uuid  # noqa: PLC0415
 
     from coordinator_core.git.git_state import format_publish_trailers  # noqa: PLC0415
-    from percolate.diff_commit import land_diff  # type: ignore[import-not-found]  # noqa: PLC0415
+    from percolate.diff_commit import land_diff, land_stamp_only  # type: ignore[import-not-found]  # noqa: PLC0415
 
     signature: Optional[str] = None
     if percolate_store_path is not None:
@@ -14200,6 +14766,7 @@ def _run_round(
     unions: "dict[Path, _RootUnion]" = {}
     staged_by_repo_root: "dict[Path, list[tuple[ResolvedTarget, StagedRowResult]]]" = {}
     dry_run_targets_by_root: "dict[Path, list[ResolvedTarget]]" = {}
+    idle_warm_roots: "dict[Path, str]" = {}
     scratch_dirs: "List[Path]" = []
     try:
         try:
@@ -14246,6 +14813,7 @@ def _run_round(
                         print("", file=sys.stdout)
                         totals.processed += 1
                         succeeded_row_names.append(target.name)
+                        idle_warm_roots[repo_root] = plan.warm.base.source_head
                         continue
                     row_shadow = _warm_shadow_for_row(plan, repo_root, target.name)
                     stage_kwargs = {
@@ -14526,6 +15094,11 @@ def _run_round(
                 "published bytes as unverified (AC15 fail-closed).",
                 file=sys.stderr,
             )
+        elif args.commit and not args.dry_run:
+            _push_refusal = _push_stamped_source_commits(list(unions.values()))
+            if _push_refusal:
+                print(f"publish: refused -- {_push_refusal}", file=sys.stderr)
+                gates_ok = False
 
         commit_ran = False
         commit_ok = True
@@ -14560,6 +15133,8 @@ def _run_round(
                             )
                     failed_dest_dirs_by_repo_root.setdefault(repo_root, set()).add(target.dest_dir)
         swap_ran = bool(gates_ok and landing_by_repo_root)
+        unstamped_roots: "dict[str, tuple[list[str], list[str]]]" = {}
+        stamp_results: "dict[str, str]" = {}
         if swap_ran:
             commit_now = bool(args.commit and succeeded_row_names)
             round_id = f"publish-{uuid.uuid4().hex}"
@@ -14568,11 +15143,7 @@ def _run_round(
             if commit_now:
                 print("=== publish.py — commit ===")
 
-            with _land_notices(
-                commit_now, round_id, [r.name for r in landing_by_repo_root]
-            ), _quiesced_engine_roots(
-                [r for r in landing_by_repo_root if _warm_engine_root.is_engine_root(r)],
-            ):
+            with _land_notices(commit_now, round_id, [r.name for r in landing_by_repo_root]):
                 for repo_root, staged_rows in landing_by_repo_root.items():
                     u = unions[repo_root]
                     root_ok_names = [t.name for t in targets_by_root[repo_root] if t.name in succeeded_row_names]
@@ -14581,6 +15152,17 @@ def _run_round(
                     stamped = fully and bool(head_sha) and bool(u.plan.signature)
                     outcome = None
                     land_exc: "Optional[Exception]" = None
+                    stamp_note = ""
+
+                    def _slotted(message: str, repo_root=repo_root) -> str:
+                        if slot_gate is None:
+                            return message
+                        from coordinator_core.percolate import publish_slot as _slot  # noqa: PLC0415
+
+                        if repo_root in slot_gate.tokens:
+                            _slot.confirm_slot(repo_root, slot_gate.tokens[repo_root])
+                        return _slot.append_slot_trailers(message, holder=slot_gate.tokens.get(repo_root))
+
                     if u.survivors or u.deletions or u.converge:
                         message = _sync_commit_message(
                             repo_root.name,
@@ -14594,15 +15176,7 @@ def _run_round(
                             signature=u.plan.signature if stamped else None,
                         )
                         try:
-                            if slot_gate is not None:
-                                from coordinator_core.percolate import publish_slot as _slot  # noqa: PLC0415
-
-                                if repo_root in slot_gate.tokens:
-                                    _slot.confirm_slot(repo_root, slot_gate.tokens[repo_root])
-                                message = _slot.append_slot_trailers(
-                                    message,
-                                    holder=slot_gate.tokens.get(repo_root),
-                                )
+                            message = _slotted(message)
                             outcome = land_diff(
                                 repo_root,
                                 list(u.survivors.values()) + u.converge,
@@ -14612,9 +15186,56 @@ def _run_round(
                                 derived=frozenset({_EXPECTED_MANIFEST_REL}).union(
                                     rel for rel in u.survivors if rel.rsplit("/", 1)[-1] in _ROUND_DERIVED_BASENAMES
                                 ),
+                                hold=(
+                                    functools.partial(_quiesced_engine_roots, [repo_root])
+                                    if _warm_engine_root.is_engine_root(repo_root)
+                                    else None
+                                ),
                             )
+                        except _QuiesceRefused:
+                            raise
                         except Exception as exc:  # noqa: BLE001 - root isolation, recorded not raised
                             land_exc = exc
+                    feeding_here = (rows_feeding or {}).get(repo_root)
+                    unstamped_entry = _unstamped_root_entry(
+                        feeding_here, succeeded_row_names, committed=commit_now and outcome is not None
+                    )
+                    if unstamped_entry is not None:
+                        unstamped_roots[repo_root.name] = unstamped_entry
+                    landed_sha = outcome.commit_sha if outcome is not None else None
+                    if land_exc is None and commit_now and stamped and landed_sha is None:
+                        try:
+                            _stamp_msg = _slotted(
+                                _sync_commit_message(
+                                    repo_root.name,
+                                    root_ok_names,
+                                    [],
+                                    [],
+                                    _source_sha_suffix(round_pinned_shas, source_head=head_sha),
+                                )
+                                + format_publish_trailers(
+                                    round_id=round_id, source_head=head_sha, signature=u.plan.signature
+                                )
+                            )
+                            _stamp = land_stamp_only(repo_root, head_sha, u.plan.signature, _stamp_msg)
+                            landed_sha, stamp_note = _stamp.sha, _stamp.reason
+                        except Exception as exc:  # noqa: BLE001 - root isolation, recorded not raised
+                            stamp_note = f"stamp commit failed ({exc!r})"
+                    unstamped_why = (
+                        "unpublished rows " + ", ".join(sorted((feeding_here or frozenset()) - set(succeeded_row_names)))
+                        if not fully
+                        else "no source head or signature for this root"
+                    )
+                    if land_exc is not None:
+                        stamp_results[repo_root.name] = f"not stamped: landing failed ({land_exc!r})"
+                    elif not commit_now:
+                        stamp_results[repo_root.name] = "not stamped: no commit requested (--no-commit)"
+                    elif landed_sha is not None and stamped:
+                        stamp_results[repo_root.name] = f"stamped {landed_sha[:12]}"
+                    elif not stamped:
+                        stamp_results[repo_root.name] = f"not stamped: {unstamped_why}"
+                    else:
+                        stamp_results[repo_root.name] = f"not stamped: {stamp_note or 'no stamp commit written'}"
                     if land_exc is not None:
                         if commit_now:
                             commit_ok = False
@@ -14681,15 +15302,28 @@ def _run_round(
                             {repo_root / rel for rel in deleted},
                         )
 
-                from coordinator_core.percolate import surface as _sweep_surface  # noqa: PLC0415
+            from coordinator_core.percolate import surface as _sweep_surface  # noqa: PLC0415
 
-                for _sweep_root in deduped_roots:
-                    _swept = _sweep_surface.sweep_never_published_state(
-                        Path(_sweep_root),
-                        published_dest_dirs=end_of_run_published_dest_dirs_by_repo_root.get(Path(_sweep_root)),
-                    )
-                    if _swept:
-                        print(f"  swept {len(_swept)} never-published state/ file(s) from {_sweep_root}")
+            for _sweep_root in deduped_roots:
+                _swept = _sweep_surface.sweep_never_published_state(
+                    Path(_sweep_root),
+                    published_dest_dirs=end_of_run_published_dest_dirs_by_repo_root.get(Path(_sweep_root)),
+                )
+                if _swept:
+                    print(f"  swept {len(_swept)} never-published state/ file(s) from {_sweep_root}")
+
+        if gates_ok:
+            for idle_root, base_head in idle_warm_roots.items():
+                stamp_results.setdefault(
+                    idle_root.name,
+                    f"not stamped: HEAD already carries Percolate-Source-Head {base_head[:12]}; "
+                    "no source change under the rows' paths",
+                )
+
+        if gates_ok and not getattr(args, "dry_run", False):
+            for requested_target in requested:
+                for swept in _sweep_withheld_untracked_top_level_files(requested_target):
+                    print(f"  {requested_target.name}: removed untracked withheld file {swept}")
 
         residue_roots: "set[Path]" = set(failed_row_mutated_roots)
         if commit_ran:
@@ -14710,16 +15344,19 @@ def _run_round(
             uncommitted_after_commit=uncommitted_after_commit,
             residue_roots=residue_roots,
             deduped_roots=deduped_roots,
+            unstamped_roots=unstamped_roots,
+            stamp_results=stamp_results,
         )
     finally:
-        for staged_rows in staged_by_repo_root.values():
-            for _target, staged in staged_rows:
-                _discard_publish_staging_dir(staged.staging_dir)
-        for plan in plans.values():
-            if plan.shadow_top is not None:
-                _discard_publish_staging_dir(plan.shadow_top)
-        for scratch in scratch_dirs:
-            shutil.rmtree(scratch, ignore_errors=True)
+        leftovers = [staged.staging_dir for rows_ in staged_by_repo_root.values() for _t, staged in rows_]
+        leftovers += [plan.shadow_top for plan in plans.values() if plan.shadow_top is not None]
+        leftovers += scratch_dirs
+        for leftover in leftovers:
+            try:
+                _discard_publish_staging_dir(leftover)
+            except OSError:
+                pass
+        _remove_minted_staging_dirs()
         for dest_dir in {parsed_rows[row].dest_dir for row in rows}:
             _sweep_stale_publish_staging_dirs(
                 dest_dir, totals, dry_run=bool(getattr(args, "dry_run", False)), out=sys.stdout
@@ -14819,6 +15456,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         return _main(argv)
     finally:
+        _remove_minted_staging_dirs()
         restore_signals()
         _DEST_ROOT_OVERRIDE = None
         _PERCOLATE_ROOT_OVERRIDE = None
@@ -14847,6 +15485,10 @@ def _fold_bar_refusal(repo_root: Path, source_ref: str = "") -> Optional[str]:
 
 _PUBLISHER_CODE_PATHS = (
     "coordinator/bin/publish.py",
+    "coordinator/bin/percolate-gate.py",
+    "coordinator/bin/percolate-push.py",
+    "coordinator/bin/percolate-parse-dryrun.py",
+    "coordinator/bin/publish-allowlist-generate.py",
     "coordinator/bin/lib",
     "coordinator/lib/percolate",
     "coordinator_core/percolate",
@@ -14871,6 +15513,52 @@ def _dirty_publisher_paths(repo_root: Path, sha: str) -> List[str]:
     return sorted(set(found))
 
 
+@functools.lru_cache(maxsize=None)
+def _commit_clone_module():
+    """`coordinator/bin/lib/commit_clone.py`, loaded by path: stdlib-only, usable before the engine binds."""
+    spec = importlib.util.spec_from_file_location(
+        "_publish_commit_clone", Path(__file__).resolve().parent / "lib" / "commit_clone.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _source_repo() -> Path:
+    """The live repo this run publishes from: the clone's recorded source when `_REPO_ROOT` is a
+    commit clone, else `_REPO_ROOT`. Source-repo reads and writes go through here, never `_REPO_ROOT`."""
+    return _commit_clone_module().source_repo_root(_REPO_ROOT)
+
+
+def _push_stamped_source_commits(unions: "Iterable[_RootUnion]") -> Optional[str]:
+    """Push each source commit this round will stamp (`source-head <sha>`) to the owned origin as
+    `refs/heads/publish/<sha>`, once per distinct sha, from the live source repo. A commit of a
+    foreign source toplevel is not this repo's to push. Refusal text on the first failed push
+    (before any mirror commit), else None."""
+    from coordinator_core.percolate import source_preflight as _sp  # noqa: PLC0415
+
+    source = _source_repo()
+    own = {os.path.normcase(str(p.resolve())) for p in (_REPO_ROOT, source)}
+    seen: "set[str]" = set()
+    for u in unions:
+        sha = u.plan.head
+        top = u.plan.toplevel
+        if len(sha) != 40 or not u.plan.signature or sha in seen or top is None:
+            continue
+        if os.path.normcase(str(Path(top).resolve())) not in own:
+            continue
+        seen.add(sha)
+        remote = _sp._pin_remote(source, sha)
+        detail = _sp.push_publish_source_ref(source, sha, remote)
+        if detail is not None:
+            ref = f"{_sp.PUBLISH_REF_PREFIX}{sha[:12]}"
+            return (
+                f"source commit {sha[:12]} could not be pushed to {remote} as {ref}: {detail}; "
+                f"run `git push {remote} {sha}:{_sp.PUBLISH_REF_PREFIX}{sha}` in {source}"
+            )
+    return None
+
+
 def _main(argv: Optional[List[str]] = None) -> int:
     global _ENGINE_ROOT
     if len(set(_round_ref_values_from_argv(argv))) > 1:
@@ -14885,16 +15573,19 @@ def _main(argv: Optional[List[str]] = None) -> int:
             print(f"publish: refused -- {exc}", file=sys.stderr)
             return 1
         _resolved_commit = ""
-    if _resolved_commit and not _BOOTSTRAP_DONE:
-        _dirty = _dirty_publisher_paths(_REPO_ROOT, _resolved_commit)
-        if _dirty:
-            print(
-                "publish: refused -- publisher code differs from "
-                f"{_resolved_commit[:12]}: {', '.join(_dirty)}; "
-                "commit them, or run from a clean export",
-                file=sys.stderr,
+    if _resolved_commit and not _BOOTSTRAP_DONE and not _commit_clone_module().is_commit_clone(_REPO_ROOT):
+        # Trap: a clean live tree still runs here, not from a clone; the `coordinator-publish` door
+        # always clones, so only a direct `publish.py` call on a clean tree reaches live code.
+        if _dirty_publisher_paths(_REPO_ROOT, _resolved_commit):
+            _cc = _commit_clone_module()
+            try:
+                _clone = _cc.materialise_commit_clone(_REPO_ROOT, _resolved_commit, _cc.default_cache_root())
+            except RuntimeError as exc:
+                print(f"publish: refused -- {exc}", file=sys.stderr)
+                return 1
+            return _cc.run_entry_from_clone(
+                _clone, "coordinator/bin/publish.py", ["publish.py", *(sys.argv[1:] if argv is None else argv)]
             )
-            return 1
     if _explicit and not _BOOTSTRAP_DONE:
         try:
             _ENGINE_ROOT = _export_engine_at_ref(_REPO_ROOT, _resolved_commit)
@@ -14955,6 +15646,17 @@ def _main(argv: Optional[List[str]] = None) -> int:
     _inherited_slots_token = os.environ.pop(PUBLISH_SLOT_INHERITED_ENV, "")
 
     global _source_ref_override, _source_ref_explicit, _PERCOLATE_ROOT_OVERRIDE
+    global _WITHHELD_PATHS, _WITHHELD_WALK_BASE, _WITHHELD_TOPLEVEL
+    _WITHHELD_PATHS, _WITHHELD_WALK_BASE, _WITHHELD_TOPLEVEL = {}, None, None
+    if args.withheld_paths_json:
+        try:
+            _withheld_doc = json.loads(Path(args.withheld_paths_json).read_text(encoding="utf-8"))
+            _WITHHELD_PATHS = dict(_withheld_doc.get("paths") or {})
+            _WITHHELD_WALK_BASE = _withheld_doc.get("walk_base") or None
+            _WITHHELD_TOPLEVEL = _withheld_doc.get("toplevel") or None
+        except (OSError, ValueError, AttributeError, TypeError) as exc:
+            print(f"publish: refused -- unreadable --withheld-paths-json: {exc}", file=sys.stderr)
+            return 2
     _source_ref_override = _resolved_commit
     _source_ref_explicit = _explicit
     _PERCOLATE_ROOT_OVERRIDE = args.percolate_root or None
@@ -15023,6 +15725,24 @@ def _main(argv: Optional[List[str]] = None) -> int:
                     file=sys.stdout,
                 )
                 args.target = ",".join(siblings)
+    elif explicit_comma_syntax and solo_requested:
+        # A short list may name destinations: every non-row name that resolves to ONE
+        # mirror widens to all rows feeding it; row names stay exactly as typed.
+        sigil_map = raw_dest_sigil_by_name(setup_dir, portable_targets_file=committed_portable)
+        widened: "List[str]" = []
+        for requested in solo_requested:
+            sigil = None if requested in sigil_map else _mirror_sigil_for_alias(requested, sigil_map)
+            if sigil is None:
+                widened.append(requested)
+                continue
+            siblings = sorted(n for n, s in sigil_map.items() if s == sigil)
+            print(
+                f"[publish.py] '{requested}' names publish-mirror '{sigil.split(':', 1)[1]}': "
+                f"publishing every row feeding it ({', '.join(siblings)}).",
+                file=sys.stdout,
+            )
+            widened.extend(siblings)
+        args.target = ",".join(dict.fromkeys(widened))
 
     try:
         rows = _load_rows(
@@ -15423,14 +16143,15 @@ def _main(argv: Optional[List[str]] = None) -> int:
                 )
 
     lock_repo_roots: "List[Path]" = []
+    dry_run_dest_roots: "List[Path]" = []
+    for row in rows:
+        candidate = parsed_rows[row]
+        if requested_names and candidate.name not in requested_names:
+            continue
+        root = _dest_repo_root(candidate.dest_dir) or candidate.dest_dir
+        if root not in (dry_run_dest_roots if args.dry_run else lock_repo_roots):
+            (dry_run_dest_roots if args.dry_run else lock_repo_roots).append(root)
     if not args.dry_run:
-        for row in rows:
-            candidate = parsed_rows[row]
-            if requested_names and candidate.name not in requested_names:
-                continue
-            root = _dest_repo_root(candidate.dest_dir) or candidate.dest_dir
-            if root not in lock_repo_roots:
-                lock_repo_roots.append(root)
         # Sort by realpath so every invocation
         # acquires locks in one canonical global order. Without this, two
         # legitimately non-overlapping-row-order concurrent publishes (e.g.
@@ -15561,12 +16282,40 @@ def _main(argv: Optional[List[str]] = None) -> int:
                 print(f"[publish.py] FATAL: {_stale}", file=sys.stderr)
                 return 1
 
+        if dry_run_dest_roots:
+            from percolate.dest_refresh import (  # type: ignore[import-not-found]
+                dry_run_refusal as _dry_run_refusal,
+                fetch_dest_upstream as _dry_fetch_dest_upstream,
+            )
+
+            # Same fetch the real run's refresh uses; refs-only, so the clone's worktree and
+            # branches are untouched. Roots with no `.git` are new destinations: nothing to be behind.
+            _dry_refused = False
+            for _dry_root in dry_run_dest_roots:
+                if not (_dry_root / ".git").exists():
+                    continue
+                _dry_reason = _dry_run_refusal(
+                    _dry_fetch_dest_upstream(
+                        _dry_root,
+                        out=sys.stdout,
+                        err=sys.stderr,
+                        source_root=percolate_root,
+                        source_ref=_refresh_source_ref(percolate_root, round_pinned_shas),
+                    )
+                )
+                if _dry_reason is not None:
+                    print(f"[publish.py] FATAL (dry-run): {_dry_reason}", file=sys.stderr)
+                    _dry_refused = True
+            if _dry_refused:
+                return 1
+
         if lock_repo_roots:
             from coordinator_core.warm import engine_root as _warm_engine_root
 
             from percolate.dest_refresh import (  # type: ignore[import-not-found]
                 fast_forward_dest as _fast_forward_dest,
                 fetch_dest_upstream as _fetch_dest_upstream,
+                preflight_dest_refresh as _preflight_dest_refresh,
             )
 
             # Fetch is refs-only and unquiesced. Staging reads destination worktree files, so a root
@@ -15575,6 +16324,12 @@ def _main(argv: Optional[List[str]] = None) -> int:
             # here, so a run the gates refuse leaves it untouched.
             _fetched = []
             for _refresh_root in lock_repo_roots:
+                if _skip_remote_refresh_for_originless_scratch(_refresh_root):
+                    print(
+                        f"[publish.py] remote refresh skipped for explicit originless scratch override: {_refresh_root}",
+                        file=sys.stdout,
+                    )
+                    continue
                 _fetch = _fetch_dest_upstream(
                     _refresh_root,
                     out=sys.stdout,
@@ -15586,14 +16341,26 @@ def _main(argv: Optional[List[str]] = None) -> int:
                     print(f"[publish.py] FATAL: {_fetch.reason}", file=sys.stderr)
                     return 1
                 _fetched.append(_fetch)
+            # Validate every ordinary FF before stopping ANY destination's pair.
+            # Keep this within the same destination lock as fetch and landing.
+            _preflighted = []
+            for _fetch in _fetched:
+                _checked = _preflight_dest_refresh(_fetch)
+                if not _checked.ok:
+                    print(f"[publish.py] FATAL: {_checked.reason}", file=sys.stderr)
+                    return 1
+                _preflighted.append(_checked)
+            _fetched = _preflighted
             _moving_engine_roots = [
                 f.repo_root
                 for f in _fetched
                 if (f.behind or f.pending_abort or f.subsumed) and _warm_engine_root.is_engine_root(f.repo_root)
             ]
 
-            with _quiesced_engine_roots(_moving_engine_roots):
+            _moving_set = set(_moving_engine_roots)
+            with _quiesced_per_repo(lambda r: r in _moving_set) as _hold_for:
                 for _fetch in _fetched:
+                    _hold_for(_fetch.repo_root)
                     _refresh = _fast_forward_dest(_fetch, out=sys.stdout, err=sys.stderr)
                     if not _refresh.ok:
                         print(f"[publish.py] FATAL: {_refresh.reason}", file=sys.stderr)
@@ -15797,6 +16564,8 @@ def _main(argv: Optional[List[str]] = None) -> int:
                 exit_code=code,
                 exit_note=note,
                 dry_run=args.dry_run,
+                unstamped_roots=round_result.unstamped_roots,
+                stamp_results=round_result.stamp_results,
             )
             return code
 
@@ -15919,7 +16688,7 @@ def _main(argv: Optional[List[str]] = None) -> int:
             else:
                 from coordinator_core.publish import dry_refire_gate
 
-                _gate = dry_refire_gate.run(_engine_roots[0], data_root=_REPO_ROOT)
+                _gate = dry_refire_gate.run(_engine_roots[0], data_root=_source_repo())
                 if not _gate.ok:
                     print(f"publish: dry-refire gate refused push: {_gate.error}", file=sys.stderr)
                     return _finish(_DRY_REFIRE_GATE_EXIT, "dry-refire gate refused the push; see its message above the timings.")

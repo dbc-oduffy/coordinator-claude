@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """canvas-harvest -- harvest or probe one canvas into a record directory.
 
 Direct-import trampoline over the registered op `canvas.harvest`

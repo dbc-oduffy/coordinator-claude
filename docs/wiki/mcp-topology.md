@@ -1,3 +1,9 @@
+---
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
+---
+
 # MCP Topology
 
 > A typed, standalone declarative view over coordinator's first-party MCP servers — the architecture-level answer to MCP tool proliferation.
@@ -54,13 +60,16 @@ The doctrine's job is to **keep coordinator deferred-by-default** as servers are
 
 **`context7` is `deferred`, not `conditional`.** It is a user-scope plugin (`context7@claude-plugins-official` in `settings.json` `enabledPlugins`), available fleet-wide by default rather than added per-project — the harness registers its server by name only and defers schema load until `ToolSearch` surfaces intent, the same mechanism as `example-game-repo-control` (§ "Deferral is the harness's job" below). Usage doctrine lives in `~/.claude/rules/rules.md`.
 
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-28-006 -->
+The install manifest also gained `required_mcp_surfaces`, so a fresh install checks the surface is present.
+
 **`example-game-repo-control`'s `deferred` policy and `settings.json` plugin-gating are two DISTINCT, non-substitutable mechanisms, not one enforcing the other.** Verified 2026-07-27: `example-game-repo-control` is registered at **user scope** in `~/.claude.json`'s top-level `mcpServers` block, not in any plugin `.mcp.json` — the server connects in EVERY session regardless of `enabledPlugins` state. `per-project-plugin-gating.md`'s `enabledPlugins` gate does real work, but a *different* job: it suppresses the plugin's **agents, skills, and their description tokens** from discovery on non-UE projects. It cannot suppress a user-scope MCP server's tool surface — that surface is present whether or not the gate fires. What actually keeps the 170 tools cheap is a **harness behaviour**, not `settings.json`: the harness registers every server's tools by name only and defers schema loading until `ToolSearch` surfaces intent. The topology's `deferred` label names that harness-level load posture as a typed fact; `settings.json` plugin-gating is a separate, narrower control over discovery of the plugin's own agents/skills. Neither substitutes for the other. → `per-project-plugin-gating.md`.
 
 ### Deferral is the harness's job; promotion is the agent's
 
 The harness registers every MCP server's tools by name at session start and defers their schemas — schemas are the expensive part, names are cheap. This is the mechanism the whole plugin now depends on, so it is worth stating generally rather than only in the example-game-repo-specific paragraph above.
 
-An agent creates asymmetry with the EM purely via its own `tools:` frontmatter array, which promotes named tools to always-on (schema-loaded, no `ToolSearch` round-trip) for that agent specifically. The EM carries no such frontmatter and pays the `ToolSearch` round-trip like any other undeferred consumer — this is deliberate, not an oversight: the EM deliberately does not get that promotion (source: `<example-game-workbench-repo-root>/docs/wiki/primitives-vs-recipes.md`, `machine-local get repos.claude_unreal_holodeck`).
+An agent creates asymmetry with the EM purely via its own `tools:` frontmatter array, which promotes named tools to always-on (schema-loaded, no `ToolSearch` round-trip) for that agent specifically. The EM carries no such frontmatter and pays the `ToolSearch` round-trip like any other undeferred consumer — this is deliberate, not an oversight: the EM deliberately does not get that promotion (source: page `primitives-vs-recipes.md` in the directory `<example-game-workbench-repo-root>/docs/wiki/`, `<example-game-workbench-repo-root>` = `machine-local get repos.claude_unreal_holodeck`).
 
 **That promotion narrows; it never widens.** A `tools:` allowlist is an allowlist over what the dispatching session could already reach — no dispatched agent reaches a tool the EM could not have reached. "EM sees 4, worker sees 50" is therefore not implementable; the only reachable shape is "EM sees 50 deferred names, worker is allowlisted to the 50." The consequences for tool-glut design — and why hiding tools from the EM is the wrong lever — are in `mcp-tool-glut-defer-dont-hide.md`.
 
@@ -76,13 +85,17 @@ A 3-proxy "collapse" (example-game-repo's `execute_domain_tool` / `manage_<domai
 
 The files under `schemas/` are **record-collection frontmatter validators**: each declares `applies_to:` and `kind:` values that the engine repo's `coordinator_core/ops/records_query.py` (`_TYPE_TO_GLOB`) uses to route queries across a collection of many same-kind YAML records (handoffs, plans, lessons, improvement-queue entries). `bin/verify-schema-registry-sync.py` line 129 makes this contract explicit — schemas without an `applies_to:` key are skipped entirely, because without it they cannot participate in the `records_query.py` dispatch surface.
 
-`mcp-topology.yaml` is categorically different: it is a **body-shape spec for a single declaration file** — there is only ever one topology file, not a collection. It describes the structure of its own body, not the frontmatter of a record set. Adding it to `schemas/` would misuse the schemas/ machinery (which is keyed by collection cardinality and `applies_to:/kind:` routing) for an object of an entirely different kind.
+`mcp-topology.yaml` is categorically different: it is a **body-shape spec for a single declaration file** — there is only ever one topology file, not a collection. It describes the structure of its own body, not the frontmatter of a record set. <!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-7-004 -->
+The `mcp-topology` type is a body-shape spec for one file, categorically different from the 26 record-collection validators in `schemas/` (a review finding on the original design). Adding it to `schemas/` would misuse the schemas/ machinery (which is keyed by collection cardinality and `applies_to:/kind:` routing) for an object of an entirely different kind.
 
 If future work requires querying topology entries as records, a new query-records type would be appropriate — but that is a separate decision, not a default from current schemas/ placement.
 
 ---
 
 ## 5. Runtime Enforcement Is Deferred — The Future Seam
+
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-7-003 -->
+The contested doctrine-vs-runtime call was resolved doctrine-first: declaration plus doctrine only, with runtime enforcement deferred and its future seam named below.
 
 This file is **declaration + doctrine only**. No coordinator-owned *load-policy loader* exists today. MCP loading is handled entirely by the Claude Code harness + per-project `.mcp.json` + `settings.json` plugin-gating (→ `per-project-plugin-gating.md`). The topology is what the EM reads to understand load posture; it is not what the harness reads to enforce it.
 

@@ -91,6 +91,7 @@ import sys
 from typing import List, Mapping, Optional
 from coordinator_core.win_portability import is_executable, no_console_creationflags
 from coordinator_core.session.core import SESSION_ENV_PRECEDENCE
+from coordinator_core.git.provider_attribution import ATTRIBUTIONS
 from coordinator_core.py_probe_sh import baked_python_lines
 from coordinator_core.launchable import resolve_launchable
 from coordinator_core.content_root import POINTER_NAME as _CONTENT_ROOT_POINTER
@@ -155,10 +156,14 @@ def _resolve_machine_local_bin(bin_dir: str) -> Optional[str]:
 #: is long-lived, so a registry edit made after a read is not seen until the
 #: engine restarts. Accepted because the registry is install-time
 #: configuration and because `_ml_get` is already best-effort by contract
-#: (15s timeout, any failure yields None, callers must handle None). Bust it
+#: (2s timeout, any failure yields None, callers must handle None). Bust it
 #: with `_ML_GET_CACHE.clear()` if a caller ever re-points the registry
 #: in-process; nothing does today.
 _ML_GET_CACHE: dict = {}
+
+#: Kill ceiling for the machine-local spawn (== coordinator_core.machine_local_spawn
+#: .ML_SPAWN_TIMEOUT_S); subprocess.run kills and reaps the direct child on expiry.
+_ML_SPAWN_TIMEOUT_S = 2.0
 
 
 def _ml_get(ml_bin: Optional[str], key: str) -> Optional[str]:
@@ -172,7 +177,7 @@ def _ml_get(ml_bin: Optional[str], key: str) -> Optional[str]:
             [*resolve_launchable(ml_bin), "get", key],
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=_ML_SPAWN_TIMEOUT_S,
             **no_console_creationflags(),
         )
         val = (out.stdout or "").strip()
@@ -504,7 +509,10 @@ def _resolve_klabauter_bin_sh(script_name: str) -> Optional[str]:
 #
 # Gen 18: the shell fallback reads the content-root pointer ahead of the
 # pre-rename pointer name; a gen-17 body reads only the latter.
-_HOOK_GEN_STAMP = 18
+# Gen 19: a provider/vendor identity without a session id still reaches
+# provider attribution. Native Codex thread ids follow SESSION_ENV_PRECEDENCE;
+# human commits remain untouched and Claude Code still requires its session id.
+_HOOK_GEN_STAMP = 19
 
 
 def _hook_gen_stamp_line() -> str:
@@ -670,16 +678,20 @@ def _shim_body(
     skip_guard = (
         f'[ -n "${skip_env}" ] && exit 0\n' if skip_env else ""
     )
-    # No session id: a human commit passes untouched, but a commit made from
-    # inside Claude Code (`CLAUDECODE` set) would land unattributed, so it is
-    # refused with the cause named -- a missing Session-Id is a defect, never
-    # a silent absence.
+    # Native/provider identity wins over an inherited Claude launcher flag.
+    # Generate the known-provider cases from the attribution source of truth;
+    # an arbitrary invalid label must not exempt an unidentified Claude commit.
+    non_claude_cases = "|".join(
+        "".join(f"[{char.lower()}{char.upper()}]" if char.isalpha() else char for char in provider)
+        for provider in sorted(ATTRIBUTIONS) if provider != "claude"
+    )
     session_guard = (
         '[ -z "' + "".join(f"${v}" for v in skip_if_all_unset) + '" ] && { '
-        '[ -n "$CLAUDECODE" ] && { echo "[coordinator] refused: no session id in env '
+        '[ -n "$CLAUDECODE" ] && { case "${COORDINATOR_AGENT_PROVIDER:-$COORDINATOR_AGENT_VENDOR}" in '
+        + non_claude_cases + ') : ;; *) echo "[coordinator] refused: no session id in env '
         '(' + ", ".join(skip_if_all_unset) + '), so this commit would land without '
-        'Session-Id. Export COORDINATOR_SESSION_ID=<session id> and retry." 1>&2; exit 1; }; '
-        'exit 0; }\n'
+        'Session-Id. Export COORDINATOR_SESSION_ID=<session id> and retry." 1>&2; exit 1;; esac; }; '
+        '[ -z "$COORDINATOR_AGENT_PROVIDER$COORDINATOR_AGENT_VENDOR" ] && exit 0; }\n'
         if skip_if_all_unset
         else ""
     )

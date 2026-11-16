@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """regenerate-known-red-registry.py — the named regenerate entrypoint for
 state/bash-guards/known-red.json.
 

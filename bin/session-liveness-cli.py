@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # session-liveness-cli — CLI trampoline over claude-klabauter
 # coordinator_core.session.liveness (the two-layer session/claim liveness
 # module: is_session_live / session_live / claim_holder_live /

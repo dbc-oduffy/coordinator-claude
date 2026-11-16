@@ -1,6 +1,6 @@
 ---
 name: plan
-description: "PM planning trigger on decision-weight work: multi-file, cross-system, reversed prior. Size first if unsized."
+description: PM planning trigger, decision-weight multi-file/cross-system/reversed prior. Size first if unsized
 description-budget: 260
 version: 1.0.0
 prerequisite:
@@ -59,6 +59,8 @@ _Condition: a planning trigger has arrived; decide whether a plan doc is the rig
 ## Exit — Route-Selected Terminal
 
 _Condition: body drafted and saved to `docs/plans/YYYY-MM-DD-<slug>.md`. The inbound sizing route selects which terminal fires. `shape`/`roadmap`/`pm-decision` never reach here — Branch A diverted them before Branch B._
+
+`DELIVERY-MEANS-IT-RAN-END-TO-END` (`wiki/planning/wiring-table.md`): a plan with a runtime seam declares `wiring:` (wired, not_built, blocked, off_route; `built_path`, `runs_evidence`, `consumes`, `produces`).
 
 **The plan file MUST be produced and committed via `scaffold-plan`, not hand-authored.** It owns frontmatter-skeleton emission and the write-time commit across two invocation points either side of body authoring. Every terminal holds this.
 

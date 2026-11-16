@@ -131,6 +131,11 @@ grep -rn 'EMBED_DEVICE\|TORCH_DEVICE\|CUDA_VISIBLE_DEVICES' tests/ | grep -v '@p
 grep -rn 'sys\.executable' tests/
 ```
 
+A guard that hides the GPU sets `CUDA_VISIBLE_DEVICES="-1"`, never `""` (Windows deletes an empty
+`os.environ` value, so a child without explicit `env=` sees the card), and lives in the root
+`conftest.py`, since `tests/conftest.py` misses in-package `test_*.py`. Tripwire:
+`A-GPU-HIDE-USES-CUDA-MINUS-ONE-NEVER-EMPTY`.
+
 Both patterns are legitimate in narrow contexts (a `cpu_only`-marked test, or a test that intentionally probes interpreter identity). The grep surfaces candidates for review; the rule is scope annotation, not prohibition.
 
 ---

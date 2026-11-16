@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # sprint-planning-assemble — CLI trampoline over claude-klabauter
 # coordinator_core.sprint_planning_assemble (the sprint-seam computed-skill
 # assembler for `sprint-planning`'s own research wave / OVERVIEW / stubs /

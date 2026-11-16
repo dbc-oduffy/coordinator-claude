@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # baton-assemble — CLI trampoline over claude-klabauter
 # coordinator_core.baton_assemble (the kind-flagged computed-skill assembler
 # shared by `/handoff` and `/spinoff`'s id-inheritance/lineage cascade).

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """coordinator/bin/check-citation-integrity.py -- ratchet gate over
 `coordinator_core.citation_graph`'s resolution output.
 
@@ -146,9 +147,19 @@ DEFAULT_BASELINE_PATH = REPO_ROOT / "state" / "baselines" / "citation-integrity.
 _SUBJECT = [REPO_ROOT]
 
 
+def _engine_on_path() -> None:
+    """Put the dispatch engine on `sys.path` via `cc_invoke`; never the script's own parents[2],
+    which holds no `coordinator_core` when the script is copied out of the engine tree."""
+    lib_dir = str(Path(__file__).resolve().parent / "lib")
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
+    from cc_invoke import require_dispatch_engine_on_path
+
+    require_dispatch_engine_on_path()
+
+
 def _cg():
-    if str(_REPO_ROOT) not in sys.path:
-        sys.path.insert(0, str(_REPO_ROOT))
+    _engine_on_path()
     import coordinator_core.citation_graph as cg
 
     return cg
@@ -166,8 +177,7 @@ def _scan_frontmatter(text: "str | None") -> dict:
 
 
 def _run_git(args: "list[str]", cwd: Path):
-    if str(_REPO_ROOT) not in sys.path:
-        sys.path.insert(0, str(_REPO_ROOT))
+    _engine_on_path()
     from coordinator_core.git.run import run_git
 
     return run_git(args, cwd=str(cwd))
@@ -245,9 +255,20 @@ def read_frontmatter_status(text: str) -> "str | None":
     return status if isinstance(status, str) and status else None
 
 
+_RESOLVED: "dict[Path, Path]" = {}
+
+
+def _resolved(path: Path) -> Path:
+    """`path.resolve()` memoized for one run; `main` clears it (a warm engine outlives a run)."""
+    got = _RESOLVED.get(path)
+    if got is None:
+        got = _RESOLVED[path] = path.resolve()
+    return got
+
+
 def _relpath(path: Path, root: Path) -> str:
     try:
-        return path.resolve().relative_to(root.resolve()).as_posix()
+        return _resolved(path).relative_to(_resolved(root)).as_posix()
     except ValueError:
         return path.as_posix()
 
@@ -259,7 +280,7 @@ def wiki_live_edges(
     citation kind is in `kinds` and whose resolved target is itself under
     `wiki_root` -- a `pathed`/`bare_basename` citation into a different
     tracked surface (cross_surface) never counts as a wiki-internal edge."""
-    wiki_root_r = wiki_root.resolve()
+    wiki_root_r = _resolved(wiki_root)
     edges: "set[tuple[str, str]]" = set()
     for verdict in report.verdicts:
         if verdict.status != "live" or not verdict.matches:
@@ -268,7 +289,7 @@ def wiki_live_edges(
             continue
         target = verdict.matches[0]
         try:
-            target.resolve().relative_to(wiki_root_r)
+            _resolved(target).relative_to(wiki_root_r)
         except ValueError:
             continue
         edges.add(
@@ -277,10 +298,17 @@ def wiki_live_edges(
     return edges
 
 
-def tombstone_pages(wiki_root: Path) -> "frozenset[str]":
-    """Wiki-relative paths of every `status: tombstone` page (fence-bound read)."""
+def _wiki_files(wiki_root: Path) -> "list[Path]":
+    return sorted(wiki_root.rglob("*.md"))
+
+
+def tombstone_pages(
+    wiki_root: Path, wiki_files: "list[Path] | None" = None
+) -> "frozenset[str]":
+    """Wiki-relative paths of every `status: tombstone` page (fence-bound read).
+    `wiki_files` is the caller's single enumeration of the wiki."""
     out: "set[str]" = set()
-    for path in sorted(wiki_root.rglob("*.md")):
+    for path in wiki_files if wiki_files is not None else _wiki_files(wiki_root):
         try:
             text = path.read_text(encoding="utf-8")
         except Exception:
@@ -351,7 +379,12 @@ def guide_rows(guide_text: str) -> "list[tuple[int, str]]":
     return rows
 
 
-def guide_drift(wiki_root: Path, *, guide_relpath: str = "DIRECTORY_GUIDE.md") -> dict:
+def guide_drift(
+    wiki_root: Path,
+    *,
+    guide_relpath: str = "DIRECTORY_GUIDE.md",
+    wiki_files: "list[Path] | None" = None,
+) -> dict:
     """Two DISTINCT figures over `DIRECTORY_GUIDE.md`, per C4's split:
 
     - `dead_rows` -- rows pointing at a file that does not exist. GATED
@@ -384,7 +417,7 @@ def guide_drift(wiki_root: Path, *, guide_relpath: str = "DIRECTORY_GUIDE.md") -
             dead_rows.append(f"{guide_relpath}:{target}")
 
     tracked_pages: "set[str]" = set()
-    for path in sorted(wiki_root.rglob("*.md")):
+    for path in wiki_files if wiki_files is not None else _wiki_files(wiki_root):
         try:
             text = path.read_text(encoding="utf-8")
         except Exception:
@@ -402,15 +435,22 @@ def guide_drift(wiki_root: Path, *, guide_relpath: str = "DIRECTORY_GUIDE.md") -
     }
 
 
-def all_partitions_current(report: "cg.CorpusReport", wiki_root: Path) -> "dict[str, set[str]]":
+def all_partitions_current(
+    report: "cg.CorpusReport",
+    wiki_root: Path,
+    wiki_files: "list[Path] | None" = None,
+) -> "dict[str, set[str]]":
     """Every gated class's current violation-identity set -- C2's citation
     classes plus C3's `orphan`/`dead_end` plus C4's `guide_drift`. Never
     includes the guide's `absent_count` figure -- that one is reported, not
     gated (see `guide_drift` docstring)."""
     current = partition_current(report)
-    wiki_files = sorted(wiki_root.rglob("*.md"))
-    health = structural_health(report, wiki_root, wiki_files, tombstone_pages(wiki_root))
-    drift = guide_drift(wiki_root)
+    if wiki_files is None:
+        wiki_files = _wiki_files(wiki_root)
+    health = structural_health(
+        report, wiki_root, wiki_files, tombstone_pages(wiki_root, wiki_files)
+    )
+    drift = guide_drift(wiki_root, wiki_files=wiki_files)
     current["orphan"] = set(health["orphans"])
     current["dead_end"] = set(health["dead_ends"])
     current["guide_drift"] = set(drift["dead_rows"])
@@ -563,10 +603,13 @@ def run(
     """Scan, diff, and return `(exit_code, json_summary, human_report)` --
     pulled out of `main()` so tests can call it directly without going
     through argv/stdout."""
+    _RESOLVED.clear()
     report = _cg().scan_corpus(wiki_root=wiki_root, repo_root=repo_root)
-    wiki_files = sorted(wiki_root.rglob("*.md"))
-    health = structural_health(report, wiki_root, wiki_files, tombstone_pages(wiki_root))
-    drift = guide_drift(wiki_root)
+    wiki_files = _wiki_files(wiki_root)
+    health = structural_health(
+        report, wiki_root, wiki_files, tombstone_pages(wiki_root, wiki_files)
+    )
+    drift = guide_drift(wiki_root, wiki_files=wiki_files)
     baseline = load_baseline(baseline_path)
     current = partition_current(report)
     current["orphan"] = set(health["orphans"])
@@ -624,6 +667,7 @@ def main(argv: "list[str] | None" = None) -> int:
         help="subject repo (default: env, then the cwd's repo)",
     )
     args = parser.parse_args(argv)
+    _RESOLVED.clear()
     sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
     from subject_repo import subject_repo_root
 

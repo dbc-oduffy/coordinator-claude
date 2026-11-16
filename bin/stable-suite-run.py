@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Run a test command and refuse to report its result unless the corpus held still.
 
 Ported from coordinator-content-repo `coordinator/bin/stable-suite-run.py` (W3-C1,

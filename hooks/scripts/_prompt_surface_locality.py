@@ -135,6 +135,7 @@ import io
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 from typing import Iterable
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -149,7 +150,7 @@ if str(_HOOKS_SCRIPTS_DIR) not in sys.path:
 import _oss_payload  # noqa: E402
 
 
-def _load_module(path: Path, name: str):
+def _load_module(path: Path, name: str) -> ModuleType | None:
     """Best-effort `importlib` load of a sibling module by file path. Returns
     `None` on any failure — see module docstring's fail-open contract."""
     try:
@@ -163,7 +164,7 @@ def _load_module(path: Path, name: str):
         return None
 
 
-def _load_operative_strings():
+def _load_operative_strings() -> ModuleType | None:
     return _load_module(
         _HOOKS_SCRIPTS_DIR / "_oss_operative_strings.py",
         "_prompt_surface_locality_operative_strings",
@@ -612,7 +613,7 @@ def _match_window(line: str, start: int, end: int) -> str:
 _DOCSTRING_OWNER_TYPES: tuple = ()
 
 
-def _docstring_owner_types():
+def _docstring_owner_types() -> tuple[type, ...]:
     import ast
 
     return (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
@@ -1335,7 +1336,7 @@ def _payload_index() -> dict:
     return index
 
 
-def leg_key(path, index: dict):
+def leg_key(path, index: dict) -> "str | Ambiguous | None":
     """Resolve `path` to its gate key in `index`: an absolute path (relative to
     the repo root or the engine root), an already-prefixed `(engine)` key, or a
     bare relpath tried local then engine. Returns the key, `Ambiguous` when a
@@ -1365,7 +1366,7 @@ def leg_key(path, index: dict):
     return hits[0] if hits else None
 
 
-def _scan_indexed(leg: str, full: Path):
+def _scan_indexed(leg: str, full: Path) -> list | None:
     """The gate's violations for one indexed file, or None when unreadable."""
     try:
         text = full.read_text(encoding="utf-8", errors="replace")

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """group-em-memory-governor — pause the command that pushed the box into critical memory pressure.
 
 Started from a Claude Code session it detaches itself on start (outside the session's process tree
@@ -64,6 +65,8 @@ A MemoryError reading the process table degrades the tick (one `GOVERNOR DEGRADE
 reserve released, sampling continues) rather than ending the governor. When the box stays critical and
 nothing is left to pause, every third critical sample it kills the largest engine-owned (pytest) tree
 at or over the shortfall floor and prints `GOVERNOR KILLED`; protected, guarded and noticed trees never.
+On Windows each such kill first fires BoxCacheTrim once and re-samples; a floor the trim cleared prints
+`GOVERNOR KILL-AVERTED` and kills nothing.
 
 NEGATIVE SPEC: suspends and resumes, and kills only whole orphaned grep/find/xargs/rg trees and, when
 still critical with nothing pausable, one engine-owned runaway pytest tree; never
@@ -1005,8 +1008,12 @@ def group_em_live() -> bool:
     """True when a live box-wide group-em holder exists; any failure reads as not live."""
     try:
         root = str(Path(__file__).resolve().parents[2])
-        if root not in sys.path:
-            sys.path.insert(0, root)
+        lib = str(Path(__file__).resolve().parent / "lib")
+        if lib not in sys.path:
+            sys.path.insert(0, lib)
+        import cc_invoke  # type: ignore
+
+        cc_invoke.place_engine_root_on_path(root)
         from coordinator_core.group_em import gem_home
 
         return gem_home.gem_holder() is not None
@@ -1247,11 +1254,32 @@ def run(args: argparse.Namespace, emit: Callable[[str], None] = print,
         floor = max(MIN_RSS_MB, shortfall_fn() if shortfall_fn else 0.0)
         pick = choose_kill_victim(procs, survive(footprint_fn, {}), {p.pid for p, _ in paused}, self_pid,
                                   ntree, guarded, floor)
-        if pick:
+        if pick and not trim_cleared_floor():
             root, tree, mb = pick
             kill_fn(tree)
             emit(f"GOVERNOR KILLED pid={root.pid} footprint={mb:.0f}MB tree={len(tree)} "
                  f"cmd={root.cmd[:160]}")
+
+    def trim_cleared_floor() -> bool:
+        """One cache trim and one re-sample ahead of a kill; True when the floor no longer holds.
+        Active file cache is not available memory on Windows, so a cache-bound box reads critical
+        while a trim would free it; killing there destroys work the trim saves. Never loops: one
+        fire per kill attempt, and kill attempts already run only every third critical sample."""
+        nonlocal last_trim
+        if sys.platform != "win32":
+            return False
+        try:
+            tail = (trim_fn or (lambda: fire_cache_trim(bin_dir)))()
+        except Exception:
+            tail = None
+        if tail is None:
+            return False
+        last_trim = clock()
+        emit(f"GOVERNOR CACHE-TRIM fired {tail}".rstrip())
+        if survive(sample) is not False:  # still critical, or unreadable: the kill stands
+            return False
+        emit("GOVERNOR KILL-AVERTED cache trim cleared the floor")
+        return True
 
     def note_skip() -> None:
         nonlocal skip_noted

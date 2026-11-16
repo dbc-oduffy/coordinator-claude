@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """plan-reversibility-eligibility — D4's six reversibility checks, run mechanically.
 
 WHY THIS EXISTS. `docs/plans/2026-08-30-delegated-approve-for-execution.md` § D4 names six

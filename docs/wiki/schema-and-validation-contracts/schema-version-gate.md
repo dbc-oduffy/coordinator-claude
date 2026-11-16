@@ -1,3 +1,9 @@
+---
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
+---
+
 # Schema-Version Gate
 
 This page documents the schema-version gate that detects cross-repo contract drift at validation time by comparing a record's declared schema version against the validator's own.
@@ -322,6 +328,26 @@ enforces that the two stay in sync — a future declaration citing a class the s
 doesn't carry (or a stale/different one) would go undetected. Tightening
 `declaration.bump_class` to the same closed enum, or asserting cross-consistency where both
 exist, is a candidate follow-up and is explicitly **not** implemented by this change.
+
+### Worked bump classifications and description-only edits
+
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-10-030, batch-23-093, batch-27-060, batch-28-031 -->
+
+- **Class vocabulary is pinned verbatim.** The split between `top-level-array-additive` and
+  `nested-field-additive` is one vocabulary shared with `cross-repo-handshake-doctrine.md`; do not
+  paraphrase it in either page. The per-repo Fleet
+  Producer Contract lives in `state-placement-law.md`.
+- **A new top-level array** classifies as `top-level-array-additive`, which has a non-holding path
+  (consumer-declared tolerance). **Widening an item pattern** classifies as `enum-value-additive`,
+  which holds unconditionally and forces a vendoring sibling to re-vendor first. Pick the class by
+  what the diff does, not by how small it looks.
+- **A stale description is not a bump.** `handoff.schema.json`'s `blocked_by` description still
+  asserted a removed roadmap-only gate; fixing it owes no `x-schema-version` bump and no sibling
+  notice, because `shape_hash` strips description annotations: `content_hash` moves, `shape_hash`
+  does not.
+- **A removed `x-bump-class` stays removed.** The engine repo declined to restore the key on sizing-object
+  1.14.0: the removal was considered, and "absent is
+  permanent here".
 
 ### Pin-gate two-hash split — `shape_hash` gates, `content_hash` is advisory
 

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Rank plans by whether dispatching them would do any WORK, not by whether a
 row still says `disposition: open`.
 
@@ -348,7 +349,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"no such plan: {missing[0]}", file=sys.stderr)
             return 2
     else:
-        plans = sorted((repo / "docs" / "plans").glob("*.md"))
+        lib_dir = str(Path(__file__).resolve().parents[1] / "lib")
+        if lib_dir not in sys.path:
+            sys.path.insert(0, lib_dir)
+        import output_tree_layout
+
+        plans = output_tree_layout.iter_tree_entries(repo, "docs/plans", "*.md")
         if not plans:
             print(f"no plans under {repo / 'docs' / 'plans'}", file=sys.stderr)
             return 2

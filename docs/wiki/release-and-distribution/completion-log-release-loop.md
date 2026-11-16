@@ -26,7 +26,8 @@ Nature is AUTO-INFERed via a small Sonnet dispatch. The entry enters with
 
 **Stage 2 — workday-complete clusters by chain.**
 `/workday-complete` Step 4.5 groups the day's entries by `chain:`. Chains with ≥2 entries
-receive a Sonnet-authored `narrative:` field on the lead entry. Single-entry chains are
+receive a script-written `narrative:` field on the lead entry
+(`python3 coordinator/scripts/daily-doc-rollup.py clusters`; no agent). Single-entry chains are
 left as-is (title + body suffices). The pass is idempotent — re-running on an
 already-clustered day is a no-op.
 
@@ -69,7 +70,7 @@ Schema lives at `coordinator/schemas/completion-entry.schema.json` and is valida
 | `commits` | list-of-string | Commit SHAs landing this work; may be empty if no-commit-yet |
 | `status` | enum | `pending-release \| released`. Default `pending-release` on write; released status is read from the `archive/releases/<tag>.yaml` index, not from this field. |
 | `chain_terminal` | bool | Phase 1 default: `true` on all workstream-complete writes. Phase 2 will set `false` for mid-chain handoff ledger entries. |
-| `narrative` | string | Sonnet-authored cluster summary, set by `/workday-complete` Step 4.5 on the lead entry of a multi-entry chain. |
+| `narrative` | string | Script-written cluster summary, set by `/workday-complete` Step 8 on the lead entry of a multi-entry chain. |
 | `nature_inferred` | bool | `true` when nature was AUTO-INFERed by Sonnet; `false` when declared via `COMPLETION_NATURE` env var. |
 | `authored_by` | string | `session_id` of authoring EM — forensic only |
 | `workstream` | string | Free-form slug grouping cross-chain related work; mirrors handoff schema convention |
@@ -614,7 +615,7 @@ This is an oracle-was-wrong resolution, not an appetite-based deferral.
 ### Cross-repo query recipe
 
 When a Phase 3 consumer needs to query completion entries across sibling repos registered in
-`<claude-klabauter>/coordinator/lib/coordinator-state-root.py --central`'s `repo-registry.md`, DO NOT use `yq` to parse the registry. The registry is markdown
+`python3 <claude-klabauter>/coordinator/lib/coordinator-state-root.py --central`'s `repo-registry.md`, DO NOT use `yq` to parse the registry. The registry is markdown
 with YAML-list blocks inside HTML comment sentinels — it is not a top-level YAML document,
 and `yq` is not in the coreutils dependency surface.
 
@@ -636,7 +637,7 @@ awk '/<!-- BEGIN repo-registry -->/,/<!-- END repo-registry -->/' "$(python3 "${
   | grep -E '^\s*shortname:' \
   | awk '{print $2}' \
   | while read -r shortname; do
-      path="$("${_cc_claude_klabauter}/coordinator/bin/resolve-repo-path.py" "$shortname")"
+      path="$(python3 "${_cc_claude_klabauter}/coordinator/bin/resolve-repo-path.py" "$shortname")"
       [ -n "$path" ] || continue   # unregistered on this machine — skip (fail-loud-skip)
       printf '%s\n' "$path"
     done

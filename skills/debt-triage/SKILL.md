@@ -23,6 +23,11 @@ Run `backlog-grind-assemble brief debt-triage` before Step 1. Over `state/debt-b
 evidence, and a batched PM-gate. The improvement leg is emitted (Step 1); the debt-backlog steps
 (2, 3, 6, and 6b's debt-backlog governance) stay EM-performed.
 
+**Grinder defaults for the emitted improvement leg** (`coordinator/docs/wiki/grinder-efficiency-defaults.md`):
+script-first triage dedupes and closes already-resolved rows before an agent sees them; the leg carries
+a default budget passed as `budget_tokens`; the EM reads 25/50/75% checkpoints at its next turn; each
+green row lands as a scoped commit per green row.
+
 ## Step 0: Surface prior rejections
 
 Check `tasks/out-of-scope/*.md` (skip silently if absent). For any concept overlapping the

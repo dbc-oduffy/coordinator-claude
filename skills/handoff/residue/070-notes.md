@@ -7,7 +7,7 @@ order: 70
 
 ## Notes
 
-- Keep it concise: in-progress work, blockers, uncommitted changes — not what MEMORY.md holds.
+- Keep it concise: in-progress work, blockers, uncommitted changes — not what MEMORY.md holds. A PM ruling's durable record is a committed decision line in the owning repo; auto-memory is at most a pointer, never the only copy.
 - PM arguments (e.g., `/handoff focus on auth refactor`) go into `## In-Progress Work` and `## Recommended Next Steps`.
 - **A Claude Code restart is a session boundary.** An MCP-bridge restart, runtime rebuild, or `/reload-plugins` between edit and verification means `/handoff` BEFORE it.
 - **Cross-repo communication is not a handoff use-case.** Route it via the PM as relay or `cross-repo-memo`.

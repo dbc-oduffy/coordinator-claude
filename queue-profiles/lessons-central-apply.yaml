@@ -73,6 +73,10 @@ triage_policy: |
     - "A wiki-append/wiki-new target must be reachable from a surface an agent traverses (a wiki index, a skill step, a dispatch preamble)."
     - "An orphaned target is linked from its index in the same fix, or the row is rerouted to a linked wiki, named in the fix's triage record."
 
+  wiki_page_bookkeeping:
+    - "A fix that adds or renames a wiki page regenerates the generated indexes in the same fix: PYTHONPATH=<machine-local get repos.project_rag> python3 -m project_rag_scripts.build_wiki_navigation --root coordinator/docs/wiki --repo-root . -- never a hand edit of an _index.md."
+    - "A fix that adds a coordinator-tripwires/ page adds its row to state/audits/2026-09-06-doctrine-rule-class-register.yaml (id rcr-sha1(file NUL rule)[:8], inserted before counts:, counts bumped) in the same fix."
+
   stale:
     - "stale applies when the rule the row proposes already lives in its target_wiki. refute-close must confirm it before commit."
 
@@ -85,6 +89,9 @@ triage_policy: |
       - coordinator/tests/test_doctrine_surfaces_are_not_changelogs.py
       - coordinator/tests/test_doctrine_surface_weight.py
       - coordinator/tests/test_doctrine_surface_split_index_matches_corpus.py
+      - coordinator/tests/test_wiki_index_current.py
+      - coordinator/tests/test_wiki_registration_coverage.py
+      - coordinator/tests/test_doctrine_rule_class_register.py
 
   every_row_ends_in_exactly_one_verdict: true
 

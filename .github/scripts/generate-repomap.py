@@ -691,7 +691,7 @@ class TreeSitterParser:
     the language is not supported.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._parsers: dict[str, object] = {}  # lang -> tree_sitter.Parser
         self._queries: dict[str, object] = {}  # lang -> Query
         if _TS_AVAILABLE:
@@ -1192,7 +1192,7 @@ def load_cache(cache_path: Path) -> dict:
     return {}
 
 
-def save_cache(cache_path: Path, cache: dict):
+def save_cache(cache_path: Path, cache: dict) -> None:
     """Save parse cache atomically."""
     os.makedirs(cache_path.parent, exist_ok=True)
     tmp_fd, tmp_path = tempfile.mkstemp(dir=cache_path.parent, suffix=".tmp")
@@ -1774,7 +1774,7 @@ def find_git_root(start: Path) -> Path | None:
     return None
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate a ranked repository map for LLM context."
     )

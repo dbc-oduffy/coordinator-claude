@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 # verify-dist-publish-repo-sync.py — CLI trampoline over claude-klabauter
 # coordinator_core.ops.verify_dist_publish_repo_sync. Byte-identity check
 # between Claude Central dist/ source-of-truth and the coordinator-claude

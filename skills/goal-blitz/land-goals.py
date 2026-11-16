@@ -51,6 +51,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 EXIT_OK = 0
 EXIT_NOTHING_RATIFIED = 1
@@ -70,7 +71,7 @@ class CliFailure(RuntimeError):
     """A resolved coordinator CLI exited non-zero."""
 
 
-def _read_json(path: Path, remedy: str):
+def _read_json(path: Path, remedy: str) -> Any:
     """Parse an operator-supplied JSON file, or raise a one-line Refusal naming file, decoder message and remedy."""
     try:
         return json.loads(path.read_text(encoding="utf-8"))

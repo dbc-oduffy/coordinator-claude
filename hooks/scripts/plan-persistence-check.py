@@ -71,7 +71,7 @@ _LIB_DIR = str(Path(__file__).resolve().parents[2] / "lib")
 if _LIB_DIR not in sys.path:
     sys.path.append(_LIB_DIR)
 
-from _message_envelope import compose, render  # noqa: E402
+from _message_envelope import Message, compose, render  # noqa: E402
 
 #: Wiki section carrying the relocated idempotent/collision/persisted
 #: explanation and the subagent-review-artifact rationale -- see
@@ -409,7 +409,7 @@ def _commit_cmd(plans_git_root: str, repo_root: str, rel_paths: list[str], slug:
     return commit
 
 
-def _compose_idempotent_context(commit_cmd: str):
+def _compose_idempotent_context(commit_cmd: str) -> Message:
     """Pure composer for the byte-identical re-fire branch. Routes through
     `_message_envelope.compose` (C6, char-cap conversion): the diagnosis is
     the only counted prose, the copy-paste commit command rides in the
@@ -429,7 +429,7 @@ def _compose_idempotent_context(commit_cmd: str):
     )
 
 
-def _compose_collision_message(target_path):
+def _compose_collision_message(target_path) -> Message:
     """Pure composer for the slug-collision branch. Routes through
     `compose` -- the colliding path rides in `alternative` (exempt from the
     cap) instead of being interpolated into the counted prose. Returns a
@@ -442,7 +442,7 @@ def _compose_collision_message(target_path):
     )
 
 
-def _compose_persisted_context(commit_cmd: str):
+def _compose_persisted_context(commit_cmd: str) -> Message:
     """Pure composer for the successful-persist branch. Routes through
     `compose` -- same relocation rationale as `_compose_idempotent_context`.
     Returns a `Message`; see `_compose_idempotent_context` for the render()

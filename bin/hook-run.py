@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 coordinator/bin/hook-run.py — the ONE command-door entrypoint for every
 `hooks.<name>` op DoE registers (W4-C16, docs/plans/2026-09-18-doe-holds-no-
@@ -15,6 +16,10 @@ Contract:
                 (exit 2, nothing on stdout) for anything else, so a
                 registration typo can never reach an unrelated op through
                 this door.
+    --stdin-hook — optional, precedes the op name, any order with
+                --advisory. A no-op here (this image always reads the event
+                from stdin); it exists so hooks.json can exec hook-run
+                directly with one argv shape.
     --advisory — optional, precedes the op name: `hook-run --advisory
                 hooks.<name>`. For advisory hooks, never guards: any
                 dispatch failure (engine unreachable, any HookDispatchError
@@ -40,7 +45,9 @@ Contract:
     exit code — 0 on every dispatch outcome, an unimportable engine included
                 (a loud pass, see `_engine_down_pass`), except the two
                 argv-contract refusals above (missing/non-"hooks." argv[1],
-                unknown op).
+                unknown op), which exit 2 without --advisory and keep their
+                stderr line but exit 0 under --advisory: an advisory hook
+                never exits 2.
                 The verdict itself always travels in the JSON body, never in
                 the exit code: `hooks.*` op handlers already return the full
                 harness envelope (`_hook_envelope.py`'s shape builders), so
@@ -216,15 +223,16 @@ def main(argv: "list[str] | None" = None) -> int:
     args = sys.argv[1:] if argv is None else argv[1:]
     if args and args[0] == "--check-all":
         return _check_all(args[1:])
-    advisory = bool(args) and args[0] == "--advisory"
-    if advisory:
+    advisory = False
+    while args and args[0] in ("--advisory", "--stdin-hook"):
+        advisory = advisory or args[0] == "--advisory"
         args = args[1:]
     if not args or not args[0].startswith("hooks."):
         sys.stderr.write(
             "hook-run: refuses op %r -- only \"hooks.<name>\" ops are servable "
             "through this door.\n" % (args[0] if args else None)
         )
-        return 2
+        return 0 if advisory else 2
 
     # The marker must reach the dispatched op (remote_engine.fallback refuses in hook context), but an
     # in-process caller (tests) must not inherit it, so it is set for this call and restored after.

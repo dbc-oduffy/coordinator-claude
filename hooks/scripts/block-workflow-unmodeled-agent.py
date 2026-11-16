@@ -109,12 +109,11 @@ Known limitations (v2) -- string-literal-aware as of the 2026-07-21 fix:
     (`agent(p, withRole(r, { model: 'opus' }))`) counts the same way: a
     direct key of an object literal at brace depth 1 in its own paren frame.
   - Residual limitation: this is a string-aware depth-counting pass, not
-    a full JS parser. It does not model JS regex literals (`/.../`) as a
-    distinct token class -- a `/` that is genuinely a regex delimiter
-    (not inside a string) is not specially recognized, though this does
-    not desync depth counting since regex bodies containing `(`/`)`/`{`/
-    `}` are vanishingly rare inside Workflow agent() call arguments in
-    practice, and any residual desync still fails toward the documented
+    a full JS parser. JS regex literals (`/.../flags`) are recognized by
+    the previous significant token and masked like strings (see
+    `_scan_masks()`); the regex-vs-division call uses that token only, so
+    exotic cases (`}` followed by division) can misread. Any residual
+    desync still fails toward the documented
     unbalanced-script fail-safe (attribute nothing for that call site,
     guaranteed forward progress) rather than a crash or hang.
   - AGENT_N counting advances the top-level scan past an entire outer
@@ -191,6 +190,51 @@ _IDENTIFIER_CHARS = frozenset(
 )
 
 
+_REGEX_PRECEDING_KEYWORDS = frozenset(
+    {"return", "typeof", "case", "in", "of", "delete", "void", "throw",
+     "new", "else", "do", "instanceof", "yield", "await"}
+)
+
+
+def _regex_allowed(last_sig: str, last_word: str) -> bool:
+    """True when a `/` after the previous significant token opens a regex
+    literal rather than a division. `last_sig` is the previous token's last
+    char ("" at start, "a" for an identifier/number, "'" for a closed
+    string/regex)."""
+    if last_sig == "":
+        return True
+    if last_sig == "a":
+        return last_word in _REGEX_PRECEDING_KEYWORDS
+    return last_sig not in (")", "]", "'")
+
+
+def _regex_literal_end(script: str, start: int) -> int:
+    """Index just past the regex literal (body + flags) opening at
+    `script[start] == '/'`, or -1 when the line ends before a closing `/`."""
+    n = len(script)
+    i = start + 1
+    in_class = False
+    while i < n:
+        ch = script[i]
+        if ch == "\n":
+            return -1
+        if ch == "\\":
+            i += 2
+            continue
+        if in_class:
+            if ch == "]":
+                in_class = False
+        elif ch == "[":
+            in_class = True
+        elif ch == "/":
+            i += 1
+            while i < n and script[i] in _IDENTIFIER_CHARS:
+                i += 1
+            return i
+        i += 1
+    return -1
+
+
 def _scan_masks(script: str) -> "tuple[bytearray, bytearray]":
     """Single-pass, string-AND-comment-aware JS scanner -- returns
     `(string_mask, comment_mask)`, one bit per character of `script`.
@@ -228,16 +272,31 @@ def _scan_masks(script: str) -> "tuple[bytearray, bytearray]":
     comment never opens a string -- the single shared stack makes both
     facts true by construction instead of by two scans agreeing by luck.
 
-    Not a full JS parser -- does not model regex literals as a distinct
-    token class (see module docstring "Known limitations").
+    Regex literals: a `/` met in code state where the previous significant
+    token permits a regex (start, an operator/punctuator other than `)`/`]`,
+    or a keyword such as `return`/`typeof`) opens a regex literal. Its body
+    (honoring `\\` escapes and `[...]` classes) and flags are masked as
+    string payload, so quotes and brackets inside it never open string
+    spans or move paren depth. A `/` after an operand (identifier, number,
+    `)`, `]`, a closed string) is division. A candidate regex that reaches
+    a newline unclosed is treated as division instead.
+
+    Not a full JS parser -- the regex/division call uses the previous
+    token only (`}` is read as permitting a regex).
     """
     n = len(script)
     string_mask = bytearray(n)
     comment_mask = bytearray(n)
     stack = [("code", 0)]
     i = 0
+    last_sig = ""
+    last_word = ""
+    prev_len = 1
     while i < n:
         kind, depth = stack[-1]
+        if len(stack) < prev_len:
+            last_sig, last_word = "'", ""
+        prev_len = len(stack)
 
         if kind in ("code", "interp"):
             two = script[i:i + 2]
@@ -274,6 +333,21 @@ def _scan_masks(script: str) -> "tuple[bytearray, bytearray]":
                 stack.append(("template", 0))
                 i += 1
                 continue
+            if ch == "/" and _regex_allowed(last_sig, last_word):
+                end = _regex_literal_end(script, i)
+                if end != -1:
+                    for k in range(i, end):
+                        string_mask[k] = 1
+                    i = end
+                    last_sig, last_word = "'", ""
+                    continue
+            if ch in _IDENTIFIER_CHARS:
+                j = i + 1
+                while j < n and script[j] in _IDENTIFIER_CHARS:
+                    j += 1
+                last_sig, last_word = "a", script[i:j]
+                i = j
+                continue
             if kind == "interp":
                 if ch == "{":
                     stack[-1] = ("interp", depth + 1)
@@ -282,6 +356,8 @@ def _scan_masks(script: str) -> "tuple[bytearray, bytearray]":
                         stack.pop()
                     else:
                         stack[-1] = ("interp", depth - 1)
+            if not ch.isspace():
+                last_sig, last_word = ch, ""
             i += 1
             continue
 
@@ -357,6 +433,14 @@ def _strip_comments(script: str) -> str:
     return "".join(out)
 
 
+# Call names counted as agent() call sites: the runtime hook, plus a workflow's pass-through counting
+# wrapper (distill-harvest's countedAgent, which tallies calls against the runtime's 1000-agent cap).
+# A wrapper's call sites carry the model: keys, so they are the sites the guard must see.
+_AGENT_CALL_RE = re.compile(r"(?:countedAgent|agent)\(")
+# A wrapper's own declaration (`function countedAgent(prompt, opts)`) is not a call site.
+_FUNCTION_DECL_BEFORE = re.compile(r"\bfunction\s+$")
+
+
 def _walk_agent_calls(buf: str, mask: "bytearray") -> "list[tuple[bool, str | None]]":
     """Per-call-site agent(/model:/agentType: attribution -- string-aware
     paren/brace depth walk (see module docstring "Known limitations" for
@@ -382,14 +466,16 @@ def _walk_agent_calls(buf: str, mask: "bytearray") -> "list[tuple[bool, str | No
     calls: "list[tuple[bool, str | None]]" = []
 
     while i < n:
-        pos = buf.find("agent(", i)
-        if pos == -1:
+        m = _AGENT_CALL_RE.search(buf, i)
+        if m is None:
             break
-        if mask[pos] or (pos > 0 and buf[pos - 1] in _IDENTIFIER_CHARS):
+        pos = m.start()
+        if (mask[pos] or (pos > 0 and buf[pos - 1] in _IDENTIFIER_CHARS)
+                or _FUNCTION_DECL_BEFORE.search(buf[max(0, pos - 24):pos])):
             i = pos + 1
             continue
         call_start = pos
-        paren_open = call_start + 5  # index of the "(" character
+        paren_open = m.end() - 1  # index of the "(" character
 
         depth = 0
         brace_depth = 0
@@ -734,6 +820,94 @@ def _detect_opus(transcript_path: str) -> bool:
     return False
 
 
+def _fold_session_roster(transcript_path: str) -> "frozenset[str] | None":
+    """Agent types the session can dispatch, folded from the transcript's
+    `agent_listing_delta` attachments: `builtInTypes`, `builtInPluginTypes`
+    and `addedTypes` join the roster, `removedTypes` leave it, and an
+    `isInitial` delta restarts the fold. Returns None when the transcript is
+    unreadable or carries no delta -- the caller treats that as "check did
+    not run", never as an empty roster."""
+    if not transcript_path or not os.path.isfile(transcript_path):
+        return None
+    roster: "set[str]" = set()
+    seen = False
+    try:
+        with open(transcript_path, "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if "agent_listing_delta" not in line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except Exception:
+                    continue
+                att = obj.get("attachment") if isinstance(obj, dict) else None
+                if not isinstance(att, dict) or att.get("type") != "agent_listing_delta":
+                    continue
+                seen = True
+                if att.get("isInitial"):
+                    roster.clear()
+                for key in ("builtInTypes", "builtInPluginTypes", "addedTypes"):
+                    vals = att.get(key)
+                    if isinstance(vals, list):
+                        roster.update(v for v in vals if isinstance(v, str))
+                removed = att.get("removedTypes")
+                if isinstance(removed, list):
+                    roster.difference_update(v for v in removed if isinstance(v, str))
+    except Exception:
+        return None
+    return frozenset(roster) if seen else None
+
+
+def _required_agent_types(
+    tool_input: dict, agent_types: "list[str | None]"
+) -> "tuple[list[str], bool]":
+    """`(types, declared)`: the types a launch needs -- `args.prepared.
+    requiredAgentTypes` (inline, or in the stub's `argsFile` when the
+    args-inline pre-stage left it unresolved) plus every literal call-site
+    `agentType:` -- and whether the args declared any. Unreadable args
+    contribute nothing."""
+    args = tool_input.get("args")
+    if isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except Exception:
+            args = None
+    if isinstance(args, dict) and "prepared" not in args and isinstance(args.get("argsFile"), str):
+        try:
+            with open(args["argsFile"], "r", encoding="utf-8", errors="replace") as fh:
+                args = json.load(fh)
+        except Exception:
+            args = None
+    required: "list[str]" = []
+    prepared = args.get("prepared") if isinstance(args, dict) else None
+    listed = prepared.get("requiredAgentTypes") if isinstance(prepared, dict) else None
+    if isinstance(listed, list):
+        required.extend(t for t in listed if isinstance(t, str) and t)
+    declared = bool(required)
+    required.extend(t for t in agent_types if t)
+    return sorted(set(required)), declared
+
+
+def _compose_absent_roster_deny_reason(missing: "list[str]") -> str:
+    """Deny composer for a launch naming agent types the session roster
+    lacks -- the types are frozen at session start, so the fix is a fresh
+    session."""
+    message = compose(
+        f"{', '.join(missing[:5])} not in this session's agent roster -- the "
+        "launch would fail at its first agent() call. Start a fresh session "
+        "so the roster loads them.",
+        anchor=_WIKI_ANCHOR,
+    )
+    return render(message)
+
+
+_ROSTER_UNCHECKED_NOTE = (
+    "Agent-roster check did not run (transcript unreadable or no "
+    "agent_listing_delta); the launch's agent types were not verified. "
+    "Start a fresh session if a missing type fails the run."
+)
+
+
 _OVERRIDE_SENTINEL_NAME = ".coordinator-override-workflow-model-guard"
 
 
@@ -884,33 +1058,84 @@ def main() -> int:
     # closed here.
     if not script:
         script_path = tool_input.get("scriptPath", "") or ""
-        if not script_path:
-            return 0
         # Fail OPEN on a missing/unreadable file -- never wedge a launch on
         # a detection failure, consistent with every other guard.
         try:
-            if not os.path.isfile(script_path):
-                return 0
-            with open(script_path, "r", encoding="utf-8", errors="replace") as fh:
-                script = fh.read(1_000_000)
+            if script_path and os.path.isfile(script_path):
+                with open(script_path, "r", encoding="utf-8", errors="replace") as fh:
+                    script = fh.read(1_000_000)
         except Exception:
-            return 0
-        if not script:
-            return 0
+            script = ""
 
-    # --- Extract transcript_path, detect session model tier (Opus only fires) ---
     transcript_path = payload.get("transcript_path", "") or ""
-    if not transcript_path or not os.path.isfile(transcript_path):
+
+    # --- Roster check: runs before, and independently of, the model check ---
+    stripped = _strip_comments(script) if script else ""
+    agent_n, modeled_n, agent_types = (
+        _count_agent_modeled_with_types(stripped) if stripped else (0, 0, [])
+    )
+    required, declared = _required_agent_types(tool_input, agent_types)
+    roster_note = ""
+    if required:
+        roster = _fold_session_roster(transcript_path)
+        if roster is None:
+            # A literal-only launch with no roster stays silent; the loud
+            # note is for launches whose args declared required types.
+            roster_note = _ROSTER_UNCHECKED_NOTE if declared else ""
+        else:
+            missing = [t for t in required if t not in roster]
+            if missing:
+                _write_hook_output(
+                    {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": _compose_absent_roster_deny_reason(missing),
+                    }
+                )
+                return 0
+
+    model_out = _model_guard(transcript_path, stripped, agent_n, modeled_n, agent_types)
+    if model_out is not None and model_out.get("permissionDecision") == "deny":
+        _write_hook_output(model_out)
         return 0
+    if roster_note:
+        prior = (model_out or {}).get("additionalContext")
+        model_out = {
+            "hookEventName": "PreToolUse",
+            "additionalContext": f"{prior}\n{roster_note}" if prior else roster_note,
+        }
+    if model_out is not None:
+        _write_hook_output(model_out)
+    return 0
+
+
+def _write_hook_output(specific: dict) -> None:
+    """Emit one PreToolUse `hookSpecificOutput` envelope on stdout."""
+    sys.stdout.write(
+        json.dumps({"hookSpecificOutput": specific}, ensure_ascii=False, separators=(",", ":"))
+    )
+    sys.stdout.write("\n")
+
+
+def _model_guard(
+    transcript_path: str,
+    stripped: str,
+    agent_n: int,
+    modeled_n: int,
+    agent_types: "list[str | None]",
+) -> "dict | None":
+    """The Opus-session un-modeled agent() guard: returns the
+    `hookSpecificOutput` body to emit (a deny, or a partial-coverage
+    additionalContext), or None for a silent allow. Every detection failure
+    returns None."""
+    if not transcript_path or not os.path.isfile(transcript_path):
+        return None
 
     if not _detect_opus(transcript_path):
-        return 0
-
-    stripped = _strip_comments(script)
-    agent_n, modeled_n, agent_types = _count_agent_modeled_with_types(stripped)
+        return None
 
     if agent_n < 1:
-        return 0
+        return None
 
     if modeled_n == 0:
         # Resolution runs ONLY here -- the one path that would otherwise
@@ -939,7 +1164,7 @@ def main() -> int:
                 tier != "opus" or agent_type in _rostered_agent_types()
                 for tier, agent_type in zip(tiers, agent_types)
             ):
-                return 0
+                return None
             reason = _compose_unrostered_opus_deny_reason(
                 [
                     agent_type
@@ -947,30 +1172,19 @@ def main() -> int:
                     if tier == "opus" and agent_type not in _rostered_agent_types()
                 ]
             )
-            out = {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": reason,
-                }
-            }
-            sys.stdout.write(json.dumps(out, ensure_ascii=False, separators=(",", ":")))
-            sys.stdout.write("\n")
-            return 0
-        # At least one call site's agentType is absent, non-literal, or
-        # names no resolvable definition -- falls back to the
-        # un-resolved deny rung. Never crash, never silently pass.
-        reason = _compose_zero_modeled_deny_reason(agent_n)
-        out = {
-            "hookSpecificOutput": {
+            return {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
                 "permissionDecisionReason": reason,
             }
+        # At least one call site's agentType is absent, non-literal, or
+        # names no resolvable definition -- falls back to the
+        # un-resolved deny rung. Never crash, never silently pass.
+        return {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": _compose_zero_modeled_deny_reason(agent_n),
         }
-        sys.stdout.write(json.dumps(out, ensure_ascii=False, separators=(",", ":")))
-        sys.stdout.write("\n")
-        return 0
 
     if modeled_n < agent_n:
         # An un-modeled call pinned to an agentType costs its definition's
@@ -985,19 +1199,13 @@ def main() -> int:
             if tier is not None and (tier != "opus" or agent_type in _rostered_agent_types()):
                 covered_n += 1
         if covered_n == agent_n:
-            return 0
-        msg = _compose_partial_modeled_context(agent_n, covered_n)
-        out = {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "additionalContext": msg,
-            }
+            return None
+        return {
+            "hookEventName": "PreToolUse",
+            "additionalContext": _compose_partial_modeled_context(agent_n, covered_n),
         }
-        sys.stdout.write(json.dumps(out, ensure_ascii=False, separators=(",", ":")))
-        sys.stdout.write("\n")
-        return 0
 
-    return 0
+    return None
 
 
 if __name__ == "__main__":

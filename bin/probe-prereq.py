@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """probe-prereq.py -- install.md Phase 1 prerequisite probe with no existing
 landed CLI: a thin `python3` passthrough to
 coordinator_core.install.prereq_probe.probe_python() (Windows

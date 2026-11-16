@@ -54,6 +54,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 from typing import Iterable
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -93,7 +94,7 @@ _TESTS_DIR = REPO_ROOT / "coordinator" / "tests"
 _EXEMPT_PATH_SEGMENTS = frozenset({"tests", "fixtures"})
 
 
-def _load_module(path: Path, name: str):
+def _load_module(path: Path, name: str) -> ModuleType | None:
     """Returns None on any failure (missing file, syntax error, import-time
     exception) rather than raising, so callers degrade detection instead of
     crashing the guard."""

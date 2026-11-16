@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # claude-md-grant-cli — CLI trampoline over the engine
 # coordinator_core.session.claude_md_grant (the session-scoped PM grant that
 # lets a dispatched agent write a CLAUDE.md-class surface). Direct-import

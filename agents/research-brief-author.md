@@ -1,6 +1,6 @@
 ---
 name: research-brief-author
-description: "Sonnet research-brief author: after the haiku source survey, writes the expert brief specialists read."
+description: "Research-brief author: after the source survey, writes the expert brief for specialists."
 model: sonnet
 effort: medium
 tools: ["Read", "Write", "Edit", "Bash", "PowerShell", "Glob", "Grep"]

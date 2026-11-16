@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 coordinator/bin/doc-index.py — operator CLI seam for "docindex.emit"
 (coordinator_core/ops/docindex_emit.py).

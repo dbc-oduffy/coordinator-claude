@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """provision-sidecar.py — deliberate, flags-in/path-out CLI wrapper around
 `coordinator_core.subagent_sandbox.provision_report._provision`.
 

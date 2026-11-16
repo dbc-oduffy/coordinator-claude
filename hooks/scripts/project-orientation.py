@@ -117,8 +117,8 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Optional
+from types import ModuleType, SimpleNamespace
+from typing import Any, Optional
 
 # ---------------------------------------------------------------------------
 # Paths: this file is at <plugin_root>/hooks/scripts/project-orientation.py
@@ -239,7 +239,7 @@ def _render_staleness_line(items: Optional[list]) -> str:
             groups.append(f"{category} {len(labels)}: {', '.join(labels)}")
     return (
         f"── Staleness: {len(items)} folded ({'; '.join(groups)}) — "
-        "/workday-start refreshes most; COORDINATOR_BOOT_BANNER_FULL=1 shows each ──\n"
+        "COORDINATOR_BOOT_BANNER_FULL=1 shows each ──\n"
     )
 
 
@@ -583,6 +583,14 @@ def _mtime_epoch(path: Path) -> Optional[int]:
         return None
 
 
+def _banner_off(env_off_var: str, label: str) -> bool:
+    """True, after one stderr line naming the variable, when `env_off_var` disables the banner."""
+    if os.environ.get(env_off_var):
+        print(f"[coordinator] {label}: disabled via {env_off_var}", file=sys.stderr)
+        return True
+    return False
+
+
 def _staleness_banner(
     repo_root: Optional[str],
     *,
@@ -618,11 +626,7 @@ def _staleness_banner(
     silently skip the banner (artifact/dir absent, unreadable, etc.) —
     preserves each banner's original silent-when-absent semantics exactly.
     """
-    if os.environ.get(env_off_var):
-        print(
-            f"[coordinator] {label}: disabled via {env_off_var}",
-            file=sys.stderr,
-        )
+    if _banner_off(env_off_var, label):
         return
 
     age_hours = get_age_hours(repo_root)
@@ -645,10 +649,7 @@ def _staleness_banner(
                 # sibling engine repo, banner quietly never fires).
                 print(
                     f"[coordinator] {label}: {unresolvable_artifact_desc} is "
-                    f"{age_hours}h old but {generator_name} is unresolvable "
-                    "(checked coordinator/bin/, $PATH, <repo>/bin/, and the "
-                    "sibling engine repo's bin/) — see _resolve_generator() "
-                    "in project-orientation.py",
+                    f"{age_hours}h old; {generator_name} not found on bin/ or $PATH",
                     file=sys.stderr,
                 )
             return
@@ -844,12 +845,7 @@ def harness_version_drift_banner(repo_root: Optional[str]) -> None:
 
     Backlink: state/audits/2026-08-08-coordinator-claude-code-capability-delta.md.
     """
-    if os.environ.get("COORDINATOR_HARNESS_DRIFT_STATUS_OFF"):
-        print(
-            "[coordinator] harness drift banner: disabled via "
-            "COORDINATOR_HARNESS_DRIFT_STATUS_OFF",
-            file=sys.stderr,
-        )
+    if _banner_off("COORDINATOR_HARNESS_DRIFT_STATUS_OFF", "harness drift banner"):
         return
 
     pin_path = (
@@ -960,13 +956,12 @@ def harness_version_drift_banner(repo_root: Optional[str]) -> None:
     _w("\n")
     _w(
         f"── ⚠ Harness drift: {pinned} → {newest_str} — vendored Claude Code docs are "
-        f"{n_desc} behind; run python coordinator/bin/refresh-vendored-docs.py, "
-        "have the impact agent read the changed pages, then run it with --repin "
-        "(state/reference/anthropic-docs/reconciled-against.json) ──\n"
+        f"{n_desc} behind; run coordinator/bin/refresh-vendored-docs.py, review the changed pages, "
+        "then rerun with --repin ──\n"
     )
 
 
-def _local_surface_probe_value(parsed: dict, json_path: str):
+def _local_surface_probe_value(parsed: dict, json_path: str) -> Any:
     """Resolve a single top-level `json_path` key in an already-parsed JSON object.
 
     Hand-rolled rather than a JSON-pointer library (plan C2 body) -- every declared probe today
@@ -1004,12 +999,7 @@ def local_install_surface_banner(repo_root: Optional[str]) -> None:
     never having the line at all (Anti-scope) -- so ignorance about how to evaluate an entry
     must never be rendered as evidence the entry is missing.
     """
-    if os.environ.get("COORDINATOR_INSTALL_SURFACE_STATUS_OFF"):
-        print(
-            "[coordinator] install-surface banner: disabled via "
-            "COORDINATOR_INSTALL_SURFACE_STATUS_OFF",
-            file=sys.stderr,
-        )
+    if _banner_off("COORDINATOR_INSTALL_SURFACE_STATUS_OFF", "install-surface banner"):
         return
 
     manifest_path = (
@@ -1181,12 +1171,7 @@ def install_currency_banner(repo_root: Optional[str]) -> None:
     `docs/wiki/release-and-distribution/release-cadence-and-currency-notification.md`), which is a distinct
     axis this function does not touch. That contract is settled; its engine-anchor probe is not built.
     """
-    if os.environ.get("COORDINATOR_CURRENCY_STATUS_OFF"):
-        print(
-            "[coordinator] install-currency banner: disabled via "
-            "COORDINATOR_CURRENCY_STATUS_OFF",
-            file=sys.stderr,
-        )
+    if _banner_off("COORDINATOR_CURRENCY_STATUS_OFF", "install-currency banner"):
         return
 
     try:
@@ -1327,12 +1312,7 @@ def corpus_currency_banner(repo_root: Optional[str]) -> None:
         so it can be pasted as-is; re-deriving it here is how it silently rots out of sync with
         the producer.
     """
-    if os.environ.get("COORDINATOR_CURRENCY_STATUS_OFF"):
-        print(
-            "[coordinator] corpus-currency banner: disabled via "
-            "COORDINATOR_CURRENCY_STATUS_OFF",
-            file=sys.stderr,
-        )
+    if _banner_off("COORDINATOR_CURRENCY_STATUS_OFF", "corpus-currency banner"):
         return
 
     try:
@@ -1480,14 +1460,26 @@ def structural_index_banner(repo_root: Optional[str]) -> None:
         'python "$(machine-local get repos.project_rag)/project_rag_scripts/'
         'structural_index_refresh.py" ensure'
     )
+    scip_note = ""
+    if isinstance(parsed, dict):
+        try:
+            scip_at = datetime.strptime(
+                parsed.get("scip_checked_at", ""), _GENERATED_AT_FORMAT
+            ).replace(tzinfo=timezone.utc)
+            scip_note = (
+                f" (SCIP {(datetime.now(timezone.utc) - scip_at).total_seconds() / 3600.0:.0f}h old)"
+            )
+        except Exception:
+            pass
     _w_fold(
         "not checked" if state == "missing" else "stale",
         f"structural index {state}",
-        f"── Structural index: {state} ({age}) — refresh from repo root: {remedy} ──\n",
+        f"── Structural index: {state} ({age}) — refresh from repo root: {remedy}; "
+        f"pass repo=, prefer tree-sitter project_symbol; callers may be stale{scip_note} ──\n",
     )
 
 
-def _load_tier_last_run_module():
+def _load_tier_last_run_module() -> ModuleType | None:
     """Import the engine copy of `tier-last-run.py` by file path and return the loaded module.
 
     Hyphenated filename, so `import tier-last-run` is not valid Python — this mirrors the
@@ -1565,9 +1557,7 @@ def tier_currency_banner(repo_root: Optional[str]) -> None:
     if module is None:
         if doctrine_path.exists():
             sys.stderr.write(
-                "── tier currency: UNRESOLVABLE — coordinator.local.md is present but "
-                "coordinator/bin/tier-last-run.py could not be imported, so no tier's currency "
-                "can be reported. This is not 'no tiers declared'. ──\n"
+                "── tier currency: UNRESOLVABLE — tier-last-run.py import failed; not 'no tiers'. ──\n"
             )
         return
 
@@ -1578,9 +1568,8 @@ def tier_currency_banner(repo_root: Optional[str]) -> None:
         # is a legitimate "no ceremony tier here" and stays silent, same as an explicit `[]`.
         if doctrine_path.exists():
             sys.stderr.write(
-                f"── tier currency: UNRESOLVABLE — {doctrine_path.name} is present but its "
-                f"ceremony_test_cmds could not be read ({type(exc).__name__}: {exc}). No tier's "
-                f"currency can be reported, and this is NOT the same as declaring none. ──\n"
+                f"── tier currency: UNRESOLVABLE — {doctrine_path.name} ceremony_test_cmds unreadable "
+                f"({type(exc).__name__}: {exc}); not 'no tiers'. ──\n"
             )
         return
     if not entries:
@@ -1658,7 +1647,7 @@ _COPIES_PLUGIN_FIELDS = {"source_head": "DoE source HEAD", "mirror_head": "plugi
 _COPIES_REFRESH_SCRIPT = "copy-currency-refresh.py"
 
 
-def _copies_mod(name: str):
+def _copies_mod(name: str) -> ModuleType:
     """Import a sibling copy module by name.
 
     Trap: importlib, never an import statement. The static spawn-budget walk follows import
@@ -1685,7 +1674,7 @@ class CopiesContext:
         authoring_root: Optional[str] = None,
         engine_root: Optional[str] = None,
         live_tree: bool = False,
-    ):
+    ) -> None:
         self.source_root = source_root
         self.mirror_plugin_root = mirror_plugin_root
         self.publish_mirror = publish_mirror
@@ -1699,13 +1688,13 @@ def default_copies_context() -> CopiesContext:
     pml = _copies_mod("_copy_leg_plugin_mirror")
     eml = _copies_mod("_copy_leg_engine_mirror")
 
-    def safe(fn):
+    def safe(fn) -> Any:
         try:
             return fn()
         except Exception:
             return None
 
-    def publish_mirror():
+    def publish_mirror() -> Path | None:
         er = _copies_mod("_engine_root")
         value = er._registry_value(
             er._settings_home_registry_dir(), "publish.mirrors.coordinator_claude.path"
@@ -1820,7 +1809,7 @@ def _copies_age(seconds: float) -> str:
 
 
 class _CopiesUnavailable(Exception):
-    def __init__(self, reason: str, remedy: str = ""):
+    def __init__(self, reason: str, remedy: str = "") -> None:
         super().__init__(reason)
         self.reason = reason
         self.remedy = remedy
@@ -1830,7 +1819,7 @@ def _copies_per_axis(cc, copy: str, compute) -> list:
     """[currency, completeness], each axis through run_leg so nothing raises or renders unrun-as-current."""
     box: dict = {}
 
-    def pick(i: int):
+    def pick(i: int) -> Any:
         if "v" not in box:
             box["v"] = compute()
         return box["v"][i]
@@ -1843,7 +1832,7 @@ def _copies_engine_verdicts(cc, ctx: CopiesContext, cache: Optional[dict]) -> li
     entry = (cache or {}).get(eml.COPY)
     moved = _copies_key_moved(entry, copies_engine_key(ctx), _COPIES_ENGINE_FIELDS)
 
-    def lag(_engine, _claude_klabauter):
+    def lag(_engine, _claude_klabauter) -> Any:
         if moved:
             raise _CopiesUnavailable(f"cache stale: {moved}", _copies_refresh_remedy())
         if entry.get("error"):
@@ -1856,13 +1845,13 @@ def _copies_engine_verdicts(cc, ctx: CopiesContext, cache: Optional[dict]) -> li
             stamp_sha=data.get("stamp_sha") or "",
         )
 
-    def origin_behind():
+    def origin_behind() -> Any:
         eo = entry.get("engine_origin") if isinstance(entry, dict) and not moved else None
         if not isinstance(eo, dict) or eo.get("fast_forwarded"):
             return None
         return eo.get("behind")
 
-    def compute():
+    def compute() -> Any:
         try:
             return eml.check_engine_mirror(
                 lambda: ctx.engine_root,
@@ -1882,7 +1871,7 @@ def _copies_engine_verdicts(cc, ctx: CopiesContext, cache: Optional[dict]) -> li
 def _copies_plugin_verdicts(cc, ctx: CopiesContext, cache: Optional[dict], now_epoch: float) -> list:
     pml = _copies_mod("_copy_leg_plugin_mirror")
 
-    def compute():
+    def compute() -> list:
         source, mirror, reason = resolve_plugin_pair(ctx)
         if reason:
             return [cc.could_not_check(pml.COPY, ax, reason) for ax in (cc.CURRENCY, cc.COMPLETENESS)]
@@ -2603,12 +2592,7 @@ def orientation_cache_staleness_banner(repo_root: Optional[str], cache_text: Opt
     An UNKNOWN magnitude (no readable reflog) falls back to age-only rather than inventing a
     verdict -- see that helper's own contract.
     """
-    if os.environ.get("COORDINATOR_ORIENTATION_STALENESS_OFF"):
-        print(
-            "[coordinator] orientation-cache staleness banner: disabled via "
-            "COORDINATOR_ORIENTATION_STALENESS_OFF",
-            file=sys.stderr,
-        )
+    if _banner_off("COORDINATOR_ORIENTATION_STALENESS_OFF", "orientation-cache staleness banner"):
         return
 
     if not cache_text:
@@ -2768,13 +2752,10 @@ def handle_cache_present(cache: Path, repo_root: Optional[str]) -> bool:
             changed = lines[0]
 
         _w("\n")
-        _w("── Orientation (RAM cache, stale — run /workday-start to refresh) ──\n")
+        _w("── Orientation (RAM cache, stale) ──\n")
         _w(cache_text)
         _w("\n")
-        _w(
-            "── Orientation: 1 document loaded (stale cache — "
-            f"{changed} and possibly others changed since generation) ──\n"
-        )
+        _w(f"── Orientation: stale — {changed} and others changed since generation ──\n")
         return True
 
     # CACHE_HEAD missing or invalid — emit cache without staleness guarantee
@@ -2897,7 +2878,6 @@ def lightweight_branch(repo_root: Optional[str] = None) -> None:
     branch = _read_current_branch_boot(repo_root)
     if branch:
         _w(f"  Branch: {branch}\n")
-    _w("  Full orientation available on next fresh session start.\n")
 
 
 # ---------------------------------------------------------------------------
@@ -3049,8 +3029,7 @@ def full_mode(repo_root: Optional[str], state_root: str) -> None:
         _w(f"  Lessons: {lesson_count} entries in state/lessons/\n")
 
     _w("\n")
-    _w("No orientation cache. Run /update-docs or /workday-start to generate one.\n")
-    _w(f"── Orientation: {found} document(s) available (not loaded — read on demand) ──\n")
+    _w(f"── Orientation: {found} document(s) available (read on demand) ──\n")
 
 
 def _run_banners(banners: list) -> None:

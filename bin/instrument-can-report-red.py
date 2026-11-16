@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """instrument-can-report-red — does a computed verdict reach this instrument's exit path?
 
 WHY THIS EXISTS. A falsifier, gate or probe that goes green is evidence only if it could have

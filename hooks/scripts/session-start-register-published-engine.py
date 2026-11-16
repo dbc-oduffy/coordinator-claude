@@ -97,22 +97,22 @@ try:
 except Exception:  # pragma: no cover - partial-deploy defence
     RESOLUTION_RESOLVED_ENGINE = "resolved-engine"  # type: ignore[assignment]
 
-    def _find_plugin_root(start):  # type: ignore[no-redef]
+    def _find_plugin_root(start) -> None:  # type: ignore[no-redef]
         return None
 
-    def _engine_registry_value(reg_dir, key):  # type: ignore[no-redef]
+    def _engine_registry_value(reg_dir, key) -> None:  # type: ignore[no-redef]
         return None
 
-    def _settings_home_registry_dir():  # type: ignore[no-redef]
+    def _settings_home_registry_dir() -> None:  # type: ignore[no-redef]
         return None
 
-    def resolve_claude_klabauter_root_with_provenance():  # type: ignore[no-redef]
+    def resolve_claude_klabauter_root_with_provenance() -> tuple[None, str, str]:  # type: ignore[no-redef]
         return None, "unresolved", "none"
 
 try:
     from _registry_write import machine_local_set as _machine_local_set  # noqa: E402
 except Exception:  # pragma: no cover - partial-deploy defence
-    def _machine_local_set(key, value):  # type: ignore[no-redef]
+    def _machine_local_set(key, value) -> None:  # type: ignore[no-redef]
         return None
 
 

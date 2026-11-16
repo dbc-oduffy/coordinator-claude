@@ -1,6 +1,6 @@
 ---
 name: artifact-investigation
-description: "Opaque binary or artifact investigation: structure first, script second, agent last."
+description: "Opaque binary/artifact investigation: structure first, script second, agent last."
 allowed-tools: ["Read", "Bash", "Glob", "Grep", "Agent"]
 ---
 

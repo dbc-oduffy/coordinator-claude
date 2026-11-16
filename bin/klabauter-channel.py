@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """klabauter-channel.py — move a consumer clone's checked-out ref between
 the two klabauter release channels (`main`, `candidate`); or, bare, report
 which channel the box is actually on versus what it declares.

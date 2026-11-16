@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """workday-start-step0.py — deterministic Step 0 (Branch Setup) for /workday-start.
 
 Encapsulates the precedence switch documented in pipelines/workday-start-internals.md
@@ -78,8 +79,6 @@ Port of: coordinator-daily-branch.sh, DoE 2fbe0e77, 2026-07-19).
 from __future__ import annotations
 
 import os
-import shutil
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -177,20 +176,18 @@ def _ensure_claude_klabauter_on_path() -> None:
 
 
 def _slug_self_heal(key: str, live_func, drift_label: str, machine_rename_option: bool) -> None:
-    ml_bin = os.environ.get("MACHINE_LOCAL_BIN", "machine-local")
-    resolved = shutil.which(ml_bin)
-    if resolved is None:
+    from coordinator_core import machine_local_spawn
+
+    impl = machine_local_spawn.kernel_path()
+    if not os.path.isfile(impl):
         return
-    has = subprocess.run([resolved, "has", key], capture_output=True, text=True,
-                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    if has.returncode != 0:
-        live = live_func()
-        subprocess.run([resolved, "set", key, live], capture_output=True, text=True,
-                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    value, ok = machine_local_spawn.get(impl, key)
+    if not ok:
         return
-    get = subprocess.run([resolved, "get", "--default", "", key], capture_output=True, text=True,
-                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    persisted = get.stdout.strip() if get.returncode == 0 else ""
+    if value is None:
+        machine_local_spawn.run_bounded([sys.executable, impl, "set", key, live_func()])
+        return
+    persisted = value.strip()
     live = live_func()
     if persisted and persisted != live:
         _err(f"{drift_label}: persisted='{persisted}', "
@@ -248,9 +245,9 @@ def _exec_reconcile() -> int:
 # ---------------------------------------------------------------------------
 
 def _session_meta_dirs() -> "list[str]":
-    """Enumerate this tree's session-claim directories under the git common
-    dir's ``coordinator-sessions/`` hub (``coordinator_core.session.core.
-    sessions_dir``), skipping the hub's own non-session bookkeeping entries
+    """Enumerate this tree's session-claim directories under the session hub
+    (``coordinator_core.session.core.sessions_dir``,
+    ``session_hub_path.hub_for_common``), skipping the hub's own non-session bookkeeping entries
     (``_NON_SESSION_DIR_NAMES`` — the same denylist ``live_session_ids``
     filters on). Deliberately unfiltered by liveness: a session that has
     already ended still has other readers of its ``meta.json:branch`` field

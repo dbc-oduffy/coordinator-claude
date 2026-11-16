@@ -268,7 +268,7 @@ def _suppressed(
     obligations=None,
     remaining=None,
     truncated_fields: Optional[list[dict[str, Any]]] = None,
-):
+) -> dict[str, Any]:
     """One `suppressed` row. Every row carries the same keys -- `None` where
     inapplicable -- so a consumer never has to key-check by variant.
 

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Optional: start Codex attached to the app-server daemon with --remote.
 
 Using this launcher is NOT required for peer delivery. A plain `codex` TUI started without
@@ -21,6 +22,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 READY_SECONDS = 20
+
+import lib  # noqa: E402,F401 -- bootstraps coordinator/bin/lib onto sys.path
+from cc_invoke import ensure_engine_on_path  # noqa: E402
 
 
 def load_sibling(name):
@@ -79,6 +83,7 @@ def tui_argv(codex, sock, args):
 
 
 def main(argv=None):
+    ensure_engine_on_path(__file__)
     args = list(sys.argv[1:] if argv is None else argv)
     if args in (["--help"], ["-h"]):
         print(__doc__)
@@ -90,7 +95,9 @@ def main(argv=None):
     if os.name == "nt":
         print("unimatrix-codex-launch: unix-socket attach is unavailable on Windows; "
               "starting codex without --remote", file=sys.stderr)
-        return subprocess.call([codex, *args])
+        sys.path.insert(0, str(HERE.parents[1]))
+        from coordinator_core.codex_runner.codex_spawn_env import place_installed_pwsh
+        return subprocess.call([codex, *args], env=place_installed_pwsh(dict(os.environ), os.environ, windows=True))
     pc = load_sibling("unimatrix-peer-codex")
     sock = pc.socket_path()
     default_sock = os.path.expanduser(pc.DEFAULT_SOCK)

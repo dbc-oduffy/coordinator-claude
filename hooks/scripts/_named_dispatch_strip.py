@@ -115,7 +115,9 @@ _REPORTING_SUBAGENT_TYPES = (
     "coordinator:code-reviewer",
     "coordinator:code-reviewer-weekly",
     "coordinator:coverage-auditor",
+    "coordinator:distill-synth",
     "coordinator:distill-writer",
+    "coordinator:lesson-synth",
     "coordinator:doc-link-checker",
     "coordinator:docs-checker",
     "coordinator:enricher",
@@ -139,6 +141,7 @@ _REPORTING_SUBAGENT_TYPES = (
     "coordinator:spike-worker",
     "coordinator:subtractive-adjudicator",
     "coordinator:external-reviewer",
+    "coordinator:family-stage-runner",
     "coordinator:test-runner",
     "coordinator:workflow-maker",
 )

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """warm-engine-stop.py — the operator hatch that takes down the warm pair
 (supervisor, front door, then server) of the clone this file lives in.
 
@@ -22,8 +23,10 @@ ask, then a direct signal), and a final exact-argv command-line sweep under
 the engine root decides success.
 
 EXIT CODES: 0 when neither process survives ("stopped", or "nothing to stop"
-when no process was found); `_EXIT_COULD_NOT_STOP` (4) otherwise, with every
-survivor's pid and role on stderr.
+when no process was found, or psutil is not importable and warmth is disabled
+by configuration); `_EXIT_COULD_NOT_STOP` (4) otherwise, with every
+survivor's pid and role on stderr; `_EXIT_PSUTIL_MISSING` (5) when warmth is
+on and psutil is not importable (one-line stderr message, no traceback).
 
 Negative-spec:
   - Never signals a pid that a verified record or the exact command-line match
@@ -87,6 +90,49 @@ def __getattr__(name: str):
 
 _EXIT_OK = 0
 _EXIT_COULD_NOT_STOP = 4
+_EXIT_PSUTIL_MISSING = 5
+
+
+#: Twin of `coordinator_core.warm.server.DUMP_REQUEST_FILENAME` (pinned equal by test).
+_DUMP_REQUEST_FILENAME = "dump-request"
+_DUMP_WAIT_SECS = 0.5
+
+
+def _request_server_dump(wait_secs: float = _DUMP_WAIT_SECS) -> bool:
+    """Ask the live server for an all-threads record in `<svc>/stall-dumps/` via a
+    request file its `dump-request-poll` thread answers by deleting it. Bounded at
+    `wait_secs`; the caller stops the pair regardless. Never raises.
+
+    Trap: the request write is itself unbounded on a stalled svc dir, and with no live
+    server nothing acks, so a stop with no server pays the full `wait_secs`."""
+    import time
+
+    from coordinator_core.warm import breadcrumb
+
+    try:
+        request = breadcrumb.svc_dir(_REPO_ROOT) / _DUMP_REQUEST_FILENAME
+        request.parent.mkdir(parents=True, exist_ok=True)
+        request.write_text("", encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        return False
+    deadline = time.monotonic() + wait_secs
+    acked = False
+    while True:
+        try:
+            if not request.exists():
+                acked = True
+                break
+        except OSError:
+            break
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.02)
+    if not acked:
+        try:
+            request.unlink(missing_ok=True)
+        except OSError:
+            pass
+    return acked
 
 
 def main(argv=None) -> int:
@@ -99,6 +145,21 @@ def main(argv=None) -> int:
     )
     parser.parse_args(argv)
 
+    from coordinator_core.warm import settings
+
+    try:
+        import psutil  # noqa: F401
+    except ImportError:
+        if not settings.is_warm_enabled():
+            print("nothing to stop", file=sys.stderr)
+            return _EXIT_OK
+        print(
+            f"warm-engine-stop: psutil is not importable under {sys.executable}",
+            file=sys.stderr,
+        )
+        return _EXIT_PSUTIL_MISSING
+
+    _request_server_dump()
     result = pair_stop.stop_warm_pair(_REPO_ROOT)
     if result.ok():
         print("stopped" if result.stopped else "nothing to stop", file=sys.stderr)

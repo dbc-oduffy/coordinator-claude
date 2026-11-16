@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 coordinator.bin.measure-hook-class-cost -- per-class structural + round-trip cost harness for
 the hook-routing decision.

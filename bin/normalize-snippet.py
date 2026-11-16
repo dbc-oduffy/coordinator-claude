@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 normalize-snippet — CLI trampoline over claude-klabauter coordinator_core.text.normalize_snippet.
 

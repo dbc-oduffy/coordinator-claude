@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # percolate-liveops-preflight — CLI trampoline over claude-klabauter
 # coordinator_core.session.{liveness,peer_roster} and
 # coordinator_core.machine_resolver, answering the operator's actual

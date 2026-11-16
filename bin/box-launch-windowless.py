@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """box-launch-windowless.py -- start a background job that never opens a console window.
 
 Usage: box-launch-windowless.py [--log PATH] [--cwd DIR] -- CMD...

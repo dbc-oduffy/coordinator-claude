@@ -3,9 +3,10 @@
  * binds it (workflow.bind_args prepends the `args` binding {digest, repoRoot}) for workday-start,
  * workday-complete and workweek-start alike, so it enumerates no group id: it runs
  * args.digest.agent_work.groups in ascending `phase` and dispatches each entry on its own fields
- * (`agent`, `ruling_agent`, `argv`, `brief`, `inputs`). The last phase writes the collected results
- * to <repoRoot>/scratch/ceremony-runs/<run_id>/agent-results.json and runs digest.finish_argv with
- * `--agent-results` itself, so no EM-held step sits between the agents and finish.
+ * (`agent`, `ruling_agent`, `argv`, `brief`, `inputs`). A digest with no argv entries ends by
+ * writing the collected results to <repoRoot>/scratch/ceremony-runs/<run_id>/agent-results.json
+ * and running digest.finish_argv with `--agent-results` itself, so no EM-held step sits between
+ * the agents and finish.
  *
  * Ordering: an entry whose inputs.depends_on names another entry key in its group is dispatched
  * only after that entry settles (needs-ruling pass included); if the predecessor failed, the
@@ -22,11 +23,14 @@
  * Contract: coordinator_core/contract/ceremony-run-digest.schema.json. digest.chained is not run
  * here; the log notes its presence.
  *
- * Batching: judgment entries (agent + brief) get one agent each; the argv entries of a group run
- * through one haiku runner agent per batch, and the read-and-report entries through one agent per
- * batch (batchItems, at most 10 entries). Batches never mix kinds or dependency depths, so a
- * depends_on chain cannot deadlock across batches. The finish step is folded into the last
- * group's final runner batch when nothing waits on it (else a standalone fallback runs it).
+ * Batching: judgment entries (agent + brief) get one agent each, and the read-and-report entries
+ * go through one agent per batch (batchItems, at most 10 entries). Batches never mix kinds or
+ * dependency depths, so a depends_on chain cannot deadlock across batches.
+ *
+ * Argv entries are never dispatched here: scripts/workday_start_argv_run.py runs them before the
+ * workflow. A digest carrying argv entries is finished by that script too (`finish`), so the
+ * workflow returns its collected groups and runs no finish; any other digest is finished by one
+ * agent at the end.
  *
  * Every agent carries model: (a guard requires the tier on a workflow worker).
  */
@@ -35,9 +39,9 @@ export const meta = {
   name: 'workday-start',
   description: 'Ceremony run: dispatch each digest agent group by its fields, collect results, run finish',
   phases: [
-    { title: 'Work', detail: 'one agent per judgment entry; argv and report entries batched per group' },
+    { title: 'Work', detail: 'one agent per judgment entry; report entries batched per group; argv entries are script-run' },
     { title: 'Rule', detail: 'needs-ruling results go to the group ruling_agent' },
-    { title: 'Finish', detail: 'write agent-results.json and run digest.finish_argv (folded into the last runner batch)' },
+    { title: 'Finish', detail: 'a digest with no argv entries: write agent-results.json and run digest.finish_argv; otherwise the script finishes' },
   ],
 }
 
@@ -123,11 +127,6 @@ const BATCH = {
   properties: { results: { type: 'array', items: RESULT } },
   required: ['results'],
 }
-const BATCH_FINISH = {
-  type: 'object',
-  properties: { results: { type: 'array', items: RESULT }, finish_exit: { type: 'number' }, stdout: { type: 'string' } },
-  required: ['results', 'finish_exit', 'stdout'],
-}
 
 const hasMemos = e => !!(e.inputs && Array.isArray(e.inputs.memos) && e.inputs.memos.length)
 const entryBlock = (g, e) => `Group ${g.id}. Group inputs:\n${JSON.stringify(g.inputs || {})}\n\nEntry key: ${e.key}\nEntry inputs:\n${JSON.stringify(e.inputs || {})}`
@@ -137,13 +136,7 @@ const entryTag = (g, e) => `${g.id}:${e.key}`
 
 const batchBody = (g, es) => `Group ${g.id}. Group inputs:\n${JSON.stringify(g.inputs || {})}\n\nEntries (in this order):\n${JSON.stringify(es.map(e => ({ key: e.key, argv: e.argv, inputs: e.inputs || {} })))}`
 
-const RUN_RULES = 'Run each entry\'s argv verbatim through the launcher for its first element (the CLI), with the remaining elements as its arguments, from the repo root, one entry at a time in the order listed. Per entry: outcome "ok" when it exits 0, otherwise "failed" with the exit code and the last lines of its output in question. An entry whose inputs.depends_on names an earlier entry of this list that failed is "failed" with question "dependency <key> did not complete" and is not run.'
 const REPORT_RULES = 'For each entry, read the files named in its inputs and report what they show in one short outcome string; change nothing.'
-
-// Trap: the haiku runner merges its own results into the JSON; a slip drops that batch from the briefing.
-const finishTail = (prior, resultsPath, finishArgv, gid) => `\n\nFinish phase, only after every entry above is done. (1) With the Write tool, write this JSON to ${resultsPath} exactly (create the directory first if absent), after appending the result objects you return for the entries above to the array under group ${JSON.stringify(gid)} (add that array when absent):\n${JSON.stringify({ groups: prior })}\n\n(2) Run the finish argv through the launcher for its first element (the CLI), with the remaining elements as arguments, followed by --agent-results ${resultsPath}, from the repo root. finish_argv:\n${JSON.stringify(finishArgv)}\n\nAlso return finish_exit (its exit code) and stdout (its standard output verbatim, the briefing).`
-
-const runArgvBatch = (g, es, tag, tail) => agent(`${COMMON}\n\n${RUN_RULES} Return one result per entry in results, each key verbatim.\n\n${batchBody(g, es)}${tail || ''}`, { label: `run-batch:${tag}`, phase: 'Work', schema: tail ? BATCH_FINISH : BATCH, model: 'haiku' })
 
 const reportBatch = (g, es, tag) => agent(`${COMMON}\n\n${REPORT_RULES} Return one result per entry in results, each key verbatim.\n\n${batchBody(g, es)}`, { label: `report-batch:${tag}`, phase: 'Work', schema: BATCH, model: 'sonnet' })
 
@@ -173,8 +166,8 @@ const settleBatch = async (g, es, r) => {
   }))
 }
 
-const runGroup = async (g, fin) => {
-  const entries = g.entries || []
+const runGroup = async g => {
+  const entries = (g.entries || []).filter(e => kindOf(g, e) !== 'run-argv')
   const byKey = new Map(entries.map(e => [e.key, e]))
   const waitsOn = new Map()
   for (const e of entries) {
@@ -211,15 +204,9 @@ const runGroup = async (g, fin) => {
   }
   const batchable = entries.filter(e => kindOf(g, e) !== 'work')
   const chunks = []
-  for (const kind of ['report', 'run-argv']) {
-    const ofKind = batchable.filter(e => kindOf(g, e) === kind)
-    for (const d of [...new Set(ofKind.map(depthOf))].sort((a, b) => a - b)) {
-      for (const es of batchItems(ofKind.filter(e => depthOf(e) === d))) chunks.push({ kind, es })
-    }
+  for (const d of [...new Set(batchable.map(depthOf))].sort((a, b) => a - b)) {
+    for (const es of batchItems(batchable.filter(e => depthOf(e) === d))) chunks.push({ es })
   }
-  const waitedOn = new Set(waitsOn.values())
-  const host = fin ? [...chunks].reverse().find(c => c.kind === 'run-argv' && !c.es.some(e => waitedOn.has(e.key))) : null
-  const hostKeys = new Set(host ? host.es.map(e => e.key) : [])
   const gate = async es => {
     const members = new Set(es.map(e => e.key))
     const preds = [...new Set(es.map(e => waitsOn.get(e.key)).filter(k => k && !members.has(k)))]
@@ -229,12 +216,11 @@ const runGroup = async (g, fin) => {
     return { live: es.filter(e => !bad.has(waitsOn.get(e.key))), dead }
   }
   chunks.forEach((c, i) => {
-    if (c === host) return
     const tag = `${g.id}:${i}`
     const p = (async () => {
       const { live, dead } = await gate(c.es)
       let done = []
-      if (live.length) done = await settleBatch(g, live, await (c.kind === 'run-argv' ? runArgvBatch(g, live, tag) : reportBatch(g, live, tag)))
+      if (live.length) done = await settleBatch(g, live, await reportBatch(g, live, tag))
       return new Map([...dead, ...done].map(r => [r.key, r]))
     })()
     for (const e of c.es) batchRun.set(e.key, p.then(m => m.get(e.key)))
@@ -254,33 +240,24 @@ const runGroup = async (g, fin) => {
     if (d && d.outcome !== 'failed' && Array.isArray(d.memos)) closedBy.set(root.key, d.memos)
     else log(`dispose of chain ${root.key} in group ${g.id} closed no memos`)
   }
-  const rest = entries.filter(e => !hostKeys.has(e.key))
-  await parallel([...rest.map(e => () => run(e)), ...roots.map(r => () => disposeChain(r))])
-  const settled = await Promise.all(rest.map(run))
-  const results = settled.map(r => {
+  await parallel([...entries.map(e => () => run(e)), ...roots.map(r => () => disposeChain(r))])
+  const settled = await Promise.all(entries.map(run))
+  return settled.map(r => {
     const closed = closedBy.get(r.key)
     return closed ? { ...r, memos: [...new Set([...(r.memos || []), ...closed])] } : r
   })
-  if (!host) return { results, finish: null }
-  const { live, dead } = await gate(host.es)
-  const prior = { ...fin.collected, [g.id]: [...results, ...dead] }
-  const hr = await runArgvBatch(g, live, `${g.id}:finish`, finishTail(prior, fin.resultsPath, fin.finishArgv, g.id))
-  const hostResults = [...dead, ...(live.length ? await settleBatch(g, live, hr) : [])]
-  const byResult = new Map([...results, ...hostResults].map(r => [r.key, r]))
-  return { results: entries.map(e => byResult.get(e.key)), finish: hr && typeof hr.finish_exit === 'number' ? hr : null }
 }
 
 const collected = {}
 const resultsPath = `${repoRoot}/scratch/ceremony-runs/${digest.run_id}/agent-results.json`
 const groups = [...digest.agent_work.groups].sort((a, b) => a.phase - b.phase)
-let finished = null
-for (const [i, g] of groups.entries()) {
-  const out = await runGroup(g, i === groups.length - 1 ? { collected, resultsPath, finishArgv: digest.finish_argv } : null)
-  collected[g.id] = out.results
-  if (out.finish) finished = out.finish
-}
+for (const g of groups) collected[g.id] = await runGroup(g)
 if (digest.chained) log('digest.chained present; the template does not run it')
 
-const fin = finished || await agent(`${COMMON}\n\nFinish phase. (1) With the Write tool, write this JSON to ${resultsPath} exactly (create the directory first if absent):\n${JSON.stringify({ groups: collected })}\n\n(2) Run the finish argv through the launcher for its first element (the CLI), with the remaining elements as arguments, followed by --agent-results ${resultsPath}, from the repo root. finish_argv:\n${JSON.stringify(digest.finish_argv)}\n\nReturn finish_exit (its exit code) and stdout (its standard output verbatim, the briefing).`, { label: 'finish-fallback:run', phase: 'Finish', schema: FINISH, model: 'haiku' })
+if (groups.some(g => (g.entries || []).some(e => kindOf(g, e) === 'run-argv'))) {
+  return { run_id: digest.run_id, finish_exit: null, briefing: null, scripted_finish: true, groups: collected }
+}
+
+const fin = await agent(`${COMMON}\n\nFinish phase. (1) With the Write tool, write this JSON to ${resultsPath} exactly (create the directory first if absent):\n${JSON.stringify({ groups: collected })}\n\n(2) Run the finish argv through the launcher for its first element (the CLI), with the remaining elements as arguments, followed by --agent-results ${resultsPath}, from the repo root. finish_argv:\n${JSON.stringify(digest.finish_argv)}\n\nReturn finish_exit (its exit code) and stdout (its standard output verbatim, the briefing).`, { label: 'finish-fallback:run', phase: 'Finish', schema: FINISH, model: 'sonnet' })
 
 return { run_id: digest.run_id, finish_exit: fin ? fin.finish_exit : null, briefing: fin ? fin.stdout : null }

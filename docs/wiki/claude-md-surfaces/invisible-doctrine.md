@@ -1,3 +1,11 @@
+---
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
+    omitted_reasons:
+      last_verbose_sha: private-source
+---
+
 # Invisible doctrine — the north star for the coordinator rebuild
 
 States the organizing idea behind the coordinator rebuild that the computed-skills, skills-carry-no-code, and dispatch-seam tracks all share.
@@ -280,6 +288,9 @@ The discharge test asks what artifact discharges a rule. This is the same rule f
 adventure (realization #6) and § The discharge test, applied one notch further: not only must the
 resolved branch reach the operator already assembled, the *invocation* that delivers it should
 not need to exist at all. What's new here is a ranking, not a restatement.
+
+This is a PM ruling, registered as the `HOMEWORK-INVOCATION` tripwire.
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-27-004 -->
 
 **First-best: zero invocations.** A mechanism fires around the EM on the trigger that already
 tells us the moment has arrived; the artifact is there when the EM arrives, and nothing is ever

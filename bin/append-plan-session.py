@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """append-plan-session.py — plan.append_session native trampoline (DR-216, strang-10).
 
 Purpose: routes plan.append_session through cc_invoke.route_mutation (native-only,

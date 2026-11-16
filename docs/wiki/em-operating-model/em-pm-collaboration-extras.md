@@ -170,6 +170,7 @@ a tell that this class of error is easy to miss from inside the session that mad
 - **The PM's verbatim outranks any agent's words.** A "PM rule" citing no `pm_turns` turn is agent words.
 - **The human is the PM.** The gates agents read are human-authored and authorize confident dispatch.
 - **Defer-to-PM is not a break-class disposition:** break-class findings are fixed by default (global doctrine § Flag Severity); only direction-class items go up, to the APM first.
+- **Never relay another session's asks of the PM.** Its owner already raised them; repeating them is duplicate noise (`A-REPORT-NEVER-RELAYS-ANOTHER-SESSIONS-PM-ASKS`).
 
 ## Engagement modes — exploration, planning, implementation
 

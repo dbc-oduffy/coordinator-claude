@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 # bin/check-machine-local-regeneratability.py — Machine-local registry
 # regeneratability observer, CLI trampoline over claude-klabauter
 # coordinator_core.ops.check_machine_local_regeneratability.

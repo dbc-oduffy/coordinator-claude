@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """gen-launcher-shim.py — emit python-direct Windows launchers for a bin/ entrypoint.
 
 Part of the 2026-07-19 Windows de-bash campaign (Wave 0, unit

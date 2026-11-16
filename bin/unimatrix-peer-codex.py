@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Codex adapter for the unimatrix peer router: one user turn into a live Codex thread.
 
 Speaks the Codex app-server control protocol (JSON-RPC text frames over a WebSocket on a unix
@@ -10,6 +11,7 @@ import json
 import os
 import struct
 import subprocess
+import shutil
 import sys
 from pathlib import Path
 
@@ -33,7 +35,7 @@ class WsClient:
     @classmethod
     async def connect(cls, sock, host="localhost", path="/"):
         if not hasattr(asyncio, "open_unix_connection"):
-            raise RuntimeError("unix sockets are unavailable on this platform")
+            raise OSError("unix sockets are unavailable on this platform")
         reader, writer = await asyncio.open_unix_connection(sock)
         key = base64.b64encode(os.urandom(16)).decode()
         writer.write((f"GET {path} HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\n"
@@ -108,10 +110,53 @@ def codex_home():
     return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
 
 
-def rollout_path(thread_id):
-    """Newest rollout jsonl of the thread under codex_home()/sessions, or None before it exists."""
-    found = sorted((codex_home() / "sessions").glob(f"**/rollout-*{thread_id}.jsonl"))
+def codex_binary():
+    """Resolve the native Windows executable, avoiding npm's shell wrapper for message text."""
+    configured = os.environ.get("CODEX_BIN")
+    found = shutil.which(configured or "codex") or configured or "codex"
+    if os.name == "nt" and Path(found).suffix.lower() in (".cmd", ".ps1", ".bat"):
+        root = Path(found).parent / "node_modules" / "@openai" / "codex"
+        candidates = sorted(root.glob("node_modules/@openai/codex-win32-*/vendor/*/*/codex.exe"))
+        if len(candidates) != 1:
+            raise RuntimeError("set CODEX_BIN to the native codex.exe path")
+        return str(candidates[0])
+    return found
+
+
+def rollout_path(thread_id, home=None):
+    """Newest rollout jsonl of the thread under (home or codex_home())/sessions, or None before it exists."""
+    found = sorted((Path(home) if home else codex_home()).joinpath("sessions").glob(f"**/rollout-*{thread_id}.jsonl"))
     return found[-1] if found else None
+
+
+def rollout_index(home=None):
+    """thread id -> newest rollout jsonl, from one walk of (home or codex_home())/sessions.
+
+    A rollout is named rollout-<timestamp>-<36-char thread id>.jsonl.
+    """
+    out = {}
+    for path in sorted((Path(home) if home else codex_home()).joinpath("sessions").glob("**/rollout-*.jsonl")):
+        out[path.stem[-36:]] = path
+    return out
+
+
+def thread_addressable(thread_id, home=None, index=None):
+    """True when the thread has a rollout whose first session_meta does not mark it a sub-agent.
+
+    Reads only the first rollout line. `index` is a rollout_index() result, so a caller
+    checking many threads walks the sessions tree once.
+    """
+    path = index.get(thread_id) if index is not None else rollout_path(thread_id, home)
+    if path is None:
+        return False
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            row = json.loads(fh.readline())
+    except (OSError, ValueError):
+        return False
+    payload = row.get("payload") if isinstance(row, dict) and row.get("type") == "session_meta" else None
+    source = payload.get("source") if isinstance(payload, dict) else None
+    return not (source == "subagent" or (isinstance(source, dict) and "subagent" in source))
 
 
 def rollout_rows(path):
@@ -146,34 +191,127 @@ def user_text(row):
     return "".join(c.get("text", "") for c in p.get("content", []) if c.get("type") == "input_text") or None
 
 
+class RolloutTail:
+    """Read bounded newly appended bytes only; changed generations fail closed."""
+
+    CHUNK_BYTES = 64 * 1024
+    MAX_LINE_BYTES = 1024 * 1024
+    MAX_POLL_BYTES = 1024 * 1024
+
+    def __init__(self, thread_id):
+        self.thread_id = thread_id
+        self.path = rollout_path(thread_id)
+        self.offset = 0
+        self.identity = None
+        self.partial = b""
+        if self.path is None:
+            raise ValueError("no pre-enqueue rollout baseline")
+        with self.path.open("rb") as stream:
+            info = os.fstat(stream.fileno())
+            self.identity = (info.st_dev, info.st_ino)
+            self.offset = stream.seek(0, os.SEEK_END)
+
+    def rows(self):
+        path = self.path  # Discover once; never rescan all session filenames per poll.
+        with path.open("rb") as stream:
+            info = os.fstat(stream.fileno())
+            identity = (info.st_dev, info.st_ino)
+            if identity != self.identity or info.st_size < self.offset:
+                raise ValueError("rollout replaced or truncated")
+            stream.seek(self.offset)
+            remaining = min(info.st_size - self.offset, self.MAX_POLL_BYTES)
+            while remaining:
+                data = stream.read(min(self.CHUNK_BYTES, remaining))
+                if not data:
+                    raise ValueError("rollout changed during tail read")
+                remaining -= len(data)
+                self.offset += len(data)
+                pieces = (self.partial + data).split(b"\n")
+                self.partial = pieces.pop()
+                if len(self.partial) > self.MAX_LINE_BYTES:
+                    raise ValueError("rollout line exceeds tail bound")
+                for line in pieces:
+                    if len(line) > self.MAX_LINE_BYTES:
+                        raise ValueError("rollout line exceeds tail bound")
+                    try:
+                        row = json.loads(line.decode("utf-8"))
+                    except (UnicodeDecodeError, ValueError):
+                        continue  # Same malformed-complete-line tolerance as rollout_rows.
+                    if isinstance(row, dict):
+                        yield row
+            after = os.fstat(stream.fileno())
+            current = path.stat()
+            if ((after.st_dev, after.st_ino) != self.identity or after.st_size < self.offset
+                    or (current.st_dev, current.st_ino) != self.identity or current.st_size < self.offset):
+                raise ValueError("rollout changed during tail read")
+
+
 async def queue_turn(thread_id, text, timeout=TURN_TIMEOUT, interval=1.0):
     """Queue `text` onto a thread whose TUI holds it (`codex queue`), then read the reply from the rollout.
 
-    Baselines the rollout row count first, waits for the queued message to appear as a user row,
+    Seeks the rollout EOF first, waits for the queued message to appear as a user row,
     and returns the first final assistant message after that row (so a turn already in flight
     when the message was queued is not mistaken for the reply), or NO_REPLY once `timeout`
     seconds pass.
     """
-    baseline = len(rollout_rows(rollout_path(thread_id)))
+    try:
+        tail = RolloutTail(thread_id)
+    except (OSError, ValueError):
+        tail = None  # Observation failure must never suppress the requested enqueue.
     proc = await asyncio.to_thread(
-        subprocess.run, [os.environ.get("CODEX_BIN") or "codex", "queue", "--thread", thread_id, "--message", text],
+        subprocess.run, [codex_binary(), "--remote", "unix://", "queue", "--thread", thread_id, "--message", text],
         capture_output=True, text=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     if proc.returncode != 0:
         raise RuntimeError(f"codex queue failed ({proc.returncode}): {proc.stderr.strip()}")
+    if tail is None:
+        return NO_REPLY  # Enqueued once, but no trustworthy pre-enqueue baseline.
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
+    echoed = False
     while True:
-        echoed = False
-        for r in rollout_rows(rollout_path(thread_id))[baseline:]:
-            if not echoed:
-                echoed = text in (user_text(r) or "")
-                continue
-            reply = assistant_text(r)
-            if reply:
-                return reply
+        try:
+            # Finish generation checks before accepting any reply from this bounded batch.
+            for r in list(tail.rows()):
+                if not echoed:
+                    echoed = text in (user_text(r) or "")
+                    continue
+                reply = assistant_text(r)
+                if reply:
+                    return reply
+        except (OSError, ValueError):
+            return NO_REPLY
         if loop.time() >= deadline:
             return NO_REPLY
         await asyncio.sleep(interval)
+
+
+def appended_rows(path, offset):
+    """Complete JSONL rows after a byte offset; retain a torn tail for the next read.
+
+    Polling reads only newly appended bytes, never a growing thread's entire history.
+    """
+    if path is None:
+        return [], offset
+    try:
+        with path.open("rb") as file:
+            if file.seek(0, 2) < offset:
+                offset = 0
+            file.seek(offset)
+            data = file.read()
+    except OSError:
+        return [], offset
+    complete, separator, _ = data.rpartition(b"\n")
+    if not separator:
+        return [], offset
+    rows = []
+    for line in complete.splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows, offset + len(complete) + 1
 
 
 async def codex_turn(sock, thread_id, text, timeout=TURN_TIMEOUT, tui_held=False):
@@ -184,7 +322,7 @@ async def codex_turn(sock, thread_id, text, timeout=TURN_TIMEOUT, tui_held=False
     when the socket is absent or unconnectable.
     `timeout` bounds each wait for the next server message, not the whole turn.
     """
-    if tui_held:
+    if tui_held or sys.platform == "win32":
         return await queue_turn(thread_id, text, timeout)
     try:
         ws = await WsClient.connect(sock)
@@ -232,4 +370,7 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    if any(_a in ("-h", "--help") for _a in __import__("sys").argv[1:]):
+        print("usage: unimatrix-peer-codex [-h]\nunimatrix Codex peer")
+        raise SystemExit(0)
     sys.exit(main())

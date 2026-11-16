@@ -1,6 +1,8 @@
 """Shared gate for creating a session's directory under the session hub.
 
-The hub is `<git common dir>/coordinator-sessions/`. A directory directly
+The hub is the engine's session hub: `<repo>/.coordinator-local/coordinator-sessions/`
+when the git common dir is a `.git`, else `<git common dir>/coordinator-sessions/`;
+`_session_hub_path.hub_for_common` is the stdlib mirror of that rule. A directory directly
 under it is either a per-session hub directory named for a live session's id,
 or one of the fixed store directories (`logs`, `decisions`, `memo-claims`,
 `no-session`, ...) that the engine and hooks share. Nothing else belongs

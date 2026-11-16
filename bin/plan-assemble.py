@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """plan-assemble.py — CLI trampoline over the engine's coordinator_core.plan_assemble
 (route-selected residue for plan assembly, and future plan-assemble subcommands).
 

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # plan-status-transition — CLI trampoline over claude-klabauter
 # coordinator_core.ops.plan_status_transition (the plan lifecycle recorder:
 # stamp-implemented with --falsifier-verdict/--falsifier-output/--prose is the

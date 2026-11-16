@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """agy peer adapter: deliver one turn to a live agy conversation through its agy-run leg
 (unimatrix-agy-leg.py) and read the reply from the conversation transcript.
 
@@ -136,4 +137,7 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    if any(_a in ("-h", "--help") for _a in __import__("sys").argv[1:]):
+        print("usage: unimatrix-peer-agy [-h]\nunimatrix Antigravity peer")
+        raise SystemExit(0)
     sys.exit(main())

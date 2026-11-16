@@ -6,6 +6,7 @@ Stdlib only. `STAGES` is the one place a stage flips to landed.
 
 import json
 from pathlib import Path
+from typing import Any
 
 # (stage_id, cluster, landed). A sibling stage stays landed=False until its
 # primitive publishes; the judgment stage needs no sibling.
@@ -20,11 +21,11 @@ PRIORITIES = ("must", "should", "could")
 REQUIREMENTS_FILE = "requirements.json"
 
 
-def stage_ids():
+def stage_ids() -> tuple[str, ...]:
     return tuple(s[0] for s in STAGES)
 
 
-def is_landed(stage):
+def is_landed(stage) -> bool:
     """True when `stage` is landed; raises ValueError on an unknown stage."""
     for sid, _cluster, landed in STAGES:
         if sid == stage:
@@ -32,7 +33,7 @@ def is_landed(stage):
     raise ValueError(f"unknown stage: {stage!r}")
 
 
-def stage_file(run, stage):
+def stage_file(run, stage) -> Path:
     """Path of a stage's file: <run>/<NN>-<stage>.json, NN the 1-based registry position."""
     for i, sid in enumerate(stage_ids(), start=1):
         if sid == stage:
@@ -40,30 +41,30 @@ def stage_file(run, stage):
     raise ValueError(f"unknown stage: {stage!r}")
 
 
-def _read_json(path):
+def _read_json(path) -> Any:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
-def _write_json(path, data):
+def _write_json(path, data) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def read_stage(run, stage):
+def read_stage(run, stage) -> Any:
     """The stage's parsed JSON, or None when its file does not exist."""
     p = stage_file(run, stage)
     return _read_json(p) if p.is_file() else None
 
 
-def write_stage(run, stage, data):
+def write_stage(run, stage, data) -> Path:
     """Write the stage file (UTF-8, sorted keys); returns its path."""
     p = stage_file(run, stage)
     _write_json(p, data)
     return p
 
 
-def read_requirements(run):
+def read_requirements(run) -> list:
     """Requirement items, [] when the file is absent."""
     p = Path(run) / REQUIREMENTS_FILE
     if not p.is_file():
@@ -71,24 +72,24 @@ def read_requirements(run):
     return list(_read_json(p).get("items", []))
 
 
-def write_requirements(run, items):
+def write_requirements(run, items) -> None:
     _write_json(Path(run) / REQUIREMENTS_FILE, {"items": list(items)})
 
 
-def stage_claims(run, stage):
+def stage_claims(run, stage) -> list:
     """Claims list of a stage file ([] when absent)."""
     data = read_stage(run, stage)
     return list(data.get("claims", [])) if data else []
 
 
-def has_source_link(claim):
+def has_source_link(claim) -> bool:
     if not isinstance(claim, dict):
         return False
     link = claim.get("source_link")
     return isinstance(link, str) and bool(link.strip())
 
 
-def evidenced_ids(run, stage):
+def evidenced_ids(run, stage) -> set:
     """Requirement ids named in `requirement_ids` by a claim with a non-empty
     source_link in the stage file. The one evidenced-definition the scorer and
     the sweep gate share."""

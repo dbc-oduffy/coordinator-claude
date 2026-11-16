@@ -16,11 +16,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run_folder  # noqa: E402
 
 
-def dropped_file(run, stage):
+def dropped_file(run, stage) -> Path:
     return Path(run) / f"{stage}.dropped.json"
 
 
-def filter_claims(claims):
+def filter_claims(claims) -> tuple[list, list]:
     """Split claims into (kept, dropped); a non-dict entry carries no link and is dropped."""
     kept, dropped = [], []
     for claim in claims:
@@ -31,7 +31,7 @@ def filter_claims(claims):
     return kept, dropped
 
 
-def filter_stage(run, stage):
+def filter_stage(run, stage) -> list:
     """Filter the stage file in place; returns the claims dropped by this run.
 
     Raises FileNotFoundError when the stage file does not exist.
@@ -52,7 +52,7 @@ def filter_stage(run, stage):
     return dropped
 
 
-def main(argv=None):
+def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("run", help="run folder")
     parser.add_argument("stage", choices=run_folder.stage_ids())

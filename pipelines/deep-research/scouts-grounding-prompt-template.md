@@ -15,7 +15,9 @@ Your brief is the file `{{brief}}`. Read it first; it carries the topic and each
    repo, or a probe file.
 2. Re-open each cited source yourself: WebFetch a URL, Read a repo file at the cited lines, Read a
    probe file. Never take a digest's quotation or summary as the source. A source you cannot open
-   is not grounded.
+   is not grounded. A PDF source is opened through an extractor: on macOS, PDFKit via `swift`
+   (`PDFDocument(url:)` then `.string`); with no extractor on the host, mark its claims
+   **ungrounded** as unverifiable, naming the PDF.
 3. Give each claim one verdict:
    - **grounded**: the re-opened source says what the digest says it does.
    - **ungrounded**: the source is missing, unreachable, does not contain the claim, or the claim

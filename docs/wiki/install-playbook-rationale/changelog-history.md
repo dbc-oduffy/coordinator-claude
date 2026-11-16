@@ -1,3 +1,9 @@
+---
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
+---
+
 # Changelog history — releases before v2.7.0
 
 **What this is.** The pre-consolidation release history of coordinator-claude: every changelog
@@ -10,7 +16,7 @@ sibling repos) were reduced to plain descriptive text, since this page ships in 
 and those pointers would otherwise dangle. That de-identification pass is the only editing this
 > page has received.
 >
-> **For current releases, see [`CHANGELOG.md`](../../../CHANGELOG.md).** That file carries v4.0.0 and
+> **For current releases, see [`CHANGELOG.md`](../../../../CHANGELOG.md).** That file carries v4.0.0 and
 > the compressed v2.7.0 → v3.1.0 line, which is where the upgrade path from the last published
 > release runs.
 
@@ -609,3 +615,15 @@ Archived handoffs contain valuable architectural knowledge that was being treate
 ## [1.0.0] — 2026-03-28
 
 Initial public release. 8 plugins, 24 agents, 37 skills.
+
+---
+
+## Changelog standard and prose-detector notes
+
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-13-041, batch-25-039, batch-34-012, batch-34-019, batch-35-043 -->
+
+- **Root CHANGELOG.md is unconditional.** The merge skill Step 3 writes the root `CHANGELOG.md`, creating it when absent. A test, a wiki page and a tripwire record the standard; memos C3 and C4 are still owed.
+- **RC_VALIDATE default.** Unset `RC_VALIDATE` now defaults to `not-run` (was `skipped`, which collided "Step 1 never ran" with "nothing configured") at `workday-complete-step9-append-changelog.sh:339` and `workday-complete.md:838`; `skipped` is reserved for the explicit nothing-configured emission — [DR-1059](../../../../docs/decisions/DR-1059-unset-rc-validate-defaults-to-not-run.md).
+- **Config class vs doctrine class.** Repo-root `coordinator.local.md` has its own predicate: bare ISO date, bare `DR-\d+` id, and path tokens containing `cross-repo/inbox/`, `archive/` or `state/handoffs/` are high-confidence on sight. The config class denies; the doctrine class stays advisory. Do not reach the fleet by appending a path to `DOCTRINE_MD_DIRS` — [DR-1060](../../../../docs/decisions/DR-1060-config-class-changelog-prose-predicate.md).
+- **Detector blind spot.** `_THRESHOLD_CUE` matches `as\s+of` only; hyphenated `as-of` is not read as a threshold cue, while "history verb near date" fires on `confirmed as of <date>` (census row 1).
+- **Cockpit ratchet.** The cockpit wiki changelog ratchet was seeded at 807 hits across 129 of 215 pages; it is shrink-only and imports the doctrine repo's `_doctrine_changelog_prose` in place.

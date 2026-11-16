@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 coordinator-git-maintenance — CLI trampoline over claude-klabauter
 coordinator_core.ops.git_maintenance.

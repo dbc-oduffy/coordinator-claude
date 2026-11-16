@@ -23,12 +23,18 @@ _FRONTMATTER = re.compile(r"\A---\s*\n(.*?)\n---\s*(?:\n|\Z)", re.S)
 _WORKER_COUNT = re.compile(r"^worker_count:\s*(\d+)\s*$", re.M)
 _NOTEBOOK_SECTION = re.compile(r"^##\s+Notebook\s+([A-Z])\b[^\n]*$", re.M)
 _SOURCES_SECTION = re.compile(r"^##\s+Sources\s+for\s+Notebook\s+([A-Z])\b[^\n]*$", re.M)
-_SOURCE_STRATEGY = re.compile(r"Source\s+strategy:\s*`?([A-Za-z_\-]+)", re.I)
+_SOURCE_STRATEGY = re.compile(r"Source\s+strategy\s*\**\s*:\s*\**\s*`?([A-Za-z_\-]+)", re.I)
 _URL = re.compile(r"https?://\S+")
 _ACCESSIBLE_OK = re.compile(r"Accessible:\s*\**\s*(?:YES|PARTIAL)\b", re.I)
 _ANY_HEADING = re.compile(r"^##\s", re.M)
 _YOUTUBE_URL = re.compile(r"https?://(?:www\.|m\.)?(?:youtube\.com|youtu\.be)/[^\s)>\]]+", re.I)
 _TEXT_ENTRY = re.compile(r"\btext:\s*\S")
+_SOURCES_INGESTED = re.compile(r"^sources_ingested:\s*(\d+)\s*$", re.M)
+_NOT_FOUND = re.compile(
+    r"NOT\s+FOUND\s+IN\s+(?:THE\s+)?(?:DOCUMENTS|SOURCES)"
+    r"|\bnot\s+found\s+in\s+(?:the\s+)?(?:sources|documents|notebook)\b",
+    re.I,
+)
 
 
 def _sections(text: str, heading: re.Pattern[str]) -> dict[str, str]:
@@ -131,12 +137,30 @@ def gate_sources(
     return {"ok": not remedy, "remedy": remedy, "checks": checks}
 
 
-def _count_claims(path: Path) -> int | None:
+def _load_claims(path: Path) -> list | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    return len(data) if isinstance(data, list) else None
+    return data if isinstance(data, list) else None
+
+
+def _is_not_found(claim: object) -> bool:
+    """A claim whose text or evidence only reports that the sources do not cover the question."""
+    if not isinstance(claim, dict):
+        return False
+    return any(_NOT_FOUND.search(str(claim.get(k) or "")) for k in ("claim_text", "evidence_excerpt"))
+
+
+def _usable_sources(scratch_dir: Path, letter: str) -> int:
+    """`sources_ingested` from the worker's summary frontmatter; an absent or unparseable summary is 0."""
+    try:
+        text = (scratch_dir / f"{letter}-summary.md").read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return 0
+    fm = _FRONTMATTER.match(text)
+    m = _SOURCES_INGESTED.search(fm.group(1)) if fm else None
+    return int(m.group(1)) if m else 0
 
 
 def gate_claims(strategy_text: str | None, scratch_dir: Path) -> dict:
@@ -176,16 +200,22 @@ def gate_claims(strategy_text: str | None, scratch_dir: Path) -> dict:
     checks["out_of_strategy"] = out_of_strategy
 
     by_letter: dict[str, int] = {}
+    not_found: dict[str, int] = {}
+    usable: dict[str, int] = {}
     for letter in letters:
         claims_file = scratch_dir / f"{letter}-claims.json"
-        count = _count_claims(claims_file) if claims_file.exists() else 0
-        if count is None:
+        claims = _load_claims(claims_file) if claims_file.exists() else []
+        if claims is None:
             malformed.append(letter)
-            count = 0
-        by_letter[letter] = count
+            claims = []
+        by_letter[letter] = len(claims)
+        not_found[letter] = sum(1 for c in claims if _is_not_found(c))
+        usable[letter] = _usable_sources(scratch_dir, letter)
     total = sum(by_letter.values())
     checks["claims_by_letter"] = by_letter
     checks["total_claims"] = total
+    checks["confident_not_found"] = not_found
+    checks["usable_sources"] = usable
     if malformed:
         checks["malformed_claims"] = malformed
 
@@ -212,6 +242,14 @@ def gate_claims(strategy_text: str | None, scratch_dir: Path) -> dict:
             f"0 claims across notebooks {', '.join(letters) or '(none)'}{detail}: sweep has nothing to merge; "
             "inspect worker output and re-run the workers"
         )
+    if total > 0:
+        for letter in letters:
+            remaining = by_letter[letter] - not_found[letter]
+            if remaining == 0 or usable[letter] == 0:
+                remedy.append(
+                    f"notebook {letter} is near-empty: {remaining} claims after removing {not_found[letter]} "
+                    f"confident not-found claims, {usable[letter]} usable sources: re-run worker {letter}"
+                )
     return {"ok": not remedy, "remedy": remedy, "checks": checks}
 
 

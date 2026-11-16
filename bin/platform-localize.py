@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """platform-localize.py — door-eligible engine entrypoint for `platform-localize`.
 
 The door resolves exactly `{engine_root}/coordinator/bin/<name>.py`; this file is

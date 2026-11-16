@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """emit-wave-fire — turn a frozen gate report into fireable plan-blitz wave scripts.
 
 WHY THIS EXISTS. `plan-blitz`'s § Fire the wave used to end at a `Workflow({...})`

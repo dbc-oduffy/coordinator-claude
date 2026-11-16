@@ -46,9 +46,7 @@ exits 0 unconditionally; allow/advisory is conveyed via stdout only.
 CRITICAL: updatedInput carries the FULL original tool_input with mode
 overwritten and/or the E/F/G rewrites applied -- never a partial object. See
 the oracle's SEQUENCING ASSUMPTION: this remains the ONLY updatedInput
-emitter on the Agent matcher for the concerns above (nudge-foreground-agent-
-dispatch's deny still wins via deny-precedence over this hook's allow --
-unaffected by this port). Under `preuse-agent-dispatch.py` the "original"
+emitter on the Agent matcher for the concerns above. Under `preuse-agent-dispatch.py` the "original"
 tool_input is the one upstream guards already rewrote (the engine's
 inherited-Opus -> sonnet switch), so `merged` carries that rewrite too.
 
@@ -84,43 +82,23 @@ immediately, BEFORE any other concern is merged in -- the deny must win
 outright, not get silently folded into an "allow" that also happens to
 strip `name`.
 
-Concern G -- foreground-dispatch reroute (single-emitter fold-in, RE-LAND,
-2026-07-31, follow-up to Concern F): `nudge-foreground-agent-dispatch.py`
-used to independently relay the engine's `hooks.nudge_foreground_agent_
-dispatch` REROUTE-gate result (`updatedInput` rewriting a foreground
-`run_in_background: false` Agent dispatch to `true`) on this SAME Agent
-matcher -- the identical parallel-hook clobber class Concern E/F already
-closed, confirmed live on harness 2.1.220. A 2026-07-30 revert concluded,
-wrongly, that `updatedInput` does not bind `run_in_background` for the
-Agent tool; the real cause was this race, and a fresh live probe with the
-reroute computed as a single-emitter fold-in (no competing emitter) showed
-the EM regaining control 32.3s BEFORE the subagent finished -- genuinely
-backgrounded. Fix: this hook now ALSO computes the foreground-reroute
-decision itself, via `_foreground_dispatch_strip.compute_foreground_
-reroute` (a byte-faithful pure-Python port of that op -- three-state
-`run_in_background` handling, durable `.harness-bg-capable` calibration,
-`.foreground-ok` escape hatch -- ported rather than called into in-process
-specifically to avoid the ~18ms engine hooks-package import on a path every
-Agent dispatch already reaches via this hook's own unconditional Concern
-E/F/G computation above; the sidecar-provisioning subprocess spawn this
-rationale used to also avoid no longer applies -- sidecar provisioning is
-retired from this leg entirely, not merely avoided on this path), and layers
-a "reroute" result (`run_in_background: true` plus an `additionalContext`
-notice) onto the SAME `merged` dict / SAME single emission as every other
-concern here. A "deny" result (no safely rewritable `tool_input` -- missing
-or no `prompt` key) short-circuits `main()` immediately, same precedence
-tier as Concern F's own deny -- never silently folded into an allow. The
-notice fires on EVERY reroute, never bark-once: a suppressed once-per-
-session notice is exactly how the 2026-07-30 non-binding race went a whole
-session undetected, since the notice and the tool result were the only
-feedback channels and both asserted success. `nudge-foreground-agent-
-dispatch.py` is deregistered from `hooks.json`'s `Agent` matcher entirely
-(same reasoning as Concern F); the script and the engine's own op stay on
-disk as this algorithm's reference implementation, each still exercised by
-its own dedicated test suite via direct invocation/subprocess. This hook is
-now the sole `updatedInput` emitter on the Agent matcher for mode-elevation,
-worktree-isolation stripping, named-dispatch stripping, AND foreground-
-dispatch rerouting.
+Concern G -- foreground-dispatch reroute: an explicit `run_in_background:
+false` Agent dispatch is rewritten to `true` (plus an `additionalContext`
+notice), never blocked. The decision is
+`_foreground_dispatch_strip.compute_foreground_reroute`, a pure-Python port of
+the engine's `coordinator_core.hooks.nudge_foreground_agent_dispatch` op
+(three-state `run_in_background` handling, durable `.harness-bg-capable`
+calibration, `.foreground-ok` escape hatch), computed in-process to avoid the
+engine hooks-package import on every Agent dispatch. The result layers onto
+the SAME `merged` dict / SAME single emission as every other concern here.
+The notice fires on EVERY reroute, never bark-once, so a failing reroute is
+never silent. The one "deny" result is a payload with no `tool_input` dict or
+no `prompt` key: `updatedInput` carries the FULL tool_input, so with no
+original to copy there is nothing a rewrite can bind to, and the deny stays.
+It short-circuits `main()` at the same precedence tier as Concern F's own
+deny. This hook is the sole `updatedInput` emitter on the Agent matcher for
+mode-elevation, worktree-isolation stripping, named-dispatch stripping, AND
+foreground-dispatch rerouting.
 
 Concern I -- teammate-name path-segment refusal: a `name` value carrying a
 path separator (e.g. "feature/auth-review") resolves a subagent_type and
@@ -197,7 +175,7 @@ try:
     # Fail-open: a deployed copy missing its sibling module must degrade, not crash on import.
     from _message_envelope import compose, render  # noqa: E402
 except Exception:
-    def compose(prose, alternative=None, anchor=None):  # type: ignore[no-redef]
+    def compose(prose, alternative=None, anchor=None) -> Any:  # type: ignore[no-redef]
         class _Message:
             pass
 
@@ -205,13 +183,13 @@ except Exception:
         msg.prose = prose  # type: ignore[attr-defined]
         return msg
 
-    def render(message):  # type: ignore[no-redef]
+    def render(message) -> str:  # type: ignore[no-redef]
         return getattr(message, "prose", "")
 
 try:
     from _worktree_isolation_strip import compute_strip as _compute_worktree_strip  # noqa: E402
 except Exception:
-    def _compute_worktree_strip(tool_input: dict):  # type: ignore[no-redef]
+    def _compute_worktree_strip(tool_input: dict) -> None:  # type: ignore[no-redef]
         return None
 
 try:
@@ -219,7 +197,7 @@ try:
         compute_named_dispatch_result as _compute_named_dispatch,
     )
 except Exception:
-    def _compute_named_dispatch(tool_input: dict):  # type: ignore[no-redef]
+    def _compute_named_dispatch(tool_input: dict) -> None:  # type: ignore[no-redef]
         return None
 
 try:
@@ -241,7 +219,7 @@ try:
         compute_foreground_reroute as _compute_foreground_reroute,
     )
 except Exception:
-    def _compute_foreground_reroute(run_in_background, session_id, tool_input, cwd):  # type: ignore[no-redef]
+    def _compute_foreground_reroute(run_in_background, session_id, tool_input, cwd) -> None:  # type: ignore[no-redef]
         return None
 
 def main() -> int:
@@ -330,12 +308,12 @@ def main() -> int:
     except Exception:
         named_dispatch_result = None
 
-    # --- Concern G: foreground-dispatch reroute (single-emitter fold-in,
-    # RE-LAND, see module docstring). Computed unconditionally, like Concern
-    # E/F -- it is not a mode-elevation concern and must not be gated by the
-    # COORDINATOR_AGENT_MODE_OK escape hatch (its own, distinct escape hatch
-    # is the `.foreground-ok` sentinel, checked inside the pure computation).
-    # A "deny" result (no safely rewritable tool_input) MUST win outright
+    # --- Concern G: foreground-dispatch reroute (see module docstring).
+    # Computed unconditionally, like Concern E/F -- it must not be gated by the
+    # COORDINATOR_AGENT_MODE_OK escape hatch (its own is the `.foreground-ok`
+    # sentinel, checked inside the pure computation).
+    # The only "deny" result is a missing tool_input/prompt: updatedInput cannot
+    # bind with no original to rewrite, so the deny stays and wins outright
     # over every other concern, same precedence tier as Concern F's own
     # fail-closed leg.
     try:

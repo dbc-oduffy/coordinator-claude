@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Static fleet scan for test code that writes outside its repo or scratch.
 
 Contract: coordinator/docs/wiki/test-design-discipline/test-filesystem-containment.md.
@@ -917,11 +918,22 @@ def _settings_home() -> Path:
     return Path(os.environ.get("CLAUDE_HOME") or Path.home()) / ".coordinator-claude-settings"
 
 
+class _MachineLocalTimeout(RuntimeError):
+    """A machine-local read outlived its bound; the caller must not retry it per key."""
+
+
 def _machine_local(*args: str) -> str:
-    bindir = _settings_home() / "bin"
-    exe = bindir / ("machine-local.cmd" if os.name == "nt" else "machine-local")
-    r = subprocess.run([str(exe), *args], capture_output=True, text=True, timeout=60,
-                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    reader = _settings_home() / "bin" / "_machine_local.py"
+    bin_lib = str(Path(__file__).resolve().parent / "lib")
+    if bin_lib not in sys.path:
+        sys.path.insert(0, bin_lib)
+    from python_interp import resolve_console_python
+
+    try:
+        r = subprocess.run([resolve_console_python() or sys.executable, str(reader), *args], capture_output=True, text=True, timeout=2.0,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except subprocess.TimeoutExpired:
+        raise _MachineLocalTimeout(f"machine-local {' '.join(args)} outlived its bound") from None
     if r.returncode != 0:
         raise RuntimeError(f"machine-local {' '.join(args)} failed: {r.stderr.strip()}")
     return r.stdout.strip()
@@ -931,18 +943,26 @@ def fleet_repos() -> Dict[str, Path]:
     out: Dict[str, Path] = {}
     try:
         registry = json.loads(_machine_local("dump"))
+    except _MachineLocalTimeout:
+        registry = {}
     except (RuntimeError, ValueError):
         # `dump` exits non-zero when any one key is unresolvable; ask per key so
-        # only that key is skipped.
+        # only that key is skipped. A timed-out read ends the fallback: no retry.
         registry = {}
-        for key in _machine_local("keys").splitlines():
-            key = key.strip()
-            if not key.startswith("repos."):
-                continue
-            try:
-                registry[key] = _machine_local("get", key)
-            except RuntimeError:
-                continue
+        try:
+            keys = _machine_local("keys").splitlines()
+            for key in keys:
+                key = key.strip()
+                if not key.startswith("repos."):
+                    continue
+                try:
+                    registry[key] = _machine_local("get", key)
+                except _MachineLocalTimeout:
+                    break
+                except RuntimeError:
+                    continue
+        except _MachineLocalTimeout:
+            pass
     for key, val in registry.items():
         if not key.startswith("repos.") or not isinstance(val, str):
             continue

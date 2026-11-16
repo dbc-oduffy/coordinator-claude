@@ -153,7 +153,7 @@ encapsulated inside `machine-local get`):
 ### `REPO_CONTENT_ROOT`
 
 The doctrine repo's authoring-repo root — the *doctrine plane*, sibling to `CLAUDE_KLABAUTER_ROOT` (the *engine
-plane*). Resolver primitive `coordinator_content_root` (engine-native — `coordinator_core/ops/coordinator_content_root.py`; there is NO `lib/coordinator-content-root.sh` and never was, so do not reach for a sourced shell form. Reached in practice through `lib/coordinator-state-root.py --central --subject doctrine`, which routes to the doctrine plane), same outer chain
+plane*). Resolver primitive `coordinator_content_root` (engine-native — `coordinator_core/ops/coordinator_content_root.py`; there is NO `lib/coordinator-content-root.sh` and never was, so do not reach for a sourced shell form. Reached in practice through `python3 lib/coordinator-state-root.py --central --subject doctrine`, which routes to the doctrine plane), same outer chain
 shape as `CLAUDE_KLABAUTER_ROOT`: `$REPO_CONTENT_ROOT` env → `machine-local get repos.doe_claude` → hard-error +
 remediation. Callers in the central write loop wrap it and degrade (WARN + skip); the primitive
 itself fails loud. Introduced by the doctrine-repo-authoring seam rewire (W2.1).

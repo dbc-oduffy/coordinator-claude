@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """group-em-box-notice — compute the box-wide Group EM notice and its exact recipients.
 
 The Group EM standing is box-wide: every live named session on the box, in any repo, is told once
@@ -34,21 +35,31 @@ from typing import Any, Optional
 _BIN_DIR = Path(__file__).resolve().parent
 _SKILL_DIR = _BIN_DIR.parent / "skills" / "group-em"
 
-try:
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from cc_invoke import require_dispatch_engine_on_path
+#: Bound by `_bootstrap()`: importing this file touches neither `sys.path` nor the engine.
+nomination = None
+NOTICE_ENDED = None
+NOTICE_ENTERED = None
+box_recipients = None
+render_notice = None
 
-    require_dispatch_engine_on_path()
-except (ImportError, RuntimeError):
-    pass  # engine already importable (tests, installed layout); a real miss fails below
 
-from coordinator_core.group_em import nomination  # noqa: E402
-from coordinator_core.group_em.box_notice import (  # noqa: E402,F401
-    NOTICE_ENDED,
-    NOTICE_ENTERED,
-    box_recipients,
-    render_notice,
-)
+def _bootstrap() -> None:
+    """Put the engine on `sys.path` and bind the engine names the rest of the file reads."""
+    global nomination, NOTICE_ENDED, NOTICE_ENTERED, box_recipients, render_notice
+    try:
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+        from cc_invoke import require_dispatch_engine_on_path
+
+        require_dispatch_engine_on_path()
+    except (ImportError, RuntimeError):
+        pass  # engine already importable (tests, installed layout); a real miss fails below
+
+    from coordinator_core.group_em import nomination as _nomination
+    from coordinator_core.group_em import box_notice as _bn
+
+    nomination = _nomination
+    NOTICE_ENDED, NOTICE_ENTERED = _bn.NOTICE_ENDED, _bn.NOTICE_ENTERED
+    box_recipients, render_notice = _bn.box_recipients, _bn.render_notice
 
 
 def _load_by_path(name: str, path: Path):
@@ -195,6 +206,7 @@ def stand_down_holder(repo_root: str, session_id: str) -> dict[str, Any]:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
+    _bootstrap()
     parser = argparse.ArgumentParser(
         prog="group-em-box-notice",
         description="Compute the box-wide Group EM notice and its recipients. Never sends.",

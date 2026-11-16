@@ -2,13 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://coordinator.local/schemas/coordinator-local-md.schema.json",
   "x-schema-name": "coordinator-local-md",
-  "x-schema-version": "1.7.0",
+  "x-schema-version": "1.8.0",
   "x-bump-class": "enum-value-additive",
-  "x-bump-note": "1.0.0 -> 1.1.0 added the top-level `ceremony_test_cmds` array-of-objects property (commit 7ca365435, C8 of docs/plans/2026-08-16-unstrand-the-hook-test-suite.md), left unbumped at the time -- an EQUAL_VERSION_SHAPE_DRIFT instance caught by test_schema_version_pin.py's shape-hash gate. Purely additive: a new optional top-level property (required: [] at the schema root, per-item `required` is internal to the array's own object shape), never required at the document root -- no previously-valid coordinator.local.md becomes invalid. 1.1.0 -> 1.2.0 added the optional top-level `collaboration_mode` (enum solo|multi|auto) and `collaboration_bot_exclude` (array of strings) properties for coordinator/bin/collab-verdict.py (M0CDAGA-C5); same additive class, nothing required, no previously-valid document becomes invalid. The same 1.1.0 -> 1.2.0 bump also adds the optional top-level scalar `terminal_test_cmd` (type string; docs/plans/2026-09-11-repo-supplied-terminal-test-command-key.md C1). No BUMP_CLASS_VOCAB term exactly names a top-level scalar addition (`top-level-array-additive` is array-specific; the other terms describe nested fields, enum values, pattern widening, or major breaks), so x-bump-class takes the nearest-fit term on the safe side, `nested-field-additive`, which keeps the full reader-first / dual-gate discipline instead of the non-holding carve-out reserved for declared-tolerant array additions. Purely additive: nothing required, no previously-valid document becomes invalid. 1.2.0 -> 1.3.0 adds the optional top-level `research_pipelines` array-of-objects property ({name, spec, schema, output_paths, subjects_hint}), read by coordinator/hooks/scripts/guard-research-pipeline-dispatch.py; the class is top-level-array-additive. No declared-tolerant consumer set is claimed, so the bump takes the bilateral-sequencing discipline, not the non-holding carve-out. Nothing becomes required at the document root, so no previously-valid coordinator.local.md becomes invalid. 1.3.0 -> 1.4.0 adds the optional top-level `post_ceremony_skills` array of skill-id strings, read by the /workweek-complete and /merging-to-main skill prose; same additive class, nothing required. 1.4.0 -> 1.5.0 adds the optional top-level scalar `design_registry_path` (type string, minLength 1), read by coordinator/hooks/scripts/_design_registry_gate.py; x-bump-class keeps its nearest-fit term as the 1.2.0 note reasons, and nothing becomes required. 1.5.0 -> 1.6.0 adds the optional per-target `app_session` validate fields (build, start, port, ready_path, ready_timeout_s, build_timeout_s, build_isolated, env, request_headers, routes, variants), read by the `app-session validate` verb's parse_validate_config (claude-klabauter coordinator_core/ops/_app_session_validate_contract.py); every typed leaf admits the string form the parser coerces, every level stays open, and nothing becomes required. 1.6.0 -> 1.7.0 adds `unreal-engine` to the project_type enum (2a6d0d41d2); nothing becomes required, no previously-valid document fails.",
+  "x-bump-note": "1.0.0 -> 1.1.0 added the top-level `ceremony_test_cmds` array-of-objects property (commit 7ca365435, C8 of docs/plans/2026-08-16-unstrand-the-hook-test-suite.md), left unbumped at the time -- an EQUAL_VERSION_SHAPE_DRIFT instance caught by test_schema_version_pin.py's shape-hash gate. Purely additive: a new optional top-level property (required: [] at the schema root, per-item `required` is internal to the array's own object shape), never required at the document root -- no previously-valid coordinator.local.md becomes invalid. 1.1.0 -> 1.2.0 added the optional top-level `collaboration_mode` (enum solo|multi|auto) and `collaboration_bot_exclude` (array of strings) properties for coordinator/bin/collab-verdict.py (M0CDAGA-C5); same additive class, nothing required, no previously-valid document becomes invalid. The same 1.1.0 -> 1.2.0 bump also adds the optional top-level scalar `terminal_test_cmd` (type string; docs/plans/2026-09-11-repo-supplied-terminal-test-command-key.md C1). No BUMP_CLASS_VOCAB term exactly names a top-level scalar addition (`top-level-array-additive` is array-specific; the other terms describe nested fields, enum values, pattern widening, or major breaks), so x-bump-class takes the nearest-fit term on the safe side, `nested-field-additive`, which keeps the full reader-first / dual-gate discipline instead of the non-holding carve-out reserved for declared-tolerant array additions. Purely additive: nothing required, no previously-valid document becomes invalid. 1.2.0 -> 1.3.0 adds the optional top-level `research_pipelines` array-of-objects property ({name, spec, schema, output_paths, subjects_hint}), read by coordinator/hooks/scripts/guard-research-pipeline-dispatch.py; the class is top-level-array-additive. No declared-tolerant consumer set is claimed, so the bump takes the bilateral-sequencing discipline, not the non-holding carve-out. Nothing becomes required at the document root, so no previously-valid coordinator.local.md becomes invalid. 1.3.0 -> 1.4.0 adds the optional top-level `post_ceremony_skills` array of skill-id strings, read by the /workweek-complete and /merging-to-main skill prose; same additive class, nothing required. 1.4.0 -> 1.5.0 adds the optional top-level scalar `design_registry_path` (type string, minLength 1), read by coordinator/hooks/scripts/_design_registry_gate.py; x-bump-class keeps its nearest-fit term as the 1.2.0 note reasons, and nothing becomes required. 1.5.0 -> 1.6.0 adds the optional per-target `app_session` validate fields (build, start, port, ready_path, ready_timeout_s, build_timeout_s, build_isolated, env, request_headers, routes, variants), read by the `app-session validate` verb's parse_validate_config (claude-klabauter coordinator_core/ops/_app_session_validate_contract.py); every typed leaf admits the string form the parser coerces, every level stays open, and nothing becomes required. 1.6.0 -> 1.7.0 adds `unreal-engine` to the project_type enum (2a6d0d41d2); nothing becomes required, no previously-valid document fails. 1.7.0 -> 1.8.0 adds the optional top-level `pre_land_checks` array-of-objects property ({id, paths, argv, timeout_s, heavy}), reader-less here and invoked by the engine at land time; same additive class, nothing becomes required, no previously-valid document fails.",
   "applies_to": "coordinator.local.md",
   "match_mode": "yaml-frontmatter",
   "title": "coordinator.local.md frontmatter",
-  "description": "Repo-root coordinator.local.md frontmatter — committed per-repo doctrine config (not gitignored, not machine-local). Declares the KNOWN keys read by live consumers (coordinator/hooks/scripts/_posture.py, coordinator/skills/validate/SKILL.md's fast_test_cmd/full_test_cmd resolver, the ceremony post-command hook seam, coordinator:install's project_type/project_subtypes onboarding, and the human-facing-doc-staleness detector's doc-registry four). Every declared key degrades to a fleet default when absent or malformed at the reader, per each reader's own fail-open contract — this schema documents shape, not obligation; nothing here is `required`. `app_session` (docs/plans/2026-08-15-launch-half-to-engine-ops-and-skill-surface.md § Design) declares the PM-ruled per-target launch config shape, read by the app-session skill's launch verbs and by its `validate` verb (parse_validate_config). `terminal_test_cmd` (docs/plans/2026-09-11-repo-supplied-terminal-test-command-key.md) is likewise reader-less: it declares the shape only, and no reader consumes it yet.",
+  "description": "Repo-root coordinator.local.md frontmatter — committed per-repo doctrine config (not gitignored, not machine-local). Declares the KNOWN keys read by live consumers (coordinator/hooks/scripts/_posture.py, coordinator/skills/validate/SKILL.md's fast_test_cmd/full_test_cmd resolver, the ceremony post-command hook seam, coordinator:install's project_type/project_subtypes onboarding, and the human-facing-doc-staleness detector's doc-registry four). Every declared key degrades to a fleet default when absent or malformed at the reader, per each reader's own fail-open contract — this schema documents shape, not obligation; nothing here is `required`. `app_session` (docs/plans/2026-08-15-launch-half-to-engine-ops-and-skill-surface.md § Design) declares the PM-ruled per-target launch config shape, read by the app-session skill's launch verbs and by its `validate` verb (parse_validate_config). `terminal_test_cmd` (docs/plans/2026-09-11-repo-supplied-terminal-test-command-key.md) is likewise reader-less: it declares the shape only, and no reader consumes it yet. `pre_land_checks` is reader-less in this repo too: the engine invokes it at land time (coordinator/docs/wiki/pre-land-checks.md).",
   "type": "object",
   "_additionalProperties_note": "Permissive by design, and load-bearing here specifically: this corpus has hit the closed-schema/no-slot failure three times in one day (sizing-object EM-settled, sizing-object boundary justification, verdict_cited), and 56 of the 68 schemas under coordinator/schemas/ are open or unset vs 12 closed (counted directly) -- open is the house norm, not the exception. additionalProperties is intentionally left unset (open) at every level of this schema, including inside app_session's per-target objects: an unrecognised top-level key, an unrecognised app_session target name, and an unrecognised per-target field must all validate. Do not add additionalProperties: false anywhere in this file.",
   "required": [],
@@ -79,6 +79,42 @@
     "terminal_test_cmd": {
       "type": "string",
       "description": "Repo-supplied test command for the terminal commit gate, run verbatim and unsanitized. Optional; absence means the gate falls back to its default. Reader-less: the shape is declared here before any reader consumes it."
+    },
+    "pre_land_checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "paths", "argv"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Short identifier naming this check in a refusal or hold."
+          },
+          "paths": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "minLength": 1},
+            "description": "Repo-relative globs; the check runs when the land touches any matching path."
+          },
+          "argv": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string"},
+            "description": "Argument vector, never a shell string. Placeholders {python}, {commit}, {base}, {repo_root} are substituted by the engine. Exit 0 passes, 2 holds the land (could not check), any other non-zero refuses it."
+          },
+          "timeout_s": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Wall-clock limit in seconds; exceeding it holds the land."
+          },
+          "heavy": {
+            "type": "boolean",
+            "description": "True when the check needs heavy-process admission through the G-EM before it runs."
+          }
+        }
+      },
+      "description": "Consumer-declared checks the land runs for the touched paths, refusing the land on failure. Optional; absence means no pre-land checks. Reader-less here: the engine (dispatch.land_run / ceremony.commit_v2) invokes it; the shape is declared before any reader consumes it."
     },
     "collaboration_mode": {
       "type": "string",

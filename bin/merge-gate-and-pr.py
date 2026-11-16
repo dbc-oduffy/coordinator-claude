@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """merge-gate-and-pr.py — merge-time imperative logic ported off the bash
 fences embedded in coordinator-content-repo coordinator/skills/merging-to-main/SKILL.md.
 

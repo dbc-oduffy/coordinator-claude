@@ -3,7 +3,13 @@ title: Cross-Repo Contract-Field Parity
 status: active
 kind: doctrine-wiki
 created: 2026-06-09
-provenance: project-rag EM memo 2026-05-28, promoted at instance #2 ahead of anticipated Unity-addon instance #3
+provenance_note: project-rag EM memo 2026-05-28, promoted at instance #2 ahead of anticipated Unity-addon instance #3
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
+    omitted_reasons:
+      archived_spec: private-source
+      last_verbose_sha: private-source
 ---
 
 # Cross-Repo Contract-Field Parity

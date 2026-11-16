@@ -27,7 +27,7 @@ def discover_scripts() -> list[pathlib.Path]:
     return sorted(scripts)
 
 
-def main():
+def main() -> None:
     scripts = discover_scripts()
 
     if not scripts:

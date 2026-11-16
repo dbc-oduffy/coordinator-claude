@@ -24,6 +24,9 @@ skills tree, `coordinator-content-repo/coordinator/skills/`, not this repo):
 - `coordinator-queue-append --schema …` — `skills/bug-sweep`,
   `skills/debt-triage`, `skills/learn-lessons`, `skills/quick-wrap`
 - `archive-stamp-cli resolve-memo` — `skills/workstream-start`
+- `gem-inbox-apply <manifest.json>` — applies a fleet-inbox-blitz APPLY
+  MANIFEST (ledger, writes, baton lint, guarded stamps, moves, sends, one
+  scoped commit); exit 1 = baton lint refused, 3 = transport or commit failure
 
 An earlier investigation concluded these were vestigial (54 of 54, no
 consumer outside the assembler); that reading is REFUTED — the probe

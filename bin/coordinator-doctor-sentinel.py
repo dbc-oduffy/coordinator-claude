@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 # coordinator-doctor-sentinel.py — pure-Python CLI; no sh/python polyglot
 # trampoline. Wave 4a (2026-07-20) dropped the .sh suffix and the trampoline
 # entirely — this used to be coordinator-doctor-sentinel.sh, kept on .sh

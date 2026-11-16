@@ -61,7 +61,8 @@ Ordered gates (order is load-bearing, not stylistic):
      can replace an unrelated subagent's deliverable.
   2. Own-session filter (AC4/DEC-3): this hook fires for PEER sessions'
      subagents too. Read this session's `dispatched-agents.txt` under
-     `.git/coordinator-sessions/<session_id>/` and require the arriving
+     the session hub (`.coordinator-local/coordinator-sessions/<session_id>/`
+     beside the `.git` common dir) and require the arriving
      `agent_id` to be a member; non-member -> return 0. Reuses the sanctioned
      shared TSV oracle (`coordinator-tripwires.md` § RUNTIME-TRIPWIRE;
      `hook-best-practices.md`'s em-session-id.txt -> dispatched-agents.txt
@@ -81,8 +82,8 @@ real payload.
 
 No separate sentinel (integration fix, this pass): the landed engine op
 appends every record straight to its own durable store --
-`git_common_dir(repo_root)/coordinator-sessions/<session_id>/
-subagent-zero-tool-use.jsonl` -- which IS the append-only signal Stage 2
+`<session hub>/<session_id>/subagent-zero-tool-use.jsonl` (the hub is
+`.coordinator-local/coordinator-sessions/` beside the `.git` common dir) -- which IS the append-only signal Stage 2
 stats before deciding whether to pay for an engine round-trip. This shim
 touched a redundant sibling sentinel in an earlier pass; that sentinel and
 the store could name-drift (each side of the seam authored in parallel
@@ -166,6 +167,13 @@ except Exception:
     # callers skip) rather than crash on import.
     def _resolve_git_common_dir(git_root: str) -> str:
         return ""
+try:
+    from _session_hub_path import hub_for_common as _hub_for_common  # noqa: E402
+except Exception:
+    # A deploy missing its sibling _session_hub_path.py must fail open (no hub -> filter
+    # returns False) rather than crash on import.
+    def _hub_for_common(common: Path) -> Path | None:
+        return None
 
 
 def _git_root(start: str) -> str:
@@ -231,9 +239,10 @@ def _is_dispatched_this_session(git_root: str, session_id: str, agent_id: str) -
     if not common_dir:
         return False
 
-    dispatch_file = os.path.join(
-        common_dir, "coordinator-sessions", session_id, "dispatched-agents.txt"
-    )
+    hub = _hub_for_common(Path(common_dir))
+    if hub is None:
+        return False
+    dispatch_file = str(hub / session_id / "dispatched-agents.txt")
     try:
         if not os.path.isfile(dispatch_file):
             return False

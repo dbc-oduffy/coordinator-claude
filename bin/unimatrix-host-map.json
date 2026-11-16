@@ -30,7 +30,7 @@
     ],
     "manifest_path": "plugin.json",
     "max_text_bytes": 24000,
-    "plugin_root_token": "${PLUGIN_DIR}",
+    "plugin_root_token": "${PLUGIN_ROOT}",
     "rules_path": "rules/coordinator-doctrine.md",
     "rules_trigger": "always_on",
     "source_manifest_path": ".claude-plugin/plugin.json",

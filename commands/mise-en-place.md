@@ -1,6 +1,6 @@
 ---
 name: mise-en-place
-description: "Autonomous backlog run — flight-recorder prep, then run-through."
+description: "Autonomous backlog run: flight-recorder prep, then run-through."
 allowed-tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob", "Agent", "Skill"]
 argument-hint: "[baton-path [AND baton-path]...] [--hibernate]"
 ---
@@ -207,12 +207,20 @@ spec path is itself a plan carrying a `` ```yaml plan-tasks `` spine expands int
 chunk DAG — `<item-id>.<chunk-id>` per chunk — inside this SAME emitted Workflow, never a second
 `--plan` emit; a plain row with no such spine stays one executor.
 
+Grinder defaults (`coordinator/docs/wiki/grinder-efficiency-defaults.md`): the default budget is
+`--row-budget 100`, never omitted; script-first triage (the Pre-Dispatch Verification and dedupe
+checks) closes rows already green at HEAD before an executor is dispatched; the EM reads 25/50/75%
+checkpoints of the row budget at its next turn; each green row lands as a scoped commit per green row.
+
 **Tranche step.** `depends_on_plan` dependents wait for the next run, so a set with plan-to-plan chains runs as successive tranches.
-The EM chooses each tranche's scope: emit the combined inventory
-with `--row-budget N` (N ≤ 100), trimming the inventory first to leave plans out. The emitter takes
-plans whose `depends_on_plan` predecessors are `coded`, keeps same-path writers together, writes
-`<inventory>-t<N>.md` and reports `tranche.deferred`, `skipped` and `remaining.passes_remaining`.
-Fire it; after it lands, emit the next. `a-cross-plan-mise-set-runs-as-tranches`.
+A certified set fires whole: emit the combined inventory with `--row-budget N` (N ≤ 100) and never trim it;
+trimming needs a named reason recorded in the inventory. The emitter takes plans whose `depends_on_plan`
+predecessors are `coded`, keeps same-path writers together, writes `<inventory>-t<N>.md` and reports
+`tranche.deferred`, `skipped` and `remaining.passes_remaining`. Tranches chain with no EM decision between
+them: when one lands, emit and fire the next. Until the certified set holds 0 open rows that are neither EM-owned nor
+behind an external gate, no heavy diagnostic or E2E run starts unless a G-EM or PM ruling says so; finishing certified
+code outranks diagnostics and one-off engine-asks.
+`a-certified-mise-set-fires-whole-never-in-slices`, `a-cross-plan-mise-set-runs-as-tranches`.
 
 **Ignore the Stop-hook's "commit and push" advisory mid-run** — the dirt it flags is a live
 wave's footprint. Commit only by § Who commits. A path still held dirty after the run drains, because landing it asserts what only the PM can, gets
@@ -227,15 +235,21 @@ prefix-claimed files and rows declaring over 20 paths — scoped (`snippets/scop
 never the wave union, never `git add -A`.
 
 **Halt routing.** A chunk whose stop rule fires, or that returns `decision_required`, halts its
-plan. Move that plan's row to `## Withheld / routed out` with the reason, re-emit with `--force`,
-and resume with `resumeFromRunId` of the same run. Across sessions, `emit-dispatch-workflow --resume-from <run-id>-continuance.md --out
+plan. Move that plan's row to `## Withheld / routed out` with the reason, then re-emit the whole
+remaining set with `--only-incomplete` (default; never carve sub-runs) and resume with
+`resumeFromRunId` of the same run. Across sessions, `emit-dispatch-workflow --resume-from <run-id>-continuance.md --out
 <run-id>.workflow.mjs` re-emits each lane without the rows already `coded`; an empty lane reports
 `nothing_unlanded`.
 
-`SEAM-DRIFT` at a wave boundary holds the implicated plans' rows inside the Workflow; move those
-plans to `## Withheld / routed out` with the finding and the run continues. Never override it by
-re-emitting with `--force`; `capabilities-undeclared` holds nothing.
+`SEAM-DRIFT` at a wave boundary holds the implicated plans' rows inside the Workflow. A real gap
+moves those plans to `## Withheld / routed out` with the finding and the run continues. An
+intra-run gap (one a pending row of the same run declares it closes) is never routed out:
+re-emit including the declaring row, or re-emit with `--only-incomplete` after it lands. Never
+override it by re-emitting with `--force`; `capabilities-undeclared` holds nothing.
 `coordinator/docs/wiki/lesson-triage/mise-seam-check.md`.
+
+**Commits and green.** In code-first tranches a commit does not wait on green: proof and reds
+become owed follow-ups under a named review-only pass, not a commit gate.
 
 **Resume admitted by the classifier.** Check and allowlist edits land in their own earlier commit;
 state the resume as resuming this run's own workflow (`resumeFromRunId`), never as a follow-on to a check change.

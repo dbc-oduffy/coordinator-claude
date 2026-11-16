@@ -1,3 +1,12 @@
+---
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
+    omitted_reasons:
+      archived_spec: private-source
+      last_verbose_sha: private-source
+---
+
 # Cleanup, Sweep, and Migration Hazards
 
 Cleanup operations — `/distill`, `/update-docs`, link-heal, scaffolding-deletion, auto-discovery glob configs — are higher-risk than they look. They run across many files at once, often without per-file judgment, and they routinely undo work nobody noticed they were doing. This guide enumerates the recurring failure modes.
@@ -337,6 +346,9 @@ A code-extraction or dedup refactor (lift a function to a shared helper, collaps
 
 A sweep that only covers direct literals ships with broken variable-indirected consumers. [universal]
 
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-2-003 -->
+**Applied to an acceptance-criterion grep.** An AC that asserts "no remaining references to the old name" must run the three-pattern check above, not a single literal grep, and the grep must be case-insensitive (`-i`) and cover snake_case variants of the name (`old-name`, `old_name`). A case-sensitive single-literal AC passes green while variable-indirected or differently-cased references survive (repo-setup-consolidation AC3 was hardened this way).
+
 ## 35. Source-Migrate Without Test-Migrate Leaves Import-Error Wall
 
 *Source: example-game-workbench-repo L17. [universal]*
@@ -535,9 +547,20 @@ A transitional shim gated on a future condition (e.g. `REMOVE_WHEN: addon_protoc
 
 **Concrete failure.** A 43 GB scratch folder was deleted as a duplicate of the cold store after matching the manifest and top-level folders. A peer EM was still mid-copy: 2,880 files (9.2 GB) were not yet on the target and had to be re-fetched. Composes with §14 (read bodies, not metadata) and §10 (verifiable gap between copy and delete). The engine-side form is the copy-verification step in `coordinator/docs/wiki/scratch-and-temp-hygiene-engine-contract.md`.
 
+## 49. Deleting What a Contract Describes Breaks the Contract Silently
+
+**Rule.** Before deleting a repeated element, grep for the document that specifies or requires it, and amend the specifying clause in the same change, stating that the requirement moved rather than vanished. Delete the element and leave the clause, and nothing errors: no test fails, nothing logs. The break surfaces later as an audit reading the artifacts as violating their own stated contract, with blame on the artifacts rather than the edit that orphaned the clause.
+
+**Companion checks.**
+- Audit lint exemptions and markers before deleting prose they sit inside; do not assume they are clear of the deleted spans.
+- Measure redundancy before accepting a review's framing of it. "Half the artifact set by volume" can be a real finding at the wrong order of magnitude.
+- When asked to "drop the restatements," separate redundant narrative from per-file reasoning that bounds a general claim. Both are cheap to delete; only one is cheap to lose.
+- A single `count:` field over a set that has drifted is a malformed question. Return the several numbers and the reason each moved, not one false equality.
+
+**Concrete failure.** A subtractive review replaced a repeated provenance paragraph with a pointer to the one document that makes the argument. That document also specified the bar the files were authored to, and its first clause required the deleted paragraph. Composes with §33 (consumer-grep before excision).
 ## Skill Checklist Reference
 
-`/distill` and `/update-docs` should reference items 1, 2, and 3 in their dispatch prompts so the agent enforces these checks during sweep operations, not just the EM after the fact. `/bug-blitz` consumers reference item 19 for backlog-currency verification. `/coordinator:plan` Branch B references item 20 when the plan body flips a doctrine value-class. `/coordinator:plan` and `/bug-sweep` reference items 27–30 when the work is a class-scoped sweep — enumerate the construct class, build a class-catching lint (not a site list), and test the guard against an unseen class member. Items 33–34 apply to any cross-repo excision or directory-rename plan — add consumer-grep and variable-indirection grep to the done-criteria. Items 39–40 apply to any shell pipeline using `grep -q` on large inputs or any fleet-wide EOL sweep. Item 41 applies to any sweep that produces downstream-consumer artifacts (memos, doctrine seeds, plan amendments) — keep scratch through PM follow-on opportunity, not just through the commit. Item 42 applies to any `/percolate` / the engine repo's `coordinator/bin/publish.py` flow and any cleanup that discards changes via `git checkout HEAD --` while a stash is in play — source publishes from a committed ref, never the live worktree. Item 48 applies to any deletion justified as "duplicate of X" — per-file compare and a no-live-writer check come first.
+`/distill` and `/update-docs` should reference items 1, 2, and 3 in their dispatch prompts so the agent enforces these checks during sweep operations, not just the EM after the fact. `/bug-blitz` consumers reference item 19 for backlog-currency verification. `/coordinator:plan` Branch B references item 20 when the plan body flips a doctrine value-class. `/coordinator:plan` and `/bug-sweep` reference items 27–30 when the work is a class-scoped sweep — enumerate the construct class, build a class-catching lint (not a site list), and test the guard against an unseen class member. Items 33–34 apply to any cross-repo excision or directory-rename plan — add consumer-grep and variable-indirection grep to the done-criteria. Items 39–40 apply to any shell pipeline using `grep -q` on large inputs or any fleet-wide EOL sweep. Item 41 applies to any sweep that produces downstream-consumer artifacts (memos, doctrine seeds, plan amendments) — keep scratch through PM follow-on opportunity, not just through the commit. Item 42 applies to any `/percolate` / the engine repo's `coordinator/bin/publish.py` flow and any cleanup that discards changes via `git checkout HEAD --` while a stash is in play — source publishes from a committed ref, never the live worktree. Item 48 applies to any deletion justified as "duplicate of X" — per-file compare and a no-live-writer check come first. Item 49 applies to any subtractive edit of a repeated element — grep for the specifying clause and amend it in the same change.
 
 ## A keep-if-referenced sweep excludes the doc's own sidecars
 

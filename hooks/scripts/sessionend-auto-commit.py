@@ -169,7 +169,9 @@ def _log_diagnostic(payload: dict, note: str) -> None:
                 )
                 if out.returncode != 0 or not out.stdout.strip():
                     return
-                log_dir = Path(out.stdout.strip()) / "coordinator-sessions" / "logs"
+                from _session_hub_path import hub_for_common
+
+                log_dir = hub_for_common(Path(out.stdout.strip())) / "logs"
                 log_dir.mkdir(parents=True, exist_ok=True)
                 stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                 with (log_dir / "sessionend-auto-commit-diagnostics.log").open(

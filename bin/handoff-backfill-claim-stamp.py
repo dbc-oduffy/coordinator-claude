@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """handoff-backfill-claim-stamp — CLI trampoline over the engine-repo's
 `handoff.backfill_claim_stamp` op.
 

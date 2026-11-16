@@ -5,6 +5,9 @@ status: active
 spec_backlink: docs/plans/2026-06-25-example-initiative-tc-0-canonical-baton-shape.md
 roadmap_id: example-initiative-2026-06-25
 stub_id: example-initiative-0
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
 ---
 
 # Canonical Artifact Shapes — Baton Blob Doctrine
@@ -1196,3 +1199,9 @@ general `*-decisions.md` convention used across repos in the fleet.
 ## Field rules
 
 - **Check resolution precedence before widening a variant schema.** A purpose-built variant is dead if resolution order never selects it.
+
+## Convergence outcome — additive, not field churn
+
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-6-016 -->
+
+The handoff and memo schemas were converged additively. The inventory showed batons were already canonical, so convergence shipped as doctrine backlinks plus recorded load-bearing divergences, not field churn. Where an instance diverges for a reason, record the divergence rather than rewriting the instance.

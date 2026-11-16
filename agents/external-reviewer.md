@@ -1,7 +1,7 @@
 ---
 name: external-reviewer
 executes-rows: false
-description: "Opt-in non-Anthropic review lens: runs the codex CLI out of process, applies findings, owns the ledger."
+description: "Opt-in non-Anthropic review: runs the codex CLI, applies findings, owns the ledger."
 model: sonnet
 effort: low
 color: yellow

@@ -4,6 +4,11 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.19] — 2026-11-16
+
+- **Engine scripts:** `bin/` and `lib/` resynced to the current engine, including the restored `seed-cross-session-inbound` used by uninstall.
+- **Install:** agent-facing install docs now publish with the plugin.
+
 ## [4.6.18] — 2026-11-06
 
 - **Unreal and MetaHuman claims:** they now carry pinned citation forms, with a checker. A failed lookup aborts only if its claim stays unsettled; an answered `not_found` is a finding.

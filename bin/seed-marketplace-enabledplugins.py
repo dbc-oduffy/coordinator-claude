@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Idempotently seed enabledPlugins[<plugin>@<marketplace>] for every present
 marketplace-sibling plugin into settings.local.json.
 

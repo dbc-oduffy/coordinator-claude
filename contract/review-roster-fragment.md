@@ -74,6 +74,12 @@ the roster declares no judge). It never halts
 the wave: a `not_met` verdict (the terminal judge returns `met` or `not_met` only) leaves the plan
 `executing`. It has no `blocking_verdicts` row because the composer reads none for it.
 
+The review wave also carries one model-free op entry, `{op: dispatch.test_leg, per: whole-diff}`:
+the test leg, composed as one `coordinator:op-relay` call (`coordinator-invoke dispatch.test_leg`).
+An `op` entry carries no `agentType`, `model`, `effort` or `accepts_signals`
+(`roster.py` refuses the combination). The prep stage's `coordinator:test-runner` (diff freeze and
+partition) is a different leg and stays.
+
 `per: slice` fans the `coordinator:code-reviewer` review-wave entry out over prep's own slice
 list at run time — the fragment names one entry, the run dispatches one call per slice.
 

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from __future__ import annotations
 
 import argparse
@@ -137,9 +138,10 @@ def _machine_local_get(key: str):
             [sys.executable, impl, "get", key],
             capture_output=True,
             text=True,
+            timeout=2.0,
             **no_console_creationflags(),
         )
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         return None
     if result.returncode != 0 or not result.stdout.strip():
         return None

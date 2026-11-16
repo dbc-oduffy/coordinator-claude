@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """needs-restart -- print exactly one verdict: `none`, `/reload-plugins`, or `restart`.
 
 Diffs the current load-time surfaces against this session's SessionStart snapshot.

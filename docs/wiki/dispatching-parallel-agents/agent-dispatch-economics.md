@@ -3,6 +3,12 @@ title: Agent Dispatch Economics
 status: active
 kind: doctrine-wiki
 created: 2026-05-18
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
+    omitted_reasons:
+      archived_spec: private-source
+      last_verbose_sha: private-source
 ---
 
 # Agent Dispatch Economics
@@ -221,3 +227,8 @@ A sizing object's scout evidence — collected to justify its route — also ans
 ## Field rules
 
 - **Once a red set is known, stop re-running the full gate to re-observe it.** Investigate, fix, and verify per file; each redundant full run is load on every peer sharing the box.
+
+## Why the anti-monolith rule needed re-anchoring
+
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-1-087 -->
+The PM's objective ordering is *wall-clock first; token cost only tangential*. The anti-monolith rule already existed; it failed on **salience** (it lost to cost framing) and **ceremony asymmetry** (dispatching carried ceremony, grinding inline carried none), not for lack of a rule. This wiki was re-anchored wall-clock-first for that reason.

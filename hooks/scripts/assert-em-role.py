@@ -7,7 +7,8 @@ suppressible (`COORDINATOR_REPOMAP_STATUS_OFF` et al., and the whole banner
 degrades quietly on a missing cache) — a role assertion riding the same
 channel would inherit that suppressibility, and a role assertion that can be
 silently switched off is worse than none at all. This hook has exactly one
-job, unconditionally: tell the main session it is the EM. Every EM session gets
+job: tell an ordinary main session it is the EM. Explicit independent worker,
+reviewer, workflow-agent or unknown roles never receive this EM channel. Every EM session gets
 the per-session role marker
 (`coordinator_core.hooks.support.turn_intent.write_role_marker`, best-effort, after emission);
 it arms the EM pre-fire survey guard. Only the turn-intent instruction
@@ -22,8 +23,9 @@ em-operating-doctrine.md` (EM-only)) was rewritten into role-neutral
 system terms as part of the computed-skills frontage work, so it no
 longer itself tells the reader "you are the EM". `snippets/agent-role-em.md`
 is the single source of truth for that assertion — this hook's only
-responsibility is delivering it into the main session's context via its
-SessionStart stdout, unconditionally, every session. There is no
+responsibility is delivering it into an ordinary EM session's context via
+SessionStart stdout at each supported context boundary. Explicit independent
+worker/reviewer/workflow-agent or unknown audiences are excluded before emission. There is no
 `additionalContext` channel in play here -- this hook writes raw bytes to
 stdout (see `_w()` below), which the harness folds into session context by
 its own SessionStart stdout convention, not by any structured
@@ -68,13 +70,14 @@ absence is silent and the emission is byte-identical to a build without
 the slot. A REPO file that EXISTS but cannot be read is not absence; that
 is a real defect and banners loudly.
 
-Main-session-only by construction: SessionStart-class hooks fire only for
-the main session, never for an `Agent`-tool dispatch (that's the harness
-property this hook relies on, not something it re-checks — see hooks.json's
-registration comment for this entry, whose matcher enumerates every
-SessionStart source the harness emits, so the channel re-fires at every
-fresh-context boundary rather than only at cold start). No additional
-is-main-session guard is layered on top here.
+SessionStart does not run this channel for an `Agent`-tool dispatch, but an
+independent `claude -p` process has its own SessionStart and can be a worker.
+The explicit audience guard therefore runs before the EM manifest and marker:
+COORDINATOR_AGENT_ROLE worker, reviewer, workflow-agent, unknown or an invalid
+nonempty value suppresses this channel. The legacy independent-worker flag also
+suppresses it. An unset role or explicit em preserves ordinary Claude EM delivery.
+The hooks.json matcher still covers each supported SessionStart source, so an EM
+receives the channel at fresh-context boundaries as well as cold start.
 
 Path resolution mirrors project-orientation.py: this file's own location
 (`Path(__file__)`), never cwd, never a hardcoded absolute path — must work
@@ -253,7 +256,7 @@ def _resolve_claude_config_dir() -> Path | None:
     return home / ".claude"
 
 
-def _compute_contention(repo_root: Path | None, session_id: str | None, timeout: float = 0.3):
+def _compute_contention(repo_root: Path | None, session_id: str | None, timeout: float = 0.3) -> tuple[int, int] | None:
     """Best-effort, bounded (repo_count, box_count) of *registered sessions*
     -- never a claim about what they are doing (brief: tasks/2026-08-13-
     addressability-retraction/briefs/C4.md "no claim about peer internal
@@ -558,6 +561,15 @@ def _write_role_marker(repo_root, session_id) -> None:
 
 def main(argv: list) -> int:
     del argv  # no flags -- this hook takes no arguments
+
+    # Independent `claude -p` workers also receive SessionStart. Preserve the
+    # engine audience contract before reading/emitting EM-only doctrine or
+    # creating its role marker. Unset remains the ordinary Claude EM default;
+    # an explicit unknown/invalid audience must not be promoted to EM.
+    role = os.environ.get("COORDINATOR_AGENT_ROLE")
+    legacy_worker = os.environ.get("COORDINATOR_AGENT_WORKER", "").lower()
+    if (role and role != "em") or legacy_worker in ("1", "true", "yes"):
+        return 0
 
     payload = {}
     try:

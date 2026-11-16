@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # review-exec-auth-stamp — CLI trampoline over claude-klabauter
 # coordinator_core.review_assemble.exec_auth_stamp (the mutating assembler
 # that collapses /review's ordinal-narrated execution-authorization stamp

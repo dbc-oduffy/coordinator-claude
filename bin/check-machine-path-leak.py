@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """bin/check-machine-path-leak.py — Tripwire: prevent machine-specific absolute paths
 from being committed into tracked configuration files.
 

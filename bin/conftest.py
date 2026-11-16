@@ -44,5 +44,5 @@ _fail_on_live_registry_write = pytest.fixture(autouse=True)(fail_on_live_registr
 
 
 @pytest.fixture(autouse=True)
-def _pin_warm_disabled_for_subprocess_clis(monkeypatch):
+def _pin_warm_disabled_for_subprocess_clis(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("COORDINATOR_WARM", "0")

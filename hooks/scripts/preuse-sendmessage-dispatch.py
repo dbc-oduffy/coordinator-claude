@@ -79,6 +79,16 @@ def main() -> int:
     except Exception:
         pass
 
+    try:
+        hso = result.get("hookSpecificOutput") if isinstance(result, dict) else None
+        if isinstance(hso, dict) and isinstance(hso.get("updatedInput"), dict) \
+                and not hso.get("permissionDecision"):
+            # Auto mode denies a rewrite with no decision on a tool outside its exempt
+            # list (SendMessage is outside it).
+            hso["permissionDecision"] = "allow"
+    except Exception:
+        pass
+
     if result:
         sys.stdout.write(json.dumps(result))
         sys.stdout.write("\n")

@@ -10,7 +10,10 @@ session artifacts.
 [NUGGETS — paste all nuggets for this system from the clustering table]
 
 **Existing guide content (if updating):**
-[EXISTING_GUIDE_CONTENT — or "NEW GUIDE" if creating from scratch]
+[EXISTING_GUIDE_CONTENT — or "NEW GUIDE" if creating from scratch. A NEW GUIDE target was
+already checked for a same-subject existing page (slug-stem rules, then one bounded model check
+over pages and directories sharing a word with the slug); a same-subject page would have been
+supplied as the existing guide.]
 
 **Candidate restatements (already computed against the target guide — nothing to run):**
 [CANDIDATE_RESTATEMENTS — the routing record's `candidate_restatements: [{line, excerpt}]` list
@@ -62,10 +65,20 @@ subtly rewords existing content.
 
 For each [DECISION] nugget (not [SUPERSEDED]), produce a decision record. Never choose a DR
 number: mint the file with `coordinator-doc-new --type decision --title "<decision title>"`, which
-allocates the number and prints the path, then fill it in. Set `status: accepted`, `deciders` from
+allocates the number and prints the path, then fill it in. The title states the decision in the
+nugget's own words; never "test", "probe", "example", "todo" or any placeholder (such a record is
+refused). A guide page links a record by its path relative to that page: from
+`docs/wiki/<guide>.md` that is `../decisions/DR-N-slug.md`. Set `status: accepted`, `deciders` from
 context (else `Team`), and stamp `provenance:` as a mapping carrying this run's `run_id` and
 `source_nuggets`. Return the nugget's disposition as `CREATE_DR` with `target` set to the printed
-path. Folded into `distill-harvest.workflow.js` as `drMintingSectionFor`; edit both together.
+path. `## Decision` states the rule as it stands: no superseded/widened/amended or was-X-now-Y
+prose, and no rationale the repo's current rulings reject. A [DECISION] nugget that a newer record
+or guide ruling contradicts is stale: `SKIP` with `DR-EXISTS ` followed by that newer record's
+path, never an accepted record. A nugget that is one case of a general rule an existing record
+states is `SKIP` with `DR-EXISTS ` and that record's path. A [DECISION] nugget that restates a fleet rule another repo owns (DoE or claude-klabauter doctrine
+announced by a memo) mints no local record: return `SKIP` with a reason starting
+`FLEET-RULE-OWNED-ELSEWHERE ` followed by the owning repo or doc; at most it gets a wiki pointer.
+Folded into `distill-harvest.workflow.js` as `drMintingSectionFor`; edit both together.
 
 The record body:
 
@@ -94,6 +107,14 @@ For any [AMBIGUOUS] nuggets assigned to your system:
 - Preserve the reasoning behind decisions — the "why" is the most valuable part.
 - Use file:path references where nuggets include them.
 - If nuggets contradict each other, prefer the later-dated one and note the supersession.
+- Every claim about code state (defect, hazard, row shape, signature, accepted/planned/shipped
+  status) is checked against HEAD first; where HEAD differs, write what HEAD does. Name the type
+  or file as the contract; never copy its fields into prose. No "was once" or "stale on that
+  point" narration. Folded into `distill-harvest.workflow.js`'s writer brief; edit both together.
+- An existing page's stated fact beats a contradicting nugget unless HEAD shows otherwise. A
+  section goes on the page whose subject it is. Prose describes the system, never this pipeline:
+  no router/nugget/run talk, no commit shas. A DR carries only its own nugget's decision.
+- A nugget restating an existing sentence replaces it; never append the restatement beside it.
 - Do not invent knowledge. If nuggets are thin on a topic, write a thin section — don't
   pad.
 - For delta updates: be conservative. Only add/update/remove sections where nuggets

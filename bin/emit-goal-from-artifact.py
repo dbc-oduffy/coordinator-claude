@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """emit-goal-from-artifact.py — emit authored goal artifacts -> cockpit via DR-210 facade.
 
 Purpose: reads per-repo state/goals/*.yaml YAML frontmatter, maps each goal to

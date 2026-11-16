@@ -151,7 +151,8 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+from types import ModuleType
+from typing import Any, Optional
 
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
@@ -174,10 +175,10 @@ except Exception:
     # Defensive fallback -- a deploy missing its sibling _forwarder_resolve.py must
     # skip the self-heal (the caller's existing "no regenerator CLI resolved" leg)
     # rather than crash SessionStart on import.
-    def resolve_forwarder(bin_dir, name):  # type: ignore[misc]
+    def resolve_forwarder(bin_dir, name) -> Path | None:  # type: ignore[misc]
         return None
 
-    def forwarder_argv(script_path, tail=()):  # type: ignore[misc]
+    def forwarder_argv(script_path, tail=()) -> list[str]:  # type: ignore[misc]
         # See _forwarder_resolve's
         # "Import-fallback contract" docstring section for the rationale.
         # Unreachable on this leg: `resolve_forwarder`'s own fallback above
@@ -276,7 +277,7 @@ def _resolve_this_repo_root() -> str | None:
     return _git_root_walk() or None
 
 
-def _import_record_child_failure(claude_klabauter_root: str | None):
+def _import_record_child_failure(claude_klabauter_root: str | None) -> Any:
     """Best-effort import of the shared `record_child_failure` writer
     (`coordinator_core.ops.ceremony.detached_spawn`) from an already-resolved engine
     root. Returns None on any resolution/import failure — reused across three of the
@@ -729,7 +730,9 @@ def _session_reap_due(repo_root: Optional[str]) -> bool:
     if not repo_root:
         return True
     try:
-        marker = Path(repo_root, ".git", "coordinator-sessions", ".last-reap")
+        from _session_hub_path import hub_for_common
+
+        marker = hub_for_common(Path(repo_root, ".git")) / ".last-reap"
         if not marker.exists():
             return True
         return (time.time() - marker.stat().st_mtime) >= _SESSION_REAP_PREGATE_SECONDS
@@ -871,7 +874,7 @@ def _reap_sessions(root: Optional[str]) -> None:
         )
 
 
-def _load_global_doctrine_mirror_module():
+def _load_global_doctrine_mirror_module() -> ModuleType | None:
     """Best-effort in-process import of the engine body
     `coordinator_core.hooks.derive_global_doctrine_live_copy`, with the engine
     root from `resolve_claude_klabauter_root()` placed on `sys.path`.

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # archive-stamp-cli — CLI trampoline over claude-klabauter
 # coordinator_core.archive_stamp (handoff/memo/plan lifecycle frontmatter
 # writes). Direct-import variant (template-variant #1, per
@@ -118,7 +119,8 @@ def _import_module():
 
 _SUBCOMMANDS = (
     "subcommands: stamp-shipped-in | ship-handoff | claim-handoff | "
-    "claim-memo-stamp | action-memo | resolve-memo | release-memo-revert | "
+    "claim-memo-stamp | action-memo | resolve-memo | resolve-move-memos | "
+    "release-memo-revert | "
     "stamp-plan-implemented | stamp-plan-superseded | gate-recheck-handoff | close-handoff | "
     "repark-handoff | unclaim-handoff | chain-archive-handoff | "
     "supersede-archive-handoff | repair-archived-shipped-in | "
@@ -211,7 +213,18 @@ _SUBCOMMAND_USAGE = {
     "resolve-memo": (
         "archive-stamp-cli resolve-memo <memo_path>... [disposition-flags...]\n"
         "  Several <memo_path> args stamp every memo with the same disposition in\n"
-        "  ONE commit; a single path behaves as before.\n"
+        "  ONE commit and move each inbox/ memo to archive/; a single path behaves\n"
+        "  as before.\n"
+        "  NOTE — same prose file siblings as action-memo.\n" + _DISPOSITION_HELP
+    ),
+    "resolve-move-memos": (
+        "archive-stamp-cli resolve-move-memos --memo <memo_path> [disposition-flags...] "
+        "[--memo <memo_path> [disposition-flags...]]...\n"
+        "  Each --memo group carries its OWN disposition (--actioned-note,\n"
+        "  --realized-by, ...). Stamps every memo resolved and moves it\n"
+        "  inbox/ -> archive/ in place; commits and stages nothing. stdout is the\n"
+        "  pathspec (inbox deletions + archive additions) for one scoped commit.\n"
+        "  Exit 1 if any memo failed; the others still land.\n"
         "  NOTE — same prose file siblings as action-memo.\n" + _DISPOSITION_HELP
     ),
     "release-memo-revert": "archive-stamp-cli release-memo-revert <memo_path>",
@@ -860,6 +873,29 @@ def main(argv: list[str]) -> int:
             return 2
         fn = mod.cs_action_memo if subcmd == "action-memo" else mod.cs_resolve_memo
         return fn(rest[0], *disposition)
+
+    if subcmd == "resolve-move-memos":
+        if not rest or rest[0] != "--memo":
+            return _usage_line(_SUBCOMMAND_USAGE[subcmd])
+        groups: list[tuple[str, list[str]]] = []
+        i = 0
+        while i < len(rest):
+            if rest[i] == "--memo":
+                if i + 1 >= len(rest):
+                    return _usage_line(_SUBCOMMAND_USAGE[subcmd])
+                groups.append((rest[i + 1], []))
+                i += 2
+                continue
+            groups[-1][1].append(rest[i])
+            i += 1
+        entries: list[tuple[str, list[str]]] = []
+        for memo_path, tail in groups:
+            disposition, err = _resolve_disposition_prose(tail)
+            if err is not None:
+                print(err, file=sys.stderr)
+                return 2
+            entries.append((memo_path, disposition))
+        return mod.cs_resolve_move_memos(entries)
 
     if subcmd == "release-memo-revert":
         if not rest:

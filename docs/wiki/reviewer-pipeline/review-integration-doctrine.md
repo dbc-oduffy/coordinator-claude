@@ -74,9 +74,12 @@ independent judge, that requirement still applies and the re-verify does not sat
     comparison is in-process and CRLF-normalised.
   - `em-rejected` with a non-empty `reason`.
   - `suspended`, under a premise verdict.
+  - `handed-to-em`, a finding a ruling-only brief forbids applying, or one the dispatch's scope
+    excludes (a scope-deferred finding); counted as `handed_to_em` in the stamp. A scope-deferred
+    finding is never `em-rejected` (reads as a merit rejection) nor `suspended` (premise verdicts only).
 
   On a pass, `verify` stamps `findings_ledger: {rows, applied, em_rejected, suspended,
-  verified_at}` in the sidecar frontmatter, and each row gets `verified: true` so a later
+  handed_to_em, verified_at}` in the sidecar frontmatter, and each row gets `verified: true` so a later
   reviewer's edits do not un-verify it.
 - `reject --sidecar <p> --finding finding-<N> --reason "<one line>"` restores `before` over
   `after` in `file`, sets `status: em-rejected` plus the reason, and re-stamps. Only the EM may
@@ -194,6 +197,16 @@ and follow the same pattern when dispatched for a review: the invoking skill inj
 pre-provisioned sidecar path, and the persona writes its findings and ledger there. No EM
 transcription, ever — inline-relayed findings are never a valid handoff format; the ledger's
 `verify` step hard-stops loud when the sidecar is a trivial/unfilled scaffold.
+
+### Ad-hoc and workflow reviewers follow the same rule
+
+The sidecar duty binds every review-producing agent, not only the named reviewers. A review stage authored inside a Workflow, or any one-off reviewer an EM spins up, writes its findings to a review-trail findings sidecar and returns only a pointer (path, verdict, count).
+
+- Inline findings, such as a findings array returned as a stage's structured output, are never a valid handoff to a downstream consumer.
+- The EM passes the pointer along and never relays findings inline.
+- A review stage built on a bare agent call instructs that agent to write the sidecar itself and return the path.
+- A consumer that receives inline findings and proceeds only because it re-verified each against disk is recovering by judgment, not receiving a clean handoff. Treat that path as a sanctioned exception that warns, not as the normal route.
+<!-- distilled: batch-1-005-03 -->
 
 ## Revertability
 

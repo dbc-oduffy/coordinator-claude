@@ -87,7 +87,7 @@ if sys.argv and sys.argv[-1].endswith(_LEGACY_INJECTOR_TAIL):
 os.environ['COORDINATOR_WARM_BOOT_WAIT_SECS'] = '0'
 
 
-def _detect_hook_seam_drift():
+def _detect_hook_seam_drift() -> None:
     """Banners once per session if this process's snapshotted `-c` payload no longer
     matches the current on-disk `fail_open_launcher.LOADER`.
 
@@ -98,10 +98,14 @@ def _detect_hook_seam_drift():
     """
     try:
         orig_argv = getattr(sys, 'orig_argv', None)
-        if not orig_argv or len(orig_argv) < 4:
+        if not orig_argv or '-c' not in orig_argv:
             return  # too old for sys.orig_argv (< 3.10), or a shape we don't recognize
-        snapshotted_loader = orig_argv[2]
-        script_arg = orig_argv[3]
+        # Located, not indexed: interpreter flags such as `-S` shift `-c` right.
+        c_index = orig_argv.index('-c')
+        if len(orig_argv) < c_index + 3:
+            return
+        snapshotted_loader = orig_argv[c_index + 1]
+        script_arg = orig_argv[c_index + 2]
         if not isinstance(snapshotted_loader, str) or not isinstance(script_arg, str):
             return
         if '${' in script_arg:
@@ -179,7 +183,7 @@ if os.path.basename(p) == 'preuse-workflow-dispatch.py':
     import re
     import subprocess
 
-    def _workflow_deny(why):
+    def _workflow_deny(why) -> None:
         sys.stdout.write(json.dumps({'hookSpecificOutput': {
             'hookEventName': 'PreToolUse',
             'permissionDecision': 'deny',

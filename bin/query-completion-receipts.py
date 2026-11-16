@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """query-completion-receipts.py -- the porter over `completion_receipts.collect`.
 
 No shebang line, no exec bit: this is only ever spawned as `python3

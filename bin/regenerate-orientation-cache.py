@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 regenerate-orientation-cache — CLI trampoline over claude-klabauter
 coordinator_core.orientation.regenerate_cache.

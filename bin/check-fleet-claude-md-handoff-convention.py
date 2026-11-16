@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 check-fleet-claude-md-handoff-convention.py -- CLI trampoline over
 coordinator_core.plugin_health.claude_md_handoff_convention.

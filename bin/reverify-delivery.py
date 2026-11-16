@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """reverify-delivery.py — thin door-served CLI over
 `coordinator_core.ops.dispatch_emit.reverify_delivery`.
 

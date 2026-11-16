@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # close-out-and-stamp — CLI trampoline over claude-klabauter
 # coordinator_core.execute_plan_assemble.close_out_and_stamp (the mutating
 # assembler that collapses `/execute-plan` Phase 4's ordinal-narrated

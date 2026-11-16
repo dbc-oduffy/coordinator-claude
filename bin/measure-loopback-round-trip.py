@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 coordinator.bin.measure-loopback-round-trip -- committed probe for the local HTTP round-trip term
 in the hook-routing budget.

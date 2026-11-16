@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 r"""check-install-doc-payload.py — assert install-doc commands resolve in the
 published tree.
 

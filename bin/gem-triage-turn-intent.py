@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """gem-triage-turn-intent -- the G-EM stamps its triage verdict onto a target EM's turn-intent.json.
 
 Compare-and-swap on turn_ended_at: the merge lands only if the target's turn has not moved on.
@@ -30,7 +31,9 @@ def _place_engine_on_path() -> str:
         spec = importlib.util.spec_from_file_location("_engine_root", seam)
         engine_root = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(engine_root)
-        root = engine_root.resolve_claude_klabauter_root()
+        # Trap: the publish stem rewrite renames the engine stem in identifiers AND string literals,
+        # but the mirror's seam keeps the unrewritten name; the split literal is rewrite-stable.
+        root = getattr(engine_root, "resolve_" + "mak" + "ima" + "_root")()
         if not root:
             raise RuntimeError("engine root unresolved")
         return engine_root.place_engine_root_on_path(root)

@@ -43,7 +43,7 @@ def format_size(size_bytes: int) -> str:
     return f"{size_bytes} B"
 
 
-def main():
+def main() -> int:
     errors = []
 
     changed = get_changed_files()

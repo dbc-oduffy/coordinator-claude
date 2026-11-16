@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """resolve-coordinator-clone.py -- door-resolvable entrypoint over coordinator/lib/resolve-coordinator-clone.py.
 
 The lib file is the implementation; this file only gives the static-family name an

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """bin/check-sh-suffix-polyglot.py — Tripwire: SH-SUFFIX-POLYGLOT-RATCHET
 
 Purpose: Prevents NEW `.sh`-suffixed sh/python polyglot trampolines from being

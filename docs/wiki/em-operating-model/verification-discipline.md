@@ -46,7 +46,7 @@ Any workstream that diagnoses a failure, validates a fix, writes an acceptance-c
 
 - **A reported breakdown may exclude rows from its own total.** Claude Code's `/context` prints deferred-tool rows that do not sum into the reported total; before quoting any row of a reported breakdown as a cost, add the rows up and check they reconcile with the stated total — misreading one such row nearly reversed a doctrine conclusion mid-session.
 
-- **A tool success report is not evidence the write happened — read the artifact.** A succeeding tool report is a sharper trap than a failing one: it carries no signal that anything is wrong, and a succeeding tool can silently not have worked. The same holds for a scripted edit that prints unconditional success: one heredoc-authored helper mutated a local variable but never reassigned the enclosing one, discarding twelve intended rewrites while printing "updated: 12" — because the print counted intent, not effect; a second script's conditional insertion never matched its own guard and printed the failure plainly ("block present: False"), and it was read past anyway. Neither was caught by the edit itself. Before trusting a scripted edit's own success message, verify the effect independently (re-grep the changed count, re-read the target region) rather than trusting a print statement that describes intent.
+- **A tool success report is not evidence the write happened — read the artifact.** A succeeding tool report is a sharper trap than a failing one: it carries no signal that anything is wrong, and a succeeding tool can silently not have worked. The same holds for a scripted edit that prints unconditional success: one heredoc-authored helper mutated a local variable but never reassigned the enclosing one, discarding twelve intended rewrites while printing "updated: 12" — because the print counted intent, not effect; a second script's conditional insertion never matched its own guard and printed the failure plainly ("block present: False"), and it was read past anyway. Neither was caught by the edit itself. Before trusting a scripted edit's own success message, verify the effect independently (re-grep the changed count, re-read the target region) rather than trusting a print statement that describes intent. The same holds for a success *field* that cannot vary: for any success field, name a concrete state of the world in which this same code emits FALSE; if you cannot, the field is decorative, every green reading of it is uninformative, and being unable to name that state is itself the finding (a rule-registration tool returned `success: true` while no validation path read the map; an editor-utility invoker reported `bSuccess=true` unconditionally, so pass and failure returned byte-identical envelopes). Two sub-shapes, two fixes, not to be flattened: *decoupled reporting* (work claimed but never done or never observed; fix by reading back what was written, or refusing to claim success) versus *unreachability* (green handler tests behind a broken selector; fix by entering from outside and selecting the route the way a caller would). Tripwire: `coordinator-tripwires/a-success-line-is-not-evidence-the-file-was-written.md`.
 - **Route subagent reports to disk, not the message channel, for any dispatch whose output you actually need.** Two dispatched agents returned idle notifications with no content, twice, losing their work; re-dispatching with an explicit scratchpad output path and a "return only a DONE pointer" instruction delivered both times. Name an output file in the brief rather than trusting the return channel to carry the substance.
 - **A clean collision audit over parallel-drafted plans is not evidence of coherence — pair it with a negative-space pass.** A cross-plan collision audit finds two plans building the same thing; it is structurally blind to the inverse — a question every plan assumed a sibling owned, because there is nothing to collide with. A clean DRY result is weak evidence *for* the gap, not against it: N plans that each tidily disclaim "consumed, not rebuilt" are N plans confident someone else is building it. One sweep: a 5-lens collision audit over 17 plans found no unflagged duplication; a follow-on pass asking what no plan owns found five plans building a pipeline with no operator surface. Always pair the collision sweep with a pass that asks what NO plan owns.
 - **A synthetic fixture can manufacture the exact assumption violation a statistical test warns about, and the failure looks like a bug in the test, not the fixture.** A two-sample statistical test rests on exchangeability between two populations; an orchestration-level fixture built one side from only a handful of synthetically planted clusters, some of which landed anti-correlated by chance — the populations were not exchangeable, the null was mis-centred, and the test returned confident false positives that were reproducible, not flaky. When a fixture and a statistic disagree, validate the statistic on its own terms with a fixture built to satisfy its stated assumption (keep it as a permanent true-null simulation) before concluding the statistic is wrong — a reproducible failure is not on its own evidence the code under test is broken.
@@ -361,6 +361,16 @@ in the case above, and it was called the first.
 `2026-09-05-example-market-data-repo-em-co-sign-confirmation-against-the-wrong-artifact.md`,
 `2026-09-05-example-store-repo-em-evidence-that-points-your-way-survives-review.md` (`state/cross-repo/archive/`).*
 
+## Match the Handed-Over Artifact to the Incident Before Analyzing It
+
+On a log-driven diagnosis, the handed-over log may belong to a different run than the symptom. A UE editor GUI failure arrived with a log and a screenshot; the log told a coherent story (a cold path-tracer saturating the render thread, process alive and stalled) and a dispatched agent given the file alone confirmed it. Both halves were artifacts of the handoff: the screenshot's filename timestamp fell inside a different run among five in the log directory, one with zero path-tracer compiles, an advancing frame counter and a clean shutdown. The pasted log was shorter than its on-disk original, which marks a mid-run copy, not a hang.
+
+- **Before reading a log for causes, enumerate every log in the directory with its open/close times,** place the symptom's own timestamp in that timeline, and state which run is being analyzed.
+- **Truncation is a tell of a mid-run grab, not evidence of a hang.**
+- **A monotonic frame counter across a silent stretch proves the frame loop did not stall.**
+- **Run a blank-project control early.** It kills hypotheses that look damning alone by showing them identically in a run that works.
+- **Restate a brief's premise to a dispatched agent as a premise, not a fact.** A fan-out amplifies a mis-scoped artifact; it does not catch it.
+
 ## Verification Must Not Reuse the Fix's Own Assumption — Use an Independent Oracle
 
 A `sed` substitution that silently missed the backtick-wrapped form, and a follow-up `grep` that used the **same backtick-omitting pattern**, falsely confirmed "none remain" — the stale refs shipped and were caught only by a downstream reviewer. When a verification check shares the substitution/assumption of the thing it verifies, a true-negative is indistinguishable from success.
@@ -536,6 +546,21 @@ which is itself evidence the gate was measuring arrival and nothing else. Before
 delivery gate as proof of compliance, dogfood the injected contract against a live child and check
 whether its *behavior* changed, not just whether the bytes showed up in its context.
 
+## Diagnostics During A Live Dispatch Wave Describe A Torn File, Not A Defect
+
+While a dispatch wave is live, diagnostics on files in that wave's write set are unactionable: the
+diagnostic stream fires on every save and an executor saves many times per chunk, so it samples a
+half-written file. Observed artifacts: a name "no longer used", a variable "never read" four lines
+before its use, an unresolvable import for a module the same wave was mid-creating. Resolve them
+as EM-verify already resolves an executor's pass claim: run the compiler and the test runner
+yourself, one discipline for both. Diagnostics on files OUTSIDE the live write set stay real; act
+on them at once.
+
+A second class is not transient: a diagnostic that survives a clean project-wide typecheck (for
+example type errors on test files under a tsconfig whose `types` excludes `node`, while the
+project's own compile is clean) is a configuration divergence and reports the same errors forever
+on correct code. Read which config the editor resolved for that path; never edit correct code to
+satisfy it.
 ## Related
 
 - CLAUDE.md § Verification Before Done — boot-context rules (shipped-on-main, concurrent-sweep verify, smoke-test dispatch).

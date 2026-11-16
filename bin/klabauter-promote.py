@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """klabauter-promote.py — the deliberate, gated act that moves bits from
 the `candidate` release channel onto `main`, the branch consumers get on a
 fresh clone.
@@ -59,12 +60,14 @@ Negative-spec (do not restore any of this as a "fix"):
     (DR-314, PM ruling 2026-10-15); do not restore a soak floor as a fix.
 
 Usage:
-    klabauter-promote.py <target> [--percolate-root <path>] [--confirm]
+    klabauter-promote.py <target> [--percolate-root <path>]
+        [--dest-root-override <clone>] [--confirm]
 
 Exit codes:
     0 — dry-run: predicates 1-5 all passed (nothing pushed),
-        or `--confirm`: the fast-forward push of `main` succeeded.
-    1 — `--confirm` and the push failed (forwarded git exit code), or the
+        or `--confirm`: the push succeeded and remote `main` reads the candidate sha.
+    1 — `--confirm` and the push failed (forwarded git exit code) or remote
+        `main` does not equal the candidate sha afterwards, or the
         default-branch resolution needed to name `main` failed.
     2 — usage error (bad argv, target not resolvable), or refused because
         one or more of predicates 1-5 failed.
@@ -240,10 +243,13 @@ def _dest_and_marker_refusals(
     return refusals, not dest_refusal, branch_head
 
 
-def _check_candidate_pushed(dest: str, candidate_branch: str) -> Optional[str]:
+def _check_candidate_pushed(
+    dest: str, candidate_branch: str,
+) -> Tuple[Optional[str], Optional[str]]:
     """Predicate 5 — origin/candidate equals the local candidate tip. One
     `for-each-ref` spawn; an absent ref is missing from its output, so
-    absent and lagging both refuse."""
+    absent and lagging both refuse. Returns `(refusal, local_candidate_sha)`;
+    the sha is the one the post-push remote read is compared against."""
     _bootstrap_engine()
     prefix = "klabauter-promote: predicate 5 (candidate pushed)"
     local_ref = f"refs/heads/{candidate_branch}"
@@ -256,13 +262,13 @@ def _check_candidate_pushed(dest: str, candidate_branch: str) -> Optional[str]:
         return (
             f"{prefix} could not be evaluated — `git for-each-ref` in {dest} "
             f"exited {result.returncode}. Refusing.\n" + (result.stderr or "").strip()
-        )
+        ), None
     shas = dict(
         line.split(" ", 1) for line in (result.stdout or "").splitlines() if " " in line
     )
     local_sha, remote_sha = shas.get(local_ref), shas.get(remote_ref)
     if local_sha is not None and local_sha == remote_sha:
-        return None
+        return None, local_sha
     seen = f"origin/{candidate_branch} at {remote_sha[:12]}" if remote_sha else (
         f"origin/{candidate_branch} absent"
     )
@@ -270,7 +276,7 @@ def _check_candidate_pushed(dest: str, candidate_branch: str) -> Optional[str]:
         f"{prefix} FAILED — candidate unpushed: local '{candidate_branch}' "
         f"{(local_sha or 'unresolved')[:12]} but {seen} in {dest}. Refusing: "
         f"run `git -C {dest} push origin {candidate_branch}`, then re-run."
-    )
+    ), local_sha
 
 
 def _wrong_channel_refusal(dest: str, branch_head: Optional[str], candidate_branch: str) -> str:
@@ -284,11 +290,12 @@ def _wrong_channel_refusal(dest: str, branch_head: Optional[str], candidate_bran
 
 def _evaluate_bar(
     dest: str, target: str, percolate_root: str, candidate_branch: str, main_branch: str,
-) -> List[str]:
-    """Returns the refusals (predicates 1-5). Prints nothing."""
+) -> Tuple[List[str], Optional[str]]:
+    """Returns `(refusals, candidate_sha)` for predicates 1-5. Prints nothing."""
     _bootstrap_engine()
 
     refusals, dest_ok, branch_head = _dest_and_marker_refusals(dest, target, percolate_root)
+    candidate_sha: Optional[str] = None
 
     if dest_ok:
         if branch_head != candidate_branch:
@@ -297,7 +304,7 @@ def _evaluate_bar(
             ff_refusal = _check_fast_forward(dest, candidate_branch, main_branch)
             if ff_refusal:
                 refusals.append(ff_refusal)
-        pushed_refusal = _check_candidate_pushed(dest, candidate_branch)
+        pushed_refusal, candidate_sha = _check_candidate_pushed(dest, candidate_branch)
         if pushed_refusal:
             refusals.append(pushed_refusal)
 
@@ -305,7 +312,7 @@ def _evaluate_bar(
     if wip_refusal:
         refusals.append(wip_refusal)
 
-    return refusals
+    return refusals, candidate_sha
 
 
 @dataclass(frozen=True)
@@ -356,6 +363,21 @@ def _remote_default_branch(dest: str) -> Optional[str]:
     return match.group(1) if match else None
 
 
+def _remote_branch_sha(dest: str, branch: str) -> Optional[str]:
+    """origin's tip of `branch` as the remote reports it, or None when unreadable or absent."""
+    try:
+        result = _run(
+            ["git", "-C", dest, "ls-remote", "origin", f"refs/heads/{branch}"],
+            timeout=_REMOTE_HEAD_TIMEOUT_S,
+        )
+    except Exception:
+        return None
+    if result.returncode != 0:
+        return None
+    fields = (result.stdout or "").split()
+    return fields[0] if fields else None
+
+
 def promote_candidate(
     dest: str, target: str, percolate_root: str, *, confirm: bool,
 ) -> PromotionOutcome:
@@ -385,7 +407,9 @@ def promote_candidate(
             ),
         )
 
-    refusals = _evaluate_bar(dest, target, percolate_root, _CANDIDATE_BRANCH, main_branch)
+    refusals, candidate_sha = _evaluate_bar(
+        dest, target, percolate_root, _CANDIDATE_BRANCH, main_branch,
+    )
     if refusals:
         return _refused(refusals, target, main_branch)
 
@@ -413,6 +437,19 @@ def promote_candidate(
             main_branch=main_branch, promoted_sha=None,
             message=(result.stderr or result.stdout or "").strip(),
         )
+    # rc 0 is not proof the remote moved: read main back and compare to the pushed tip.
+    remote_sha = _remote_branch_sha(dest, main_branch)
+    if remote_sha != candidate_sha:
+        return PromotionOutcome(
+            promoted=False, refusals=(), push_failed=True,
+            main_branch=main_branch, promoted_sha=None,
+            message=(
+                f"klabauter-promote: NOT promoted — push of {push_refspec!r} from {dest} "
+                f"exited 0 but remote '{main_branch}' reads "
+                f"{remote_sha or 'unreadable'} while '{_CANDIDATE_BRANCH}' is "
+                f"{candidate_sha}."
+            ),
+        )
     # The push moves only the remote ref; a local main left behind reads as an unpromoted
     # tree to anyone checking `git log main` in the mirror. Fast-forward-only, so it never rewrites.
     local = _run(["git", "-C", dest, "fetch", ".", push_refspec])
@@ -424,7 +461,7 @@ def promote_candidate(
         )
     return PromotionOutcome(
         promoted=True, refusals=(), push_failed=False,
-        main_branch=main_branch, promoted_sha=None,
+        main_branch=main_branch, promoted_sha=candidate_sha,
         message=(
             f"klabauter-promote: promoted '{_CANDIDATE_BRANCH}' onto "
             f"'{main_branch}' for target '{target}' (fast-forward push, "
@@ -432,6 +469,22 @@ def promote_candidate(
         ),
         followup_warning=warning,
     )
+
+
+def _relocate_dest_to_clone(dest: str, clone_root: str) -> Optional[str]:
+    """The round's override clone standing in for the live `dest`, via
+    `DestRootOverride`; None (after a stderr line) when the mapping is invalid."""
+    lib_dir = str(_BIN_DIR.parent / "lib")
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
+    from percolate.targets import DestRootOverride  # type: ignore[import-not-found]
+
+    try:
+        moved = DestRootOverride.of(dest, clone_root).relocate(dest)
+    except ValueError as exc:
+        print(f"klabauter-promote: {exc}", file=sys.stderr)
+        return None
+    return str(moved)
 
 
 def _cmd_promote(args: argparse.Namespace) -> int:
@@ -445,6 +498,11 @@ def _cmd_promote(args: argparse.Namespace) -> int:
     dest = _resolve_dest(target, percolate_root)
     if dest is None:
         return _EXIT_USAGE
+
+    if args.dest_root_override:
+        dest = _relocate_dest_to_clone(dest, args.dest_root_override)
+        if dest is None:
+            return _EXIT_USAGE
 
     outcome = promote_candidate(dest, target, percolate_root, confirm=bool(args.confirm))
     if outcome.main_branch is None:
@@ -478,6 +536,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--percolate-root",
         required=False,
         help="Override PERCOLATE_ROOT (default: percolate-gate.py resolve-root).",
+    )
+    parser.add_argument(
+        "--dest-root-override",
+        required=False,
+        help="The scratch clone the publish round committed in (publish's "
+        "--dest-root-override); promote evaluates and pushes there, not in the live dest.",
     )
     parser.add_argument(
         "--confirm",

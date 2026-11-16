@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # merge-assemble — CLI trampoline over claude-klabauter
 # coordinator_core.merge_assemble (the computed-skill assembler for
 # `/merge-to-main`'s branch/release-tag/PR ceremony). Direct-import variant

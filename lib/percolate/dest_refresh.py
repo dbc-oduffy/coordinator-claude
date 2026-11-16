@@ -62,11 +62,14 @@ in its history, keeps the refusal.
 
 from __future__ import annotations
 
+import os
 import re
+import io
+import time
 
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import List, Optional, TextIO
+from typing import List, Optional, Sequence, TextIO
 
 from coordinator_core.git.run import GitResult, run_git
 from percolate.interrupted_op import (
@@ -75,6 +78,10 @@ from percolate.interrupted_op import (
     peer_merge_message,
 )
 from percolate.peer_merge_regen import resolve_derived_after_merge
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from types import ModuleType
 
 _SOURCE_HEAD_STAMP = re.compile(r"\[source-head ([0-9a-f]{7,40})\]")
 
@@ -95,6 +102,7 @@ class RefreshResult:
     landing_tip: Optional[str] = None
     pending_abort: bool = False
     subsumed: tuple = ()
+    refresh_head: Optional[str] = None
 
 
 def _git(repo_root: Path, args: List[str], *, remote: bool = False) -> GitResult:
@@ -122,6 +130,37 @@ def _git(repo_root: Path, args: List[str], *, remote: bool = False) -> GitResult
 def _last_line(text: str, fallback: str) -> str:
     stripped = (text or "").strip()
     return stripped.splitlines()[-1] if stripped else fallback
+
+
+_FETCH_FAILURE_MODULE = None
+
+
+def _fetch_failure_module() -> ModuleType:
+    """`coordinator/bin/lib/git_fetch_failure.py`, loaded by path: lib/ has no import route to bin/lib."""
+    global _FETCH_FAILURE_MODULE
+    if _FETCH_FAILURE_MODULE is None:
+        import importlib.util
+
+        from coordinator_core.bin_lib_binding import exec_module_bin_bound
+
+        path = Path(__file__).resolve().parents[2] / "bin" / "lib" / "git_fetch_failure.py"
+        spec = importlib.util.spec_from_file_location("git_fetch_failure", path)
+        module = importlib.util.module_from_spec(spec)
+        exec_module_bin_bound(spec.loader, module, str(path.parent.parent))
+        _FETCH_FAILURE_MODULE = module
+    return _FETCH_FAILURE_MODULE
+
+
+def _fetch_failure_text(repo_root: Path, stderr: str, *, remote: str = "origin") -> str:
+    """git's last stderr line, the remote's URL and (ssh agent failure) the remediation.
+
+    Failure path only. `remote="."` names the local-ref fetch, which has no URL to look up.
+    """
+    shared = _fetch_failure_module()
+    url = remote if remote == "." else _git(repo_root, ["remote", "get-url", remote]).stdout.strip()
+    text = shared.fetch_failure_detail(stderr, url)
+    remediation = shared.ssh_remediation(stderr)
+    return "{0}; {1}".format(text, remediation) if remediation else text
 
 
 def _branch_and_upstream(repo_root: Path) -> "tuple[Optional[str], Optional[str], Optional[str]]":
@@ -265,7 +304,7 @@ def _refresh_local_main(repo_root: Path, checked_out: Optional[str]) -> Optional
         return (
             "local `main` in {0} could not be fast-forwarded to origin/main ({1}); "
             "the round lands on the checked-out branch and proceeds".format(
-                repo_root, _last_line(proc.stderr, "git fetch failed")
+                repo_root, _fetch_failure_text(repo_root, proc.stderr, remote=".")
             )
         )
     return None
@@ -438,7 +477,7 @@ def fetch_dest_upstream(
             reason=(
                 "could not fetch origin for {0} ({1}); publishing from a clone that could "
                 "not be brought level would overwrite whatever another box has already "
-                "landed".format(repo_root, _last_line(fetch.stderr, "git fetch failed"))
+                "landed".format(repo_root, _fetch_failure_text(repo_root, fetch.stderr))
             ),
             branch=branch,
             upstream=upstream,
@@ -494,8 +533,9 @@ def fetch_dest_upstream(
         )
 
     tip_ref = upstream if (behind and not ahead) else "HEAD"
+    refresh_head = _resolve_commit(repo_root, "HEAD")
     landing_tip = _resolve_commit(repo_root, tip_ref)
-    if landing_tip is None:
+    if landing_tip is None or refresh_head is None:
         return RefreshResult(
             repo_root,
             ok=False,
@@ -516,7 +556,157 @@ def fetch_dest_upstream(
         landing_tip=landing_tip,
         pending_abort=pending_abort,
         subsumed=tuple(subsumed or ()),
+        refresh_head=refresh_head,
     )
+
+
+def dest_dirty_tracked(repo_root: Path) -> List[str]:
+    """Tracked paths with uncommitted changes in `repo_root` (read-only; untracked files ignored)."""
+    status = _git(Path(repo_root), ["status", "--porcelain", "--untracked-files=no"])
+    return [line[3:] for line in status.stdout.splitlines() if line.strip()]
+
+
+def dry_run_refusal(result: RefreshResult) -> Optional[str]:
+    """Why a `--dry-run` preview over this fetched destination is untrustworthy, else None.
+
+    A dry-run never fast-forwards, so it previews against the worktree as it sits: a clone
+    behind its upstream (or needing the real run's merge) previews a stale base, and tracked
+    edits would be previewed as if committed. Writes nothing.
+    """
+    if not result.ok:
+        return result.reason
+    repo_root, upstream = result.repo_root, result.upstream
+    if (result.pending_abort or result.subsumed) and not result.behind:
+        return (
+            "{0}'s {1} needs the real run's merge step against {2} (interrupted or subsumed "
+            "peer merge); a dry-run previews a stale base.\n"
+            "  Fix: run the real refresh (no --dry-run) or resolve the merge in {0}, then re-run".format(
+                repo_root, result.branch, upstream
+            )
+        )
+    if result.behind:
+        return (
+            "{0}'s {1} is {2} commit(s) behind {3} (its Percolate-Source-Head tip); a dry-run "
+            "previews the stale base and a publish from it rolls back newer publishes.\n"
+            "  Fix: git -C {0} merge --ff-only {3}, then re-run".format(
+                repo_root, result.branch, result.behind, upstream
+            )
+        )
+    dirty = dest_dirty_tracked(repo_root)
+    if dirty:
+        shown = ", ".join(dirty[:5]) + (" ..." if len(dirty) > 5 else "")
+        return (
+            "{0} has {1} uncommitted tracked change(s) ({2}); the dry-run refuses a dirty "
+            "destination clone and never alters it.\n"
+            "  Fix: commit or move the edits aside, then re-run".format(repo_root, len(dirty), shown)
+        )
+    return None
+def preflight_dest_refresh(result: RefreshResult) -> RefreshResult:
+    """Check ordinary fast-forward feasibility before taking a warm handover hold.
+
+    The caller holds the existing destination lock. Git's dry-run preserves the
+    index and worktree, but may take its normal transient index lock. This is
+    advisory: the actual merge still guards against noncooperating writers.
+    Own interrupted merges and source-subsumed merges retain their existing
+    recovery semantics; a two-tree dry-run cannot simulate those operations.
+    """
+    if not result.ok or not result.behind or result.pending_abort or result.subsumed:
+        return result
+    root = result.repo_root
+    branch, current_upstream, name_error = _branch_and_upstream(root)
+    if name_error is not None or current_upstream is None:
+        if branch == "HEAD":
+            return replace(result, ok=False, reason="destination became detached before fast-forward")
+        current_upstream, refusal = _no_upstream_base(root, branch, out=io.StringIO())
+        if refusal is not None:
+            return replace(result, ok=False, reason=refusal)
+    head = _resolve_commit(root, "HEAD")
+    upstream = _resolve_commit(root, result.upstream) if result.upstream else None
+    if (
+        branch != result.branch
+        or current_upstream != result.upstream
+        or head is None
+        or upstream is None
+        or (result.refresh_head is not None and head != result.refresh_head)
+        or (result.landing_tip is not None and upstream != result.landing_tip)
+    ):
+        return replace(result, ok=False, reason="destination branch or refresh commit changed before fast-forward")
+    ancestor = _git(root, ["merge-base", "--is-ancestor", head, upstream])
+    if ancestor.returncode != 0:
+        return replace(result, ok=False, reason="destination is no longer an ordinary fast-forward")
+    probe = _git(root, ["read-tree", "--dry-run", "-m", "-u", head, upstream])
+    if probe.returncode != 0:
+        return replace(result, ok=False, reason="destination fast-forward precondition refused: " + _last_line(probe.stderr or probe.stdout, "read-tree dry-run failed"))
+    return replace(result, refresh_head=head, landing_tip=upstream)
+
+
+_MTIME_SLACK_SECS = 0.1  # filesystem timestamp coarseness against time.time()
+
+
+def _nul_paths(repo_root: Path, args: List[str]) -> List[str]:
+    listed = _git(repo_root, args)
+    return [p for p in (listed.stdout or "").split("\0") if p] if listed.returncode == 0 else []
+
+
+def _rollback_failed_ff(
+    repo_root: Path, prior: Optional[str], upstream: str, merge: GitResult, started: float
+) -> str:
+    """After a failed `merge --ff-only`, put the tree back at `prior`; returns a reason suffix.
+
+    A budget-killed merge strands a zero-byte `.git/index.lock` and a half-written tree
+    while HEAD stays at `prior`. Rolls back only while HEAD is still `prior`: removes the
+    lock only if it is newer than `started` (our killed child's, never a live peer's),
+    restores the `prior..upstream` diff paths from `prior`, and deletes files only
+    upstream adds that this merge wrote. Never `reset --hard`; never raises.
+    """
+    try:
+        if prior is None or _resolve_commit(repo_root, "HEAD") != prior:
+            return ""
+        lock_path = _git(repo_root, ["rev-parse", "--git-path", "index.lock"]).stdout.strip()
+        lock = Path(lock_path) if lock_path else None
+        if lock is not None and not lock.is_absolute():
+            lock = repo_root / lock
+        if lock is not None:
+            try:
+                if lock.stat().st_mtime >= started - _MTIME_SLACK_SECS:
+                    lock.unlink()
+            except OSError:
+                pass
+        diff = ["diff", "--name-only", "-z", "--no-renames"]
+        touched = _nul_paths(repo_root, [*diff, prior, upstream])
+        added = set(_nul_paths(repo_root, [*diff, "--diff-filter=A", prior, upstream]))
+        kept = [p for p in touched if p not in added]
+        if kept:
+            stdin = "\0".join(kept).encode("utf-8") + b"\0"
+            run_git(
+                ["-C", str(repo_root), "--no-optional-locks", "checkout", prior,
+                 "--pathspec-from-file=-", "--pathspec-file-nul"],
+                input=stdin,
+            )
+        for rel in added:
+            target = repo_root / rel
+            try:
+                if target.is_file() and target.stat().st_mtime >= started - _MTIME_SLACK_SECS:
+                    target.unlink()
+                    for parent in target.parents:
+                        if parent == repo_root:
+                            break
+                        parent.rmdir()
+            except OSError:
+                pass
+        if added:
+            run_git(
+                ["-C", str(repo_root), "--no-optional-locks", "reset", "-q", prior,
+                 "--pathspec-from-file=-", "--pathspec-file-nul"],
+                input="\0".join(sorted(added)).encode("utf-8") + b"\0",
+            )
+        dirty = _git(repo_root, ["status", "--porcelain", "--untracked-files=all"]).stdout.strip()
+        note = "timed out" if merge.timed_out else "failed"
+        if dirty:
+            return "; the merge {0} and the tree could not be restored to {1}".format(note, prior[:12])
+        return "; the merge {0} and the tree was restored to {1}".format(note, prior[:12])
+    except Exception as exc:  # contract: never raises
+        return "; rollback failed ({0})".format(exc)
 
 
 def fast_forward_dest(result: RefreshResult, *, out: TextIO, err: TextIO) -> RefreshResult:
@@ -526,6 +716,9 @@ def fast_forward_dest(result: RefreshResult, *, out: TextIO, err: TextIO) -> Ref
     or the `merge --ff-only`, then local `main`. Never raises; a refused step
     returns ok=False with a reason, a refused input result is returned as is.
     """
+    if not result.ok:
+        return result
+    result = preflight_dest_refresh(result)
     if not result.ok:
         return result
     repo_root, branch, upstream = result.repo_root, result.branch, result.upstream
@@ -557,9 +750,12 @@ def fast_forward_dest(result: RefreshResult, *, out: TextIO, err: TextIO) -> Ref
 
     fast_forwarded = False
     if behind:
+        prior = _resolve_commit(repo_root, "HEAD")
+        started = time.time()
         merge = _git(repo_root, ["merge", "--ff-only", upstream])
         if merge.returncode != 0:
             detail = _last_line(merge.stderr or merge.stdout, "ff-only merge failed")
+            detail += _rollback_failed_ff(repo_root, prior, upstream, merge, started)
             return replace(
                 result,
                 ok=False,
@@ -606,15 +802,66 @@ def refresh_dest_from_origin(
     return fast_forward_dest(fetched, out=out, err=err)
 
 
-def fast_forward_consumer(repo_root: Path) -> RefreshResult:
+def _dirt_split(porcelain: str, ignore: Sequence[str]) -> "tuple[int, List[str]]":
+    """(count of dirt outside `ignore`, ignored repo-relative paths that are dirty)."""
+    ignored_set = {p.replace("\\", "/") for p in ignore}
+    other = 0
+    ignored: List[str] = []
+    for line in porcelain.splitlines():
+        if not line.strip():
+            continue
+        path = line[3:].strip()
+        if path in ignored_set:
+            ignored.append(path)
+        else:
+            other += 1
+    return other, ignored
+
+
+def _handover_held(repo_root: Path) -> bool:
+    """Whether a publish marker or handover-pending hold is live for this clone; unreadable reads held."""
+    try:
+        from coordinator_core.warm import breadcrumb
+
+        return bool(
+            breadcrumb.publish_marker_held(breadcrumb.svc_dir(repo_root))
+            or breadcrumb.handover_pending_held(repo_root)
+        )
+    except Exception:  # noqa: BLE001 -- fail closed: skip the restore
+        return True
+
+
+def _put_back(repo_root: Path, saved: "dict[str, Optional[bytes]]") -> None:
+    """Atomically rewrite each saved path to its original bytes; best effort, never raises."""
+    for rel, data in saved.items():
+        if data is None:
+            continue
+        target = repo_root / rel
+        tmp = target.with_name(target.name + ".restore.tmp")
+        try:
+            tmp.write_bytes(data)
+            os.replace(tmp, target)
+        except OSError:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+
+def fast_forward_consumer(repo_root: Path, *, ignore_dirty: Sequence[str] = ()) -> RefreshResult:
     """Fetch, then fast-forward a clean mirror that is strictly behind its upstream.
 
     INVARIANT: a dirty or diverged checkout is reported, never merged; ahead-only is
     ok and left alone. After a fast-forward `behind` reads 0. Never raises.
+    `ignore_dirty` (repo-relative, forward-slash) names paths whose modification is not
+    dirt; when they are the only dirt and the clone is strictly behind they are restored
+    to HEAD so the ff cannot refuse on them.
 
     TRAP: do not route this through `refresh_dest_from_origin` -- its source-stamp
     refusal is publish semantics and would refuse exactly the stale-consumer case.
     A dirty tree still fetches and counts: a fetch never touches the worktree.
+    TRAP: an ignored path may be the live engine stamp (the client token); the restore
+    is skipped while a publish handover is held, and undone if the ff does not land.
     """
     repo_root = Path(repo_root)
     try:
@@ -628,14 +875,14 @@ def fast_forward_consumer(repo_root: Path) -> RefreshResult:
             return RefreshResult(repo_root, ok=False, reason=reason, branch=branch)
 
         status = _git(repo_root, ["status", "--porcelain", "--untracked-files=no"])
-        dirty_count = len([l for l in status.stdout.splitlines() if l.strip()])
+        dirty_count, ignored_dirty = _dirt_split(status.stdout, ignore_dirty)
         dirty = dirty_count > 0
 
         fetch = _git(repo_root, ["fetch", "--no-tags", "--prune", "origin"], remote=True)
         fetch_err = (
             None
             if fetch.returncode == 0
-            else "could not fetch origin ({0})".format(_last_line(fetch.stderr, "git fetch failed"))
+            else "could not fetch origin ({0})".format(_fetch_failure_text(repo_root, fetch.stderr))
         )
 
         ahead, behind, count_err = _ahead_behind(repo_root, upstream)
@@ -666,10 +913,28 @@ def fast_forward_consumer(repo_root: Path) -> RefreshResult:
                 repo_root, branch, upstream, ahead, behind))
         if not behind:
             return result(True)
+        saved: "dict[str, Optional[bytes]]" = {}
+        if ignored_dirty:
+            if _handover_held(repo_root):
+                return result(False, "{0} holds a publish handover; not merged".format(repo_root))
+            for rel in ignored_dirty:
+                try:
+                    saved[rel] = (repo_root / rel).read_bytes()
+                except OSError:
+                    saved[rel] = None
+            restore = _git(repo_root, ["checkout", "--", *ignored_dirty])
+            if restore.returncode != 0:
+                _put_back(repo_root, saved)
+                return result(False, "could not restore {0} ({1})".format(
+                    ", ".join(ignored_dirty), _last_line(restore.stderr or restore.stdout, "checkout failed")))
+        prior = _resolve_commit(repo_root, "HEAD")
+        started = time.time()
         merge = _git(repo_root, ["merge", "--ff-only", upstream])
         if merge.returncode != 0:
-            return result(False, "could not fast-forward ({0})".format(
-                _last_line(merge.stderr or merge.stdout, "ff-only merge failed")))
+            detail = _last_line(merge.stderr or merge.stdout, "ff-only merge failed")
+            detail += _rollback_failed_ff(repo_root, prior, upstream, merge, started)
+            _put_back(repo_root, saved)
+            return result(False, "could not fast-forward ({0})".format(detail))
         return result(True, b=0, ff=True)
     except Exception as exc:  # contract: never raises
         return RefreshResult(repo_root, ok=False, reason="fast_forward_consumer failed: {0}".format(exc))
@@ -693,7 +958,7 @@ def reconcile_dest_before_push(repo_root: Path, *, out: TextIO, err: TextIO) -> 
             repo_root,
             ok=False,
             reason="could not fetch origin for {0} before pushing ({1})".format(
-                repo_root, _last_line(fetch.stderr, "git fetch failed")
+                repo_root, _fetch_failure_text(repo_root, fetch.stderr)
             ),
             branch=branch,
             upstream=upstream,

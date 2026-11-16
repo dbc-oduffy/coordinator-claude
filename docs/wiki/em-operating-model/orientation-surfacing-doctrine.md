@@ -3,6 +3,13 @@ title: Orientation Surfacing Doctrine
 status: active
 kind: doctrine-wiki
 created: 2026-05-18
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
+    omitted_reasons:
+      archived_spec: private-source
+      last_verbose_sha: private-source
+
 ---
 
 # Orientation Surfacing Doctrine
@@ -103,6 +110,23 @@ These rules operate within the boot-time orientation budget. Surfacing extra sub
 The read an EM takes at session start is a snapshot, and it ages as the session runs — a later recommendation built on it can be stale even though nothing about the *recommendation logic* was wrong. Recommending a "next lever" spinoff as still-pending, late in a session, when it had in fact already shipped and been reconciled hours earlier, was caught only by the PM.
 
 **Apply:** before recommending a next pickup or flagging a lever late in a session, re-grep the handoff status and git log with the same reconcile discipline `/pickup` Step 3 already applies — don't trust the session-start read for a recommendation made hours after that read was taken. This is a session-duration instance of the same class as § Anti-Pattern: Carried-Forward Priorities above (a `/workday-start` week-boundary instance); both are the same underlying rule — a status claim decays the moment it stops being re-checked against disk, whatever the time window.
+
+## Session-Start Tiers
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-1-019 -->
+
+Two-tier auto-orientation: a quick orient always runs at session start (a nudge in `coordinator-reminder.sh`); the full `/session-start` runs by EM judgment.
+## Gated Handoffs Always Surface
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-1-045 -->
+
+`awaiting_gate` handoffs always surface in a "Gated handoffs" subsection and the stale flag fires at >6d, not >14d. "Orientation filters that hide a whole category silently are worse than over-surfacing."
+## Orientation Supersession (install-spinoff layer)
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-1-112, batch-1-113, batch-1-114 -->
+
+- **Reuse `supersedes:` on a `kind: spinoff` baton.** No new kind and no parallel orientation-supersession vocabulary; the coordinator stays agnostic and generic over `supersedes: <any-id>`.- **Conditional and live, not terminal.** The superseded orientation is never stamped `status: superseded` and no `superseded_by:` back-pointer is written. A present declaring baton defers X at spine-build time; an absent baton leaves X as the default.- **Validator kind-gate required.** `supersedes:` is allowed on handoff batons only for `kind: spinoff` (not `spinoff-roadmap`), in the `CROSS_FIELD_RULES` handoff block, never the memo block at schema.js:708 whose terminal coupling it must not copy.
+## Orientation Cache Freshness
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-21-023 -->
+
+The orientation cache announces its own staleness at boot at zero extra spawns and self-repairs off the hot path via the sweep-boot hook, so freshness is structural rather than ceremonial. Untracking the cache across twelve repos was safe only after the self-heal landed.
 
 ## Related
 

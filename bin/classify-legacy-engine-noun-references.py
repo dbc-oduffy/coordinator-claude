@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Generate C2's four-class reference manifest: every ``claude-klabauter``-noun LINE across the
 four code trees (``coordinator/``, ``coordinator_core/``, ``bin/``, ``scripts/``),
 classified into exactly one of RENAMEABLE-LOCAL, CONTRACT-BOUND, EXTERNALLY-NAMED-THING,

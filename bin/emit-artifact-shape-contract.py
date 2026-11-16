@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 emit-artifact-shape-contract — CLI trampoline over claude-klabauter
 coordinator_core.ops.emit_artifact_shape_contract.

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Start the shipped agy leg for one conversation, replacing a stale one.
 
 Run by the SessionStart hook (no token: the leg starts pending, queuing peer messages) and inside an
@@ -36,7 +37,7 @@ def detach_kwargs():
     """Popen kwargs that leave the child running after agy's run_command shell exits."""
     if os.name == "nt":
         flags = 0
-        for name in ("CREATE_NEW_PROCESS_GROUP", "DETACHED_PROCESS", "CREATE_NO_WINDOW"):
+        for name in ("CREATE_NEW_PROCESS_GROUP", "CREATE_NO_WINDOW"):  # never DETACHED_PROCESS: test_no_detached_process_spawn
             flags |= getattr(subprocess, name, 0)
         return {"creationflags": flags}
     return {"start_new_session": True}
@@ -62,16 +63,49 @@ def read_request(argv):
     return req if isinstance(req, dict) else {}
 
 
+def nt_loopback_listener_ports(pid):
+    """Ports of the IPv4 loopback TCP listeners owned by `pid`, from GetExtendedTcpTable; [] on failure."""
+    import ctypes
+    from ctypes import wintypes
+    try:
+        iphlpapi = ctypes.WinDLL("iphlpapi")
+        size = wintypes.DWORD(0)
+        af_inet, listener_owner_pid = 2, 3  # AF_INET, TCP_TABLE_OWNER_PID_LISTENER
+        buf = None
+        for _ in range(3):  # the table can grow between the size query and the read
+            err = iphlpapi.GetExtendedTcpTable(buf, ctypes.byref(size), False, af_inet, listener_owner_pid, 0)
+            if err == 0:
+                break
+            buf = ctypes.create_string_buffer(size.value)
+        else:
+            return []
+        # MIB_TCPTABLE_OWNER_PID: DWORD count, then count rows of six DWORDs
+        # (state, localAddr, localPort, remoteAddr, remotePort, owningPid).
+        count = ctypes.c_uint32.from_buffer(buf).value
+        cells = (ctypes.c_uint32 * (1 + 6 * count)).from_buffer(buf)
+    except (OSError, AttributeError, ValueError, TypeError):
+        return []
+    ports = []
+    for i in range(count):
+        _, addr, port, _, _, owner = cells[1 + 6 * i:7 + 6 * i]
+        if owner == pid and addr == 0x0100007F:  # 127.0.0.1, network byte order read little-endian
+            ports.append(((port & 0xFF) << 8) | ((port >> 8) & 0xFF))
+    return ports
+
+
 def discover_ls_address(agy_pid):
     """"127.0.0.1:<port>" of a TCP listener held by agy_pid (the lowest port), else None.
 
     agy's language server runs in-process, so its listening ports are the pid's own. The pick is a
     heuristic (not verified as the LS) and only stamps the pending record; the live relaunch takes its
     address from env. None on Windows, without lsof, on failure, or when the pid holds no loopback
-    listener.
+    listener. On Windows the pid's listeners come from the IP Helper TCP table, no subprocess.
     """
-    if os.name == "nt" or not isinstance(agy_pid, int) or agy_pid <= 0:
+    if not isinstance(agy_pid, int) or agy_pid <= 0:
         return None
+    if os.name == "nt":
+        ports = nt_loopback_listener_ports(agy_pid)
+        return f"127.0.0.1:{min(ports)}" if ports else None
     try:
         out = subprocess.run(["lsof", "-a", "-p", str(agy_pid), "-iTCP", "-sTCP:LISTEN", "-Fn"],
                              capture_output=True, text=True, timeout=5).stdout
@@ -112,11 +146,11 @@ def start(req, roster, state):
     env["AGY_LEG_LOG"] = str(state / f"{conv}.log")
     if isinstance(req.get("agyPid"), int) and req["agyPid"] > 0:
         env["AGY_LEG_PARENT_PID"] = str(req["agyPid"])  # the leg exits when this agy does
-    p = subprocess.Popen([sys.executable, str(HERE / "unimatrix-agy-leg.py"), ep], env=env,
+    p = subprocess.Popen([roster.console_python(), str(HERE / "unimatrix-agy-leg.py"), ep], env=env,
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          **detach_kwargs())
     write_record(record, {"pid": p.pid, "conversation": conv, "endpoint": ep, "ls_address": ls,
-                          "agy_pid": req.get("agyPid"), "mode": "live" if live else "pending"})
+                          "cwd": req.get("cwd") or os.getcwd(), "agy_pid": req.get("agyPid"), "mode": "live" if live else "pending"})
 
 
 def main(argv=None):

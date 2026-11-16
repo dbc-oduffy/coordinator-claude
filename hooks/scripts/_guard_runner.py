@@ -52,6 +52,7 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 
 #: Runner-owned sys.path setup (clause 4: guard code itself must never
@@ -291,7 +292,7 @@ def _invoke_guard_main(main_fn: Callable[[], int], stdin_text: str) -> GuardVerd
     return verdict or {}
 
 
-def _import_guard_module(guard: RegisteredGuard):
+def _import_guard_module(guard: RegisteredGuard) -> ModuleType:
     """Stage-two import: only reached once guard.descriptor.matches(target_path) is already
     True. Uses importlib.util.spec_from_file_location (not import_module) because guard
     filenames are hyphenated and not importable dotted names; the module is registered into

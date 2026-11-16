@@ -1,26 +1,19 @@
-"""SessionStart hook — writes this plugin's own root to a fixed `$HOME` path so the
-plugin-shipped `subagentStatusLine` command can locate a script inside its own plugin.
+"""SessionStart hook — writes this plugin's own root to a fixed `$HOME` path so consumers
+outside a hook (the main status line's registration check in `bin/statusline.py`, the
+coordinator-update skill's `compute-update-delta.py`) can locate the installed plugin.
 
-WHY A BREADCRUMB EXISTS AT ALL. `statusline.md:223` says a plugin may ship a default
-`subagentStatusLine` in its settings.json, and every other plugin surface locates its own files
-through `${CLAUDE_PLUGIN_ROOT}`. That placeholder does NOT resolve inside a `subagentStatusLine`
-command: observed on Claude Code 2.1.269, Windows 11, the variable is absent from the command's
-environment entirely, the working directory is the PROJECT rather than the plugin, and the only
-path-bearing `CLAUDE_*` variable in scope is `CLAUDE_PROJECT_DIR` (upstream
-anthropics/claude-code#81320, open, reproduced on Linux by a collaborator). A plugin-shipped
-statusline command therefore has no in-band way to find its own script. Hooks are the seam where
-`${CLAUDE_PLUGIN_ROOT}` DOES resolve, so this hook hands the statusline command the one fact it
-cannot obtain for itself.
+WHY A BREADCRUMB EXISTS AT ALL. Hooks are the seam where `${CLAUDE_PLUGIN_ROOT}` resolves; a
+bare shell command or a script run by the operator has no in-band way to find the plugin, so
+this hook hands them the one fact they cannot obtain for themselves.
 
-FORWARD SLASHES, ALWAYS. The breadcrumb is consumed inside a double-quoted shell word on every
-platform, and `statusline.md § Troubleshooting` records that on Windows with Git Bash installed,
-backslashes in a statusline command path are consumed as escape characters before the command
-runs. A Windows root is written with forward slashes throughout, never with backslash separators.
+FORWARD SLASHES, ALWAYS. The breadcrumb is consumed inside double-quoted shell words, and on
+Windows with Git Bash installed backslashes in a command path are consumed as escape
+characters. A Windows root is written with forward slashes throughout, never with backslash
+separators.
 
-`$HOME`, not `$TMPDIR` or the settings home. The consumer is a bare shell command string with no
-coordinator environment loaded: `$TMPDIR` is unset in Git Bash on Windows, and
-`$COORDINATOR_SETTINGS_HOME` is not guaranteed to be exported into the harness's statusline
-environment. `$HOME` resolves identically in Git Bash and every POSIX shell.
+`$HOME`, not `$TMPDIR` or the settings home. The consumers run with no coordinator environment
+loaded: `$TMPDIR` is unset in Git Bash on Windows, and `$COORDINATOR_SETTINGS_HOME` is not
+guaranteed to be exported. `$HOME` resolves identically in Git Bash and every POSIX shell.
 
 ONE SOURCE OF TRUTH. The value is the `installPath` of the installed `coordinator@*` record in
 `~/.claude/plugins/installed_plugins.json`, not the running hook's own `__file__`, so sessions
@@ -28,12 +21,11 @@ loaded from a cache and from a source clone write the same bytes. Only when no r
 does the hook fall back to its own root, and never when that root is a non-authoring source
 clone (a consumer profile).
 
-KNOWN LIMIT: `disableAllHooks` leaves no breadcrumb, so rows fall back to the harness's own
-default render — degraded, never broken.
+KNOWN LIMIT: `disableAllHooks` leaves no breadcrumb; readers degrade to their own fallback.
 
-WRITTEN ATOMICALLY, because the reader is a `cat` on a hot path. The consumer runs once per
-statusline refresh tick in every live session, so a plain `write_text` — open, truncate, write,
-close — exposes a window where a concurrent reader sees an empty or half-written path. Writing to
+WRITTEN ATOMICALLY, because a reader may run on a hot path. A plain `write_text` — open,
+truncate, write, close — exposes a window where a concurrent reader sees an empty or
+half-written path. Writing to
 a sibling temp file and `os.replace`-ing it over the target closes that window on POSIX and
 Windows alike: a reader sees either the old path or the new one, never a partial one. Sessions
 racing each other still last-writer-wins, which is harmless — they write identical bytes.
@@ -45,8 +37,8 @@ Contract:
             "side-effect write, no context-bound output, must not sit on boot latency".
   exit 0  — ALWAYS. Every failure mode (unresolvable `$HOME`, an unwritable or read-only path, a
             concurrent writer) degrades to a silent no-op. A SessionStart hook that raises greets
-            every session in the fleet with a stack trace; a missing breadcrumb costs a default
-            statusline row.
+            every session in the fleet with a stack trace; a missing breadcrumb only
+            degrades its readers to their fallback.
 
 Idempotence: reads the current value first and writes nothing when it already matches this
 plugin's root, so a healthy box pays one small read per session and returns.
@@ -69,7 +61,7 @@ try:
 except Exception:  # pragma: no cover - partial-deploy defence
     # A stub, never a second resolver: an unimportable `_engine_root` drops the breadcrumb
     # rather than depth-counting a root the shared helper exists to compute correctly.
-    def _find_plugin_root(start):  # type: ignore[no-redef]
+    def _find_plugin_root(start) -> None:  # type: ignore[no-redef]
         return None
 
 

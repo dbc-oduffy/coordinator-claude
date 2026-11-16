@@ -45,21 +45,21 @@ _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 # The platform persists this script's stdout nowhere a session can reach, so the log file is the
 # only durable channel for "which route did a phase take?" after the fact.
 class _Tee:
-    def __init__(self, *streams):
+    def __init__(self, *streams) -> None:
         self._streams = streams
 
-    def write(self, text):
+    def write(self, text) -> int:
         for stream in self._streams:
             stream.write(text)
             stream.flush()
         return len(text)
 
-    def flush(self):
+    def flush(self) -> None:
         for stream in self._streams:
             stream.flush()
 
 
-def _run(argv, *, cwd=None, env=None):
+def _run(argv, *, cwd=None, env=None) -> tuple[int, str]:
     """Run `argv` with stdin closed; returns (returncode, combined output). A spawn failure is
     returned as rc 127 rather than raised -- every phase here is best-effort."""
     try:
@@ -72,11 +72,11 @@ def _run(argv, *, cwd=None, env=None):
     return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
 
 
-def _tail(text, count):
+def _tail(text, count) -> str:
     return "\n".join(text.rstrip("\n").splitlines()[-count:])
 
 
-def _clone(url, dest):
+def _clone(url, dest) -> bool:
     if (dest / ".git").is_dir():
         print(f"clone {dest}: present already")
         return True
@@ -89,7 +89,7 @@ def _clone(url, dest):
     return False
 
 
-def _pick_root():
+def _pick_root() -> Path:
     # /opt is the documented seed location; $HOME is the fallback. Which one we get changes the
     # paths the env-var block must carry, so this is decided first.
     try:
@@ -102,7 +102,7 @@ def _pick_root():
         return root
 
 
-def _phase0_probe():
+def _phase0_probe() -> Path:
     print("=== phase 0: probe (facts unestablishable from a developer host) ===")
     import getpass
     print(f"whoami={getpass.getuser()}  HOME={HOME}  PWD={os.getcwd()}")
@@ -123,7 +123,7 @@ def _phase0_probe():
     return root
 
 
-def _phase2_deps():
+def _phase2_deps() -> None:
     print("=== phase 2: engine runtime deps ===")
     # --break-system-packages is deliberately NOT a route: the engine's own installer refuses that
     # path, and a setup script that took it would leave a machine the installer then declines.
@@ -135,7 +135,7 @@ def _phase2_deps():
         print("deps: FAIL — engine will not import; coordinator loads degraded")
 
 
-def _phase2b_lsp():
+def _phase2b_lsp() -> None:
     print("=== phase 2b: LSP binaries ===")
     # The LSP plugin keys without these binaries is a silent failure, not a degraded install; the
     # engine's cloud_setup.py only pins PATH to them and installs nothing.
@@ -149,7 +149,7 @@ def _phase2b_lsp():
     print(f"lsp: installed, NOT on setup PATH: {', '.join(missing)}" if missing else "lsp: OK")
 
 
-def _phase3_register(root, have_plugin):
+def _phase3_register(root, have_plugin) -> None:
     print("=== phase 3: register the plugin in user settings ===")
     # The `directory` source sidesteps the hosted surface: Claude Code reads the marketplace
     # manifest off local disk at launch and clones nothing. The mirror is FLAT -- its
@@ -176,7 +176,7 @@ def _phase3_register(root, have_plugin):
         print("settings: FAIL")
 
 
-def _phase3b_doctrine(root):
+def _phase3b_doctrine(root) -> None:
     print("=== phase 3b: global doctrine into the VM's own HOME ===")
     # Copy, never mirror-and-prune: $HOME/.claude is the operator's and may carry seeded content.
     # Search order: authoring copy, sibling-checkout glob, then the published copy under the
@@ -209,7 +209,7 @@ def _phase3b_doctrine(root):
     print(f"doctrine: OK -> $HOME/.claude/CLAUDE.md (from {source}); {rules_status}")
 
 
-def _write_engine_pointer(engine):
+def _write_engine_pointer(engine) -> Path:
     # `.claude-klabauter-root`, NOT `-live-root`: the first is the PUBLISHED-build rung, the
     # second a live working tree accepted on isdir alone. We clone the published mirror; the wrong
     # name resolves it AS a live tree, silently taking the manual test-and-execute carve-out.
@@ -219,7 +219,7 @@ def _write_engine_pointer(engine):
     return pointer
 
 
-def _phase4_pointer(engine, have_engine):
+def _phase4_pointer(engine, have_engine) -> None:
     print("=== phase 4: engine root pointer ===")
     if not have_engine:
         print("engine pointer: SKIPPED (no engine clone)")
@@ -230,7 +230,7 @@ def _phase4_pointer(engine, have_engine):
     print(f"engine pointer: OK -> {engine}")
 
 
-def _phase4b_install(engine, have_engine):
+def _phase4b_install(engine, have_engine) -> None:
     print("=== phase 4b: run the engine installer ===")
     if not have_engine:
         print("engine install: SKIPPED (no engine clone)")
@@ -274,7 +274,7 @@ print(f"review payload: OK ({root})")
 '''
 
 
-def _phase5_verify(root, have_plugin, have_engine):
+def _phase5_verify(root, have_plugin, have_engine) -> None:
     print("=== phase 5: verify what the session will actually see ===")
     plugin, engine = root / "coordinator-claude", root / "claude-klabauter"
     if have_plugin:
@@ -312,7 +312,7 @@ def _phase5_verify(root, have_plugin, have_engine):
     print("  Until a row there is filled, treat cloud hook coverage as unknown, not present.")
 
 
-def main():
+def main() -> None:
     root = _phase0_probe()
     print("=== phase 1: clone (setup-phase egress, not the session's) ===")
     # Claude Code connects to the agent proxy AFTER this script runs, so reachability here is its

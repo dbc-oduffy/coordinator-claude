@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 navi-singleton.py -- one-per-box Navi claim, and the in-instance poke-dedup
 ledger.

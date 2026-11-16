@@ -1,6 +1,6 @@
 ---
 name: review-code
-description: "Review a code diff/PR, or apply landed findings — findings land on the artifact."
+description: "Review a code diff/PR, or apply landed findings to the artifact."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "Skill", "AskUserQuestion", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList"]
 argument-hint: ""
 ---

@@ -1,5 +1,17 @@
 ---
 last-updated: 2026-08-30
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
+    omitted_reasons:
+      archived_spec: private-source
+      last_verbose_sha: private-source
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-20h30
+    omitted_reasons:
+      archived_spec: no-archived-spec (source is a daily summary)
+      original_path: no-move
+      last_verbose_sha: sha-unresolved
 ---
 
 # Citation Integrity
@@ -272,6 +284,26 @@ single-valued, so one reply answering two inbound memos leaves the second one pe
 re-flagged as unreplied by every future pickup scan — not a citation defect itself, but the same
 shape of a mechanism that cannot represent a real, already-resolved link.)
 
+## Cutting a section out of a doctrine file orphans every citation to it
+
+A section citation depends on the section still existing, and corpus checking resolves at the page
+level: removing or renaming a section of a canonical or force-loaded page leaves every citation
+resolving `live` (the page exists) while pointing at content that is gone. Most such citations are
+backticked prose, so a page-level link checker is blind twice over.
+
+The citing sites are not confined to wiki pages. One 121-to-88-line cut to an always-loaded
+instruction file left live citations in test docstrings, a `pytest.fail` message naming the missing
+section, and install/validate scripts — none read by a link checker, a test suite, or a ratchet.
+One orphan still asserted a ruling the cut had reversed: not an absent target but a present, wrong
+one.
+
+**Rule:** before committing a cut to a canonical or force-loaded doc, grep the whole tree — code
+comments, install scripts, test-failure messages, not just `docs/` — for the filename plus the
+section markers being removed, and repoint each hit at the new canonical home. Where the new home
+does not carry the specifics the citation claims, leave the citation stale and record it; a
+citation that reads as current and isn't is worse than a visibly dead one, because it looks
+checked.
+
 ## The tell: a clean link-checker run says nothing here
 
 See the companion tripwire,
@@ -401,6 +433,27 @@ on something a human has not yet classified, and the classification it needs —
 new member into the baseline is legitimate when a detection class is introduced; laundering an
 unexamined defect into it is not, and the two are indistinguishable in the file afterwards.
 
+## Ratchet mechanics and the gates built on it
+
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-21-039, batch-22-030, batch-22-031, batch-22-092, batch-32-017, batch-32-018, batch-32-030 -->
+
+- **Violation identity is file+target, not file+line.** A one-paragraph insertion once shifted
+  lines and reclassified a page's standing baseline entries as new. The gate runs at
+  `/update-docs` Phase 11m, skips silently where no baseline exists, and refuses to emit a
+  baseline against a dirty tree.
+- **The comparability guard must fingerprint the whole semantics set, not one module.** It once
+  fingerprinted a single module, so a seed-allowlist change reclassified citations with no corpus
+  edit. It now fingerprints the full semantics set, and a static AST pass covers the detector's
+  load call sites.
+- **Adding the wikilink grammar moved the numbers.** The dead-end population went 428 -> 369;
+  26 orphaned citations were repaired (13 redirected, 5 deleted and reworded) and 33 candidates
+  were skipped as mentions, not pointers.
+- **Dead citations in skills, commands, agents, snippets and global doctrine are an enforcing
+  gate**: `test_no_cmd_sibling_citation.py` gates three citation classes (a tripwire nobody
+  greps discharges nothing). A checker reporting 7,525 findings fell to 1,459 real ones once
+  extraction stopped treating every backtick span as a citation: extraction precision is the
+  checker's whole value.
+
 ## Decision citations — a bare `DR-` id has no `.md` to check
 
 A prose `DR-nnn` or `SC-DR-nnn` token carries no filename, so every `.md`-shaped grammar above is
@@ -446,3 +499,8 @@ not a real citation inside a fenced block; the scanner skips fences.
 - `docs/research/llm-wiki-doctrine-corpus/2026-08-30-17h00-llm-wiki-doctrine-corpus/workdir/own-side-audit.md` — the
   original 805-file audit this page's figures supersede.
   dispatched from (chunk C7).
+
+## Scripts are cited by bare name: the PATH-namespace invariant
+
+<!-- PROVENANCE: run 2026-11-13-20h30, derived from batch-1-042 -->
+Coordinator scripts live on PATH, so a runnable block names them bare (`check-decision-citations --check`) and never with a `bin/` prefix. A `bin/`-prefixed name in a runnable block resolves only from one working directory and breaks on every other host. The citation sweep treats a `bin/` prefix inside a runnable block as a defect; prose that names a source file path (for example `coordinator/bin/check-decision-citations.py`) is a different statement and stays. The PowerShell and `.exe` lines in "Decision citations" are host-specific invocation forms of the same bare-name rule, not duplicates of it.

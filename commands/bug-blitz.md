@@ -1,6 +1,6 @@
 ---
 name: bug-blitz
-description: "Submit a bug-blitz as one coordinator:bug-blitz Workflow call."
+description: "Submit a bug-blitz as one Workflow call."
 allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList"]
 argument-hint: "[--targets=<red-set dir|failing-tests file|backlog>] [--appetite=hunt|standard|sweep] [--max=N] [--budget-tokens=N]"
 ---
@@ -32,7 +32,12 @@ restate it.
 `--targets=<red-set dir | failing-tests file | backlog>` — the submission's `targets` arg (required;
 `backlog` when none is named and no evidence exists). `--appetite=hunt|standard|sweep` (default `standard`) — passed through to the engine; its
 meaning is the profile's `appetite` block. `standard` stops at 40 agent calls and its `where`
-excludes P3: name `sweep` for a large TF set. `--max=N` → `--limit N`. `--budget-tokens=N` — passed through.
+excludes P3: name `sweep` for a large TF set. `--max=N` → `--limit N`. `--budget-tokens=N` — passed through as `budget_tokens`; a run with none carries the default budget of
+`--budget-tokens=2000000`, never unbudgeted.
+Grinder defaults (`coordinator/docs/wiki/grinder-efficiency-defaults.md`): script-first triage settles
+dedupes, flakes and already-green rows before any agent sees a row; the default budget above applies;
+the EM reads 25/50/75% checkpoints of the budget at its next turn; each green row lands as a scoped
+commit per green row.
 To subset rows add `--where '<JSON DNF>'` (or `--where-file`) to the emit call: an OR of AND-lists
 of `[field, op, value]`, ops `==`/`in`; state in the report any rows it excluded.
 

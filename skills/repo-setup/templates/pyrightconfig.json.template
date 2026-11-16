@@ -1,0 +1,13 @@
+{
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.*",
+    "scratch",
+    "data",
+    "export",
+    "exports",
+    "**/export",
+    "**/exports"
+  ]
+}

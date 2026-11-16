@@ -1320,7 +1320,7 @@ def _wait_for_discovery(
     predicate,
     deadline_secs: float = _BACKEND_WAIT_DEADLINE_SECS,
     tick_secs: float = _BACKEND_WAIT_TICK_SECS,
-):
+) -> Any:
     """Re-read the discovery record until `predicate(record)` accepts one, or the deadline lapses.
 
     Returns the accepted record, or the last record read (possibly `None`) when the deadline
@@ -1413,7 +1413,7 @@ def _ensure_listener_debounced(supervisor, engine_root: Path) -> None:
         return
 
 
-def _import_supervisor():
+def _import_supervisor() -> Any:
     try:
         from coordinator_core.warm import supervisor as _supervisor
 

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 coordinator-renormalize-index — CLI trampoline over claude-klabauter
 coordinator_core.ops.renormalize_index.

@@ -41,7 +41,9 @@
  * unlike this Workflow script) and reads their JSON artifact back with a plain `json.load()` —
  * no windowed transport, because there is no agent reply to truncate. The Workflow itself does
  * NOT dispatch, invoke, or read anything for this phase; it only consumes the already-validated
- * payload and, when it is absent, malformed, or declined, falls back to the Phase-0 agentic
+ * payload. A rag-present gate carries the tree census (`chunk_table.source === "tree"`), consumed
+ * with the census wave skipped, plus `structure_path` (handed to the synthesis agents). Only when
+ * the payload is absent, malformed, or declined does it fall back to the Phase-0 agentic
  * census wave below — the same disposition a declined op produced before the hoist. See
  * `coordinator/docs/wiki/coordinator-tripwires/workflow-agent-as-file-handle.md` for why this
  * work never belonged behind `agent()` in the first place. Chunk-K retirement (claude-klabauter
@@ -75,8 +77,8 @@ export const meta = {
   name: 'deep-architecture-survey',
   description: '/architecture-survey Phase 0-3: Phase-0.5 consume-gate (INPUT.consumeGate, script-produced) -> deterministic chunk census fallback -> EM-side symbols receipt (INPUT.symbolsReceipt) -> Sonnet analysis (LOW-cap sequential sub-batches + ramp + backoff) -> per-system Sonnet synthesis shards + one cross-system agent',
   phases: [
-    { title: 'consume-gate', detail: 'consumes INPUT.consumeGate (EM-side script output: RAG-present predicate + cartography.* op results) — zero agent dispatch; falls back to the census wave when absent or declined' },
-    { title: 'census', detail: 'LOW-cap sequential sub-batches: Haiku per directory-bucket returns structured file list (schema-forced, journaled) — costed fallback when cartography.* is unavailable' },
+    { title: 'consume-gate', detail: 'consumes INPUT.consumeGate (EM-side script output: RAG-present predicate + cartography.* op results) — zero agent dispatch; a rag-present gate carries the tree census (chunk_table.source "tree") and the census wave is skipped, reached only when the gate is absent, malformed or declined' },
+    { title: 'census', detail: 'LOW-cap sequential sub-batches: Haiku per directory-bucket returns structured file list (schema-forced, journaled) — costed fallback, run only when the consume-gate is absent, malformed or declined (a tree or cartography census skips it)' },
     { title: 'inventory', detail: 'consumes INPUT.symbolsReceipt written by the EM-side symbols step (preflight, cartography.symbols, whole-artifact coverage read) — zero agent dispatch, no agentic fallback on partial coverage' },
     { title: 'analysis', detail: 'LOW-cap sequential sub-batches: Sonnet per system, narrative analysis + boundary catalog (schema-forced)' },
     { title: 'synthesis', detail: 'LOW-cap Sonnet shard per system (systems/{name}.md), then one cross-system agent for the atlas-wide files' },
@@ -94,7 +96,9 @@ const INPUT = typeof args === 'string' ? JSON.parse(args) : args
 //   runId: 'YYYY-MM-DD-HHhMM',
 //   repoRoot, mode, scaleTier, since, systemDirs, censusBuckets
 //   existingAtlas: { <systemName>: { content } }   // refresh only; read from the inputPath file
-//   consumeGate: <survey-consume-gate.py stdout> | absent
+//   selection: <survey_select_step.py stdout>       // refresh only; absent -> halt selection-required
+//                                                   //   (changed_systems[].plans[].preview_path, stable_systems)
+//   consumeGate: <survey-consume-gate.py stdout> | absent  // incl. structure_path | null (+ structure_unavailable_reason)
 //   chunkTable: [...] | absent                     // leg 2 of the census-fallback flow
 //   symbolsReceipt: <symbols-receipt.schema.json> | absent  // absent -> halt symbols-step-required
 //   crossSystemModel, pluginRoot                   // optional overrides
@@ -108,6 +112,10 @@ const SCALE_TIER = INPUT.scaleTier || 'full'
 const CENSUS_BUCKETS = INPUT.censusBuckets || []
 const EXISTING_ATLAS = INPUT.existingAtlas || {}
 const SYMBOLS_RECEIPT = INPUT.symbolsReceipt || null
+// survey_select_step.py JSON (schema survey-selection/1); refresh requires it, bootstrap ignores it.
+const SELECTION = (INPUT.selection && Array.isArray(INPUT.selection.changed_systems)) ? INPUT.selection : null
+const CHANGED_BY_NAME = new Map((SELECTION ? SELECTION.changed_systems : []).map((c) => [c.name, c]))
+const STABLE_SYSTEMS = SELECTION && Array.isArray(SELECTION.stable_systems) ? SELECTION.stable_systems : []
 
 const SCRATCH_DIR = `${REPO_ROOT}/state/scratch/deep-architecture-survey/${RUN_ID}`
 
@@ -223,9 +231,10 @@ const COMMON = `Repo: ${REPO_ROOT}. Do NOT git commit (EM commits from the retur
 // `INPUT.consumeGate`, the stdout of `coordinator/bin/survey-consume-gate.py` — an EM-side,
 // pure-stdlib script the caller runs BEFORE this Workflow is invoked and passes through as a
 // pure pass-through (see coordinator/commands/architecture-survey.md § Phase 0). This Workflow
-// dispatches zero agents for this phase: it only reads the already-validated payload and falls
-// back to the Phase-0 agentic census wave when `INPUT.consumeGate` is absent, malformed, or
-// declined (`{ok: false, declined_reason}`, per the script's failure contract) — the same
+// dispatches zero agents for this phase: it only reads the already-validated payload. Under
+// rag-present the payload's chunk_table is the tree census (`source: "tree"`) and the census wave
+// is skipped; the Workflow falls back to the Phase-0 agentic census wave only when
+// `INPUT.consumeGate` is absent, malformed, or declined (`{ok: false, declined_reason}`, per the script's failure contract) — the same
 // disposition a declined op produced before the hoist. See
 // coordinator/docs/wiki/coordinator-tripwires/workflow-agent-as-file-handle.md for why this work
 // never belonged behind `agent()`.
@@ -249,38 +258,60 @@ function phaseZeroFiveConsumeGate() {
   let ragPresent = false
   let churnResult = null
   let chunkTablePayload = null
+  let structurePath = null
+  let structureUnavailableReason = null
   if (consumeGate && typeof consumeGate === 'object') {
     ragPresent = !!consumeGate.rag_present
     churnResult = consumeGate.churn_result || null
     chunkTablePayload = consumeGate.chunk_table || null
+    if (typeof consumeGate.structure_path === 'string' && consumeGate.structure_path) {
+      structurePath = consumeGate.structure_path
+    } else {
+      structureUnavailableReason = consumeGate.structure_unavailable_reason || 'consume-gate output carries no structure_path'
+    }
   }
 
   let censusResults = null
+  let censusSource = null
+  let censusWaveSkipped = false
   let cartographyUsed = false
   let cartographyOversizedSignal = 'unavailable'
 
   if (chunkTablePayload && chunkTablePayload.ok) {
     censusResults = chunkTablePayload.censusShapedResults
-    cartographyUsed = true
+    censusSource = chunkTablePayload.source === 'tree' ? 'tree' : 'cartography'
+    censusWaveSkipped = true
+    cartographyUsed = censusSource === 'cartography'
     cartographyOversizedSignal = chunkTablePayload.oversizedSignalAvailable ? 'available' : 'unavailable'
-    log(`consume-gate: consumed INPUT.consumeGate — cartography.chunk_table extraction succeeded (${censusResults.length} system(s), artifact at ${chunkTablePayload.chunkTablePath}, oversized signal ${cartographyOversizedSignal}) — skipping the agentic census wave entirely`)
+    if (censusSource === 'tree') {
+      log(`consume-gate: consumed INPUT.consumeGate — tree census consumed (rag_present=${ragPresent}, ${censusResults.length} system(s), oversized signal ${cartographyOversizedSignal}) — census wave skipped`)
+    } else {
+      log(`consume-gate: consumed INPUT.consumeGate — cartography.chunk_table extraction succeeded (${censusResults.length} system(s), artifact at ${chunkTablePayload.chunkTablePath}, oversized signal ${cartographyOversizedSignal}) — skipping the agentic census wave entirely`)
+    }
   } else if (chunkTablePayload && !chunkTablePayload.ok) {
-    log(`consume-gate: INPUT.consumeGate declined the cartography.chunk_table path (${chunkTablePayload.declined_reason}) — falling back to the agentic census wave`)
+    log(`consume-gate: INPUT.consumeGate declined the census path (${chunkTablePayload.declined_reason}) — falling back to the agentic census wave`)
   } else if (!consumeGate || typeof consumeGate !== 'object') {
     log('consume-gate: INPUT.consumeGate absent or malformed — falling back to the agentic census wave')
   } else {
-    log(`consume-gate: consumed INPUT.consumeGate — rag_present=${ragPresent}, no cartography extraction attempted this run — falling back to the agentic census wave`)
+    log(`consume-gate: consumed INPUT.consumeGate — rag_present=${ragPresent}, carries no census chunk_table — falling back to the agentic census wave`)
   }
 
-  return { ragPresent, churnResult, censusResults, cartographyUsed, cartographyOversizedSignal }
+  if (structurePath) {
+    log(`consume-gate: structure_path ${structurePath} — handed to the synthesis agents`)
+  } else {
+    log(`consume-gate: structure_unavailable_reason: ${structureUnavailableReason} — synthesis proceeds without structure.json`)
+  }
+
+  return {
+    ragPresent, churnResult, censusResults, censusSource, censusWaveSkipped, cartographyUsed,
+    cartographyOversizedSignal, structurePath, structureUnavailableReason,
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
 // Phase "census" — deterministic-shaped structural extraction (the costed agentic fallback when
-// the consume-gate above reports RAG-absent but a cartography.* op is unavailable/declined, OR
-// when the gate reports RAG-present — in which case the survey should already be reading via
-// mcp__*project-rag*, and this wave's presence here is legacy pre-C-integrate behavior for a
-// caller that hasn't wired that path yet). Returns a per-bucket file list + line counts as
+// the consume-gate above is absent, malformed or declined; a rag-present gate carries the tree
+// census and a rag-absent one the cartography census, and either skips this wave). Returns a per-bucket file list + line counts as
 // STRUCTURED data; clustering into the Phase-1 chunk table happens in plain JS below, zero
 // agent cost, exactly matching the pattern the distill twin uses for nugget->topic clustering.
 // ---------------------------------------------------------------------------------------------
@@ -575,11 +606,19 @@ function analysisBriefFor(system, symbolsArtifactPath) {
     ? `\n\nThis is a REFRESH — existing atlas page below. Preserve unchanged sections verbatim; update only what the inventory shows changed.\n\n### Existing Atlas Page\n${existingPage.content}`
     : ''
 
+  const previews = (system.plans || []).map((p) => `- preview_path: ${p.preview_path} (plan ${p.path})`).join('\n')
+  const previewBlock = `
+### Plan previews (DR-1649: script first, bounded previews)
+${previews || '(no plan previews supplied for this system)'}
+Read at most 10000 characters of any plan, from the preview_path entries above; do not browse docs/plans, archive or docs/decisions beyond these previews.
+`
+
   return COMMON + `
 
 You are a Sonnet system-analysis agent (Phase-2 of the /architecture-survey Workflow).
 
 System: ${system.systemName}
+${previewBlock}
 Scale tier: ${SCALE_TIER} (narrative tier: describe boundaries/roles in prose rather than
 enumerate every symbol; full/hybrid tier: standard per-function analysis).
 
@@ -670,6 +709,14 @@ condense-analyst-pages extraction in coordinator/pipelines/deep-architecture-sur
 § Condense-Analyst-Pages Helper to each page: drop the \`## Information Flow Diagram\` H2 section,
 keep everything else verbatim. This is text extraction only; do not re-author any analyst's judgment.`
 
+// The run's structure.json travels by path, never inlined; null -> synthesis derives as before.
+function structureBlock() {
+  if (STRUCTURE_PATH) {
+    return `System facts: ${STRUCTURE_PATH} (this run's structure.json from project-rag/SCIP) — Read it (Read tool) and draw system facts from it rather than re-deriving them.`
+  }
+  return `structure.json is unavailable this run (${STRUCTURE_UNAVAILABLE_REASON}); derive system facts as before.`
+}
+
 // Shard: one system's atlas page. A shard writes exactly docs/architecture/systems/{name}.md.
 function synthesisShardBriefFor(system) {
   return COMMON + `
@@ -680,6 +727,7 @@ You are a LEAF agent — do NOT spawn further agents.
 System: ${system.system_name}
 Phase-2 analysis: ${system.analysis_path} — Read it directly (Read tool); the Workflow script that
 dispatched you has no filesystem access.
+${structureBlock()}
 ${SYNTHESIS_CONDENSE}
 
 Write ONE file: docs/architecture/systems/${system.system_name}.md, following the per-system page
@@ -700,15 +748,19 @@ function synthesisCrossSystemBriefFor(systems) {
   const list = systems
     .map((s) => `- ${s.system_name}: analysis ${s.analysis_path}, page docs/architecture/systems/${s.system_name}.md`)
     .join('\n')
+  const stableBlock = (MODE === 'refresh' && SELECTION)
+    ? `\nThis is a REFRESH scoped to the changed systems above. Stable systems (${STABLE_SYSTEMS.length}) were not re-analysed and their pages are not rewritten: ${JSON.stringify(STABLE_SYSTEMS)}.\nThe existing cross-system pages (docs/architecture/systems-index.md, cross-system-map.md, connectivity-matrix.md, file-index.md) are the baseline: Read them and update only the rows and connections the changed systems touch; read a stable system's page under docs/architecture/systems/ only to validate a connection, never to rewrite it.\n`
+    : ''
   return COMMON + `
 
 You are the cross-system synthesis agent (Phase-3 of the /architecture-survey Workflow). You are a
 LEAF agent — do NOT spawn further agents. The per-system pages already exist, one shard each.
 
-Total systems: ${systems.length}
+Changed/synthesised systems: ${systems.length}
 ${list}
-
+${stableBlock}
 Read the system pages and analyses above directly (Read tool).
+${structureBlock()}
 ${SYNTHESIS_CONDENSE}
 
 Write these files per coordinator/pipelines/deep-architecture-survey/agent-prompts.md § Phase 3:
@@ -781,11 +833,33 @@ async function phaseThreeSynthesis(analysisResults) {
 // contract note above. `--refresh` preserves unchanged sections only for systems present in
 // existingAtlas (see analysisBriefFor's existingPage lookup); an absent, empty, or partial
 // supply degrades those systems to full regeneration silently unless logged here.
+if (MODE === 'refresh' && !SELECTION) {
+  // A refresh with no deterministic selection would regenerate every page: a corpus fan-out.
+  return {
+    phase_reached: 'selection',
+    halted: 'selection-required',
+    run_id: RUN_ID,
+    resume_hint: 'Run survey_select_step.py (pipelines/deep-architecture-survey) and carry its JSON as `selection` in the inputPath file, then re-invoke. Bootstrap mode needs no selection.',
+  }
+}
 if (MODE === 'refresh') {
   const suppliedSystemCount = Object.keys(EXISTING_ATLAS).length
-  const expectedSystemCount = (INPUT.systemDirs || []).length
-  if (suppliedSystemCount === 0 || (expectedSystemCount > 0 && suppliedSystemCount < expectedSystemCount)) {
-    log(`consume-gate: existingAtlas supplied ${suppliedSystemCount} system(s), this refresh expects ${expectedSystemCount || 'an uncounted number of'} — preserve-unchanged-sections is OFF for the uncovered systems, every one of their pages will be regenerated from scratch`)
+  const expectedSystemCount = SELECTION.changed_systems.length
+  if (suppliedSystemCount === 0 || suppliedSystemCount < expectedSystemCount) {
+    log(`consume-gate: existingAtlas supplied ${suppliedSystemCount} system(s), this refresh dispatches ${expectedSystemCount} changed system(s) — preserve-unchanged-sections is OFF for any changed system without a supplied page, its page will be regenerated from scratch`)
+  }
+}
+
+// Per-phase agent-call counts, reported in every manifest so the run's spend is checkable.
+let censusAgentCalls = 0
+let analysisAgentCalls = 0
+const selectionChurnDivergence = []
+function selectionManifest(synthesisCalls) {
+  return {
+    agent_calls: { census: censusAgentCalls, analysis: analysisAgentCalls, synthesis: synthesisCalls },
+    changed_systems: SELECTION ? SELECTION.changed_systems.map((c) => c.name) : null,
+    stable_systems: STABLE_SYSTEMS,
+    selection_churn_divergence: selectionChurnDivergence,
   }
 }
 
@@ -800,9 +874,12 @@ let censusResults = gate.censusResults
 let failedCensusBuckets = []
 let cartographyUsed = gate.cartographyUsed
 let cartographyOversizedSignal = gate.cartographyOversizedSignal
+const STRUCTURE_PATH = gate.structurePath
+const STRUCTURE_UNAVAILABLE_REASON = gate.structureUnavailableReason
 
-if (!cartographyUsed) {
+if (!gate.censusWaveSkipped) {
   censusResults = await phaseZeroCensus()
+  censusAgentCalls = CENSUS_BUCKETS.length
   failedCensusBuckets = CENSUS_BUCKETS
     .map((b) => b.bucketId)
     .filter((id) => !censusResults.some((r) => r.bucket_id === id))
@@ -811,6 +888,7 @@ if (!cartographyUsed) {
   // the measured set and each flipped path is logged; only a failed measurement halts.
   if (censusResults.length > 0) {
     const unionDirs = [...new Set(CENSUS_BUCKETS.flatMap((b) => b.dirs || []))]
+    censusAgentCalls += 1
     const measured = await remeasureCensusOversized(unionDirs)
     const hasFiles = censusResults.some((r) => (r.files || []).length > 0)
     if (!measured || !Array.isArray(measured.oversizedPaths) || typeof measured.totalFiles !== 'number' || (measured.totalFiles === 0 && hasFiles)) {
@@ -837,13 +915,16 @@ const chunkTable = censusResults.length > 0 ? buildChunkTable(censusResults) : (
 const consumeGateStatus = {
   rag_present: gate.ragPresent,
   cartography_used: cartographyUsed,
+  census_source: gate.censusSource || 'agentic',
+  structure_path: STRUCTURE_PATH,
+  structure_unavailable_reason: STRUCTURE_UNAVAILABLE_REASON,
   // Measured, never inferred from which branch ran: the deterministic path carries the signal
   // whenever the producer reply came back with an `oversized` list, and an older producer that
   // ignores `oversized_threshold` is the one case that still reports unavailable. Reporting which
   // branch fired instead of what the payload carried is what let a live capability read as a
   // producer gap for two weeks. Emitted on both branches rather than only when unavailable: a
   // missing key reads as "not checked", which is the ambiguity this exists to remove.
-  oversized_signal: cartographyUsed ? cartographyOversizedSignal : 'available',
+  oversized_signal: gate.censusWaveSkipped ? cartographyOversizedSignal : 'available',
   churn_result: churnResult,
 }
 
@@ -892,10 +973,56 @@ if (symbolsExtraction.halted) {
 // symbol table itself is read directly by each analysis agent from
 // symbolsExtraction.symbolsArtifactPath, never pasted through this script.
 const systemsGrouped = groupChunksBySystem(chunkTable)
-const systemsWithFiles = systemsGrouped.map((s) => ({
+const allSystemsWithFiles = systemsGrouped.map((s) => ({
   systemName: s.systemName,
   files: [...new Set(s.chunks.flatMap((c) => c.files))],
 }))
+
+// Refresh narrows analysis and synthesis to the selection's changed systems; bootstrap keeps
+// every system. Each changed system carries its selector-written plan previews (paths only).
+const systemsWithFiles = (MODE === 'refresh' && SELECTION)
+  ? allSystemsWithFiles
+    .filter((s) => CHANGED_BY_NAME.has(s.systemName))
+    .map((s) => ({ ...s, plans: CHANGED_BY_NAME.get(s.systemName).plans || [] }))
+  : allSystemsWithFiles
+
+if (MODE === 'refresh' && SELECTION) {
+  const missing = SELECTION.changed_systems.map((c) => c.name).filter((n) => !allSystemsWithFiles.some((s) => s.systemName === n))
+  if (missing.length > 0) {
+    log(`selection: ${missing.length} changed system(s) have no chunk-table entry and are not analysed: ${missing.join(', ')}`)
+  }
+  log(`selection: refresh scoped to ${systemsWithFiles.length} changed system(s); ${STABLE_SYSTEMS.length} stable page(s) are neither analysed, synthesised nor inlined`)
+}
+
+// Divergence between the selector and the consume-gate's file churn is logged, never a halt.
+analysisAgentCalls = systemsWithFiles.length
+if (MODE === 'refresh' && SELECTION && churnResult && typeof churnResult === 'object') {
+  const churned = new Set()
+  for (const [key, value] of Object.entries(churnResult)) {
+    if (key === 'excluded_by_prefilter' || key === 'deleted_at_head' || !Array.isArray(value)) continue
+    for (const p of value) if (typeof p === 'string') churned.add(p)
+  }
+  for (const s of allSystemsWithFiles) {
+    if (!STABLE_SYSTEMS.includes(s.systemName)) continue
+    const hits = s.files.filter((f) => churned.has(f))
+    if (hits.length > 0) {
+      selectionChurnDivergence.push({ system: s.systemName, churned_paths: hits.length })
+      log(`selection: divergence — ${s.systemName} is stable per the selector but ${hits.length} of its file(s) are churned per consumeGate.churn_result`)
+    }
+  }
+}
+
+if (MODE === 'refresh' && SELECTION && systemsWithFiles.length === 0) {
+  return {
+    phase_reached: 'selection',
+    no_changes: true,
+    run_id: RUN_ID,
+    mode: MODE,
+    ...consumeGateStatus,
+    ...selectionManifest(0),
+    note: 'selection carries no changed system present in the chunk table; nothing to regenerate',
+  }
+}
 
 const analysisResults = await phaseTwoAnalysis(systemsWithFiles, symbolsExtraction.symbolsArtifactPath)
 const failedAnalysisSystems = systemsWithFiles
@@ -908,6 +1035,7 @@ if (analysisResults.length === 0) {
     halted: 'all-analysis-agents-failed',
     run_id: RUN_ID,
     ...consumeGateStatus,
+    ...selectionManifest(0),
     ...payloadPointers,
     symbols_artifact_path: symbolsExtraction.symbolsArtifactPath,
     symbols_inventoried_count: symbolsExtraction.inventoriedCount,
@@ -927,6 +1055,7 @@ if (failedAnalysisSystems.length > 0) {
     halted: 'analysis-partial-failure',
     run_id: RUN_ID,
     ...consumeGateStatus,
+    ...selectionManifest(0),
     ...payloadPointers,
     symbols_artifact_path: symbolsExtraction.symbolsArtifactPath,
     symbols_inventoried_count: symbolsExtraction.inventoriedCount,
@@ -938,8 +1067,11 @@ if (failedAnalysisSystems.length > 0) {
 }
 
 const synthesisResult = await phaseThreeSynthesis(analysisResults)
+const synthesisAgentCalls = analysisResults.length +
+  (synthesisResult && synthesisResult.failedShards.length === 0 && synthesisResult.emptyShards.length === 0 ? 1 : 0)
 const synthesisPointers = {
   ...consumeGateStatus,
+  ...selectionManifest(synthesisAgentCalls),
   ...payloadPointers,
   symbols_artifact_path: symbolsExtraction.symbolsArtifactPath,
   symbols_inventoried_count: symbolsExtraction.inventoriedCount,

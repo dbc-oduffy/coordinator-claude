@@ -42,6 +42,8 @@ marked unconfirmed.
 ## Constraints
 
 - Keep the digest to roughly one page per question. No claims JSON.
-- Do not run Bash or any box command. Do not ask questions or message other agents; write the digest
-  and finish.
+- Run no box command, with one carve-out: when Grep and Glob are absent from your tool list, you may,
+  when Bash is available, enumerate a `repo` target with read-only `git ls-files`, `git grep` or `rg` under that target root
+  only, never writing, installing or leaving the root. Do not ask questions or message other agents;
+  write the digest and finish.
 - Reply with the digest path and a one-line summary of the answer.

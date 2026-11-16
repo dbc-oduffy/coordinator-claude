@@ -7,7 +7,7 @@ situation: entry
 **A session started in the home enters on its own** (`hooks/scripts/session-start-group-em-autoenter.py`);
 **typing `/group-em` re-enters:** `hooks/scripts/group-em-autofire.py`. Either runs the entry op and
 injects standing, roster, digest and baseline. **Context absent = entry did not happen** (the hook
-fails open): run `<plugin-root>/bin/group-em-enter.py --repo <root> --session-id <your sid>` and
+fails open): run `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/group-em-enter" --repo <root> --session-id <your sid>` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\group-em-enter.exe"`, same arguments) and
 find out why. **`--session-id` is required** (exit 2 without it). Every `<plugin-root>/bin/` CLI is
 plugin-local: resolve per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
 

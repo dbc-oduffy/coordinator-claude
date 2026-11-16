@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 coordinator/bin/cartography.py — operator CLI seam for the `cartography.*` op family
 (coordinator_core/ops/cartography_*.py).

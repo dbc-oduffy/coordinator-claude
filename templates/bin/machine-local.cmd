@@ -57,6 +57,13 @@ REM spans two REM lines can all silently corrupt the rest of the script's
 REM parse. This exact file broke that way in production on 2026-07-28. See
 REM docs/wiki/portability/windows-cmd-shims.md, section on REM metacharacters.
 setlocal enableextensions
+REM Refuse a nested call before any interpreter starts: under a spawn storm the
+REM interpreter start is the cost, so the impl's own depth check comes too late.
+if not defined MACHINE_LOCAL_DEPTH goto :depth_ok
+if "%MACHINE_LOCAL_DEPTH%"=="0" goto :depth_ok
+echo [machine-local] refused nested invocation, MACHINE_LOCAL_DEPTH=%MACHINE_LOCAL_DEPTH%: a descendant of a machine-local call re-entered it. 1>&2
+exit /b 2
+:depth_ok
 set "_settings_home="
 if not "%COORDINATOR_SETTINGS_HOME%"=="" set "_settings_home=%COORDINATOR_SETTINGS_HOME%"
 if "%_settings_home%"=="" if not "%CLAUDE_HOME%"=="" set "_settings_home=%CLAUDE_HOME%\.coordinator-claude-settings"

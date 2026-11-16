@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """bin/sync-cockpit-contract.py — Vendor-sync staleness check for the cockpit-contract JSON Schema.
 
 Purpose: consumer-invocable precondition check that detects version DRIFT between the

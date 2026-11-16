@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 verify-snippet-sync — CONSOLIDATED CLI trampoline over claude-klabauter
 coordinator_core.snippet_sync.verify, replacing the 7 retired

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """setup-verify.py — imperative logic ported out of the coordinator-claude
 `/coordinator:setup` chain-walk skill (coordinator-content-repo
 `coordinator/skills/setup/SKILL.md`) into a naked-Python CLI.

@@ -254,6 +254,21 @@
         }
       ]
     },
+    "usage": {
+      "type": "object",
+      "properties": {
+        "tokens": {
+          "type": "integer"
+        },
+        "agents": {
+          "type": "integer"
+        },
+        "usd": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
     "provenance": {
       "type": "object",
       "properties": {

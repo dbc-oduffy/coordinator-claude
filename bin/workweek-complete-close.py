@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """workweek-complete-close.py — closing-orchestration CLI for /workweek-complete.
 
 Ports the residual imperative logic that was still hand-authored inline as
@@ -346,7 +347,7 @@ _HEADER_TEMPLATE = (
 )
 
 
-_ARCHIVED_DAY_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})\.md$")
+_ARCHIVED_DAY_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})(?:-[^/\\]+)?\.md$")
 
 
 def _write_week_summary(archive_dest: Path, week_starting: str) -> Path | None:
@@ -355,16 +356,20 @@ def _write_week_summary(archive_dest: Path, week_starting: str) -> Path | None:
     Returns the path when written, None when nothing changed. An existing file is
     never rewritten: only day bullets it lacks are appended. No narrative or
     Strategic Review is fabricated (docs/wiki/completion-logs-backfill.md).
+    Trap: a day file may carry a suffix (`YYYY-MM-DD-<host>-backfill.md`, the
+    backfill shape); the mover archives those, so the days list must count them too.
     """
-    days = sorted(
-        m.group(1)
-        for f in archive_dest.glob("*.md")
-        if (m := _ARCHIVED_DAY_RE.match(f.name))
-    )
+    files_by_day: dict[str, list[str]] = {}
+    for f in sorted(archive_dest.glob("*.md")):
+        if m := _ARCHIVED_DAY_RE.match(f.name):
+            files_by_day.setdefault(m.group(1), []).append(f.name)
+    days = sorted(files_by_day)
     if not days:
         return None
     path = archive_dest / "WEEK-SUMMARY.md"
-    bullets = {d: f"- **{d}** — [{d}.md]({d}.md)" for d in days}
+    bullets = {
+        d: f"- **{d}** — " + ", ".join(f"[{n}]({n})" for n in files_by_day[d]) for d in days
+    }
     if path.exists():
         text = path.read_text(encoding="utf-8")
         missing = [b for d, b in bullets.items() if f"**{d}**" not in text]

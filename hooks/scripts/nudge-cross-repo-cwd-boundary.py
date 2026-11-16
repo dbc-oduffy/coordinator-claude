@@ -73,7 +73,7 @@ try:
 except Exception:
     # A hook script deployed WITHOUT its sibling _engine_root.py must still
     # fail-open rather than crash on import.
-    def _resolve_live_working_tree():  # type: ignore[misc]
+    def _resolve_live_working_tree() -> tuple[None, str]:  # type: ignore[misc]
         return None, "none"
 
 

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 coordinator.bin.waste-signal -- dynamic, opt-in instrument counting call redundancy and the
 work-vs-question ratio for one live-executed callable.
@@ -1329,6 +1330,57 @@ def build_static_waste_report(
     )
 
 
+RAG_TOOL_PREFIX = "mcp__project-rag__"
+GREP_TOOL_NAME = "Grep"
+
+
+def _read_transcript_entries(path: Path) -> List[dict]:
+    entries: List[dict] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for raw in handle:
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                parsed = json.loads(raw)
+            except ValueError:
+                continue
+            if isinstance(parsed, dict):
+                entries.append(parsed)
+    return entries
+
+
+def count_greps_after_rag(transcript: Path) -> Dict[str, Any]:
+    """Read-only meter over a session transcript JSONL: total Grep tool calls, and those after the
+    first `mcp__project-rag__*` tool call. Advisory only; never denies."""
+    total = 0
+    after = 0
+    first_rag_seen = False
+    for entry in _read_transcript_entries(transcript):
+        message = entry.get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict) or block.get("type") != "tool_use":
+                continue
+            name = block.get("name")
+            if not isinstance(name, str):
+                continue
+            if name.startswith(RAG_TOOL_PREFIX):
+                first_rag_seen = True
+            elif name == GREP_TOOL_NAME:
+                total += 1
+                if first_rag_seen:
+                    after += 1
+    return {
+        "transcript": str(transcript),
+        "grep_total": total,
+        "grep_after_first_rag_call": after,
+        "rag_call_seen": first_rag_seen,
+    }
+
+
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="waste-signal",
@@ -1358,6 +1410,16 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "on stdout. Mutually exclusive with a bare target."
         ),
     )
+    parser.add_argument(
+        "--grep-after-rag",
+        metavar="TRANSCRIPT_JSONL",
+        default=None,
+        help=(
+            "Session transcript JSONL path. Prints, as JSON, the total Grep calls and the Grep "
+            "calls after the first mcp__project-rag__* call. Read-only; mutually exclusive with "
+            "a target and --attribute-diff."
+        ),
+    )
     parser.add_argument("--out", type=str, default=None, help="Write JSON report here instead of stdout")
     return parser
 
@@ -1372,6 +1434,17 @@ def _emit(text: str, out: Optional[str]) -> None:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = _build_arg_parser().parse_args(argv)
+
+    if args.grep_after_rag is not None:
+        if args.target is not None or args.attribute_diff is not None:
+            print("waste-signal: --grep-after-rag is exclusive of a target and --attribute-diff", file=sys.stderr)
+            return 2
+        transcript = Path(args.grep_after_rag)
+        if not transcript.is_file():
+            print(f"waste-signal --grep-after-rag: not a file: {transcript}", file=sys.stderr)
+            return 1
+        _emit(json.dumps(count_greps_after_rag(transcript), indent=2), args.out)
+        return 0
 
     if args.attribute_diff is not None:
         if args.target is not None:

@@ -333,3 +333,13 @@ EXAMPLE_GAME_REPO_ROOT="${EXAMPLE_GAME_REPO_ROOT:-../example-game-workbench-repo
 **Do NOT rewrite the sibling default in scripts that ship to normal-layout deployments** — fixing the `<drive>:/` edge case by hardcoding an absolute path breaks what already works everywhere else. <!-- abs-path-ok: naming the historical drive-letter literal this sentence critiques, not a claim about any real checkout -->
 
 Source: `state/lessons/` § "<drive>:/-rooted `~/.claude` is structurally peerless" (claude-coordinator). <!-- foreign-path-ok: quoting the lesson's own section title, which names the Windows path shape it documents -->
+
+## Retiring a vendored file — a deletion does not revoke its address
+
+Deleting a file at HEAD retires the artifact, not its addressability. A downstream repo's vendored-from header such as `Pull from: git -C ../upstream show <old-tag>:<path>` keeps succeeding against the old tag or SHA, prints real content, and gives no failure signal: a deliberately abandoned snapshot reads as live upstream. A stale pointer that errors self-corrects; one that runs clean is a trap.
+
+**Rules:**
+
+- Retiring a file other repos vendor from is only half the job: notify the holders, because their pointer will not break on its own.
+- Before reconciling two copies across repos, confirm both still exist (`git log -- <path>`); the task framing may presuppose a copy already deliberately deleted.
+- Read a provenance header in full, not by its first line: the hazardous line is often not the one quoted when relaying the finding.

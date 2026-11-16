@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Deterministic structured extraction of `state/lessons/*.yaml` entries.
 
 Replaces the LLM "scout extraction" step in `coordinator:learn-lessons` Phase 2.

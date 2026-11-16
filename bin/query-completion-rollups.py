@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """query-completion-rollups.py -- the porter over `rollups.collect`.
 
 No shebang line, no exec bit: this is only ever spawned as `python3

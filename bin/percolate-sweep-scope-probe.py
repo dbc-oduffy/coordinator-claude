@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """coordinator/bin/percolate-sweep-scope-probe.py — read-only sweep-scope counter.
 
 Measures how much content-transform sweep volume a klabauter publish actually

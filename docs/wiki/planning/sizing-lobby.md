@@ -1,3 +1,8 @@
+---
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
+---
 # Sizing — the fleet routing lobby
 
 Sizing is the fleet routing lobby: the `sizing` skill and `sizing-object` artifact that classify
@@ -1069,9 +1074,9 @@ When the ask is research, the sizing-object carries the optional top-level `rese
 writes it, the PM is never asked. The tier map, close per tier and preflight live in
 `coordinator/docs/wiki/skills-corpus/deep-research-pipelines.md`; this section does not restate them.
 
-- **`value_class` (required): `scouts | corpus | deep | spike`**, read from the PM's phrasing. "Searches so I
+- **`value_class` (required): `scouts | corpus | unblock | spike`**, read from the PM's phrasing. "Searches so I
   don't spend my own context" is `scouts`; "knowledge for a roadmap" is `corpus`; "unblock us",
-  including over our own repos, is `deep`; a survey or comprehension ask is `corpus` however many
+  including over our own repos, is `unblock`; a survey or comprehension ask is `corpus` however many
   targets and however shallow, shallowness being `depth: standard` (`A-SURVEY-IS-CORPUS-NEVER-DEEP`); "spike" is `spike`, the research door's verdict class.
   Research is its own door beside sizing: `/coordinator:research`. Every class closes on a committed
   artifact and trail (`A-RESEARCH-CLOSES-ON-A-COMMITTED-ARTIFACT-AND-TRAIL`).
@@ -1086,3 +1091,32 @@ writes it, the PM is never asked. The tier map, close per tier and preflight liv
 - **Express lane: a bare `--research --ask "<q>"` is `scouts` with no sizing object.** It follows
   the same no-sizing-object-left-behind rule as the `--express-lane` bypass (Step 4). Anything above
   scouts is sized first.
+
+## Harvest additions — decisions, schema history and lessons
+
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-16-046, batch-17-005, batch-17-011, batch-18-063, batch-19-025..029, batch-21-005, batch-22-004, batch-22-005 -->
+- **Symmetric engine, no auto-resolved fork.** The engine sizes symmetrically (collapses over-reads, raises under-reads) and surfaces the appetite⇄estimate fork without ever auto-resolving it.
+- **Receive-if-present, never a wall.** Only plan and roadmap-planning conform to a sizing-object; the review/CI cluster takes none. Conform intakes run "exactly as today" absent an object; the arrival catch is an offer, not a gate.
+- **goal-setting crossing fields:** intent, appetite (context only, never a KR), `estimate.tshirt` paired with `estimate.provisional` (never tshirt alone), scout_evidence, route. Not crossing: detents, status, resolved fork; an unresolved fork crosses as an open question for the PM in Step 1.
+- **shape** is conditional: a `route=shape` object means one of two engine conditions fired (large with unclear JTBD, or well-trodden space wanting a step-change); the object does not persist which. Shape keeps its own `## Transition` routing.
+- **Dispatch non-target.** `route: dispatch` objects ARE written for XS/S on the ordinary path (`sizing_assemble/__init__.py:137-138`); only `--express-lane` writes none (line 228). Their consumer is the executor brief the operator authors. A false "no object for dispatch" reason once propagated to five locations before review caught it.
+- **Route table binds.** Widening the route enum silently orphaned the roadmap conform-intake; two gates now exist: on-disk objects validated against schema, and scaffolder emission of required fields checked.
+
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-22-008, batch-22-009, batch-22-022, batch-22-023, batch-24-028, batch-24-029 -->
+- **Arrival advisory.** One line composed into the UserPromptSubmit envelope via the shared composer; turn one only, no re-arming; cannot fire outside a git working tree or inside a subagent; no new hook registered. Three sibling skills once claimed the same arrival moment, and the bare-pointer escape hatch wrongly suppressed real asks like "foo.py is broken" (fixed).
+- **Route latch** is set by the hook observing a route. It was once inert in production because code read `tool_input` command while the Skill tool sends `skill`; tests shared the wrong payload shape and stayed green. `coordinator:plan` requires a sizing-object.
+
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-23-029, batch-23-030, batch-23-081, batch-23-082, batch-27-012, batch-27-061, batch-36-053, batch-36-067, batch-36-068 -->
+- **Size on verified state.** An XL rated from a memo plus a plan's self-reported AC table (13/14 pending) was wrong; HEAD showed ~85% shipped. Record a commitment row when accepting a cross-repo offer whose payoff depends on a sibling landing something.
+- **Schema history.** 1.3.0 added `superseded_note`; 1.14.0 widened `intent_source`, `precedent`, `boundary_in_notch`, `probe` (the doctrine repo's WIDEN ruling superseded the earlier decline-to-widen memo); 1.15.0 added `detent_discharges`; `premise` is required; `initiatives` is an optional top-level array.
+- **Scout register rows:** `{id, source_text, surface, status: open}` plus optional `anchor`; `surface` from ui|api|cli|internal|visual (engine derive coerces non-enum to internal, `sizing_assemble/__init__.py:1559-1613`); `register_sources` carries top-level sources. The scout proposes `--exit-criterion` at every size on a firing route, since emit-wave-fire refused an S spec-dispatch lacking `exit_criterion.statement`.
+
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-24-062, batch-24-065..070, batch-24-076, batch-25-019, batch-25-020, batch-25-026, batch-27-013, batch-27-051 -->
+- **Vocabulary.** split is retired as an offer but stays a valid enum value (six records); XXL routes to goal-setting. Lower notch when torn; cross-team dependency is a gate not a size; appetite only at M+. The earlier okr-XL-exit framing was superseded before any chunk landed.
+- **Spine.** Route histogram over 105 records: plan 38, spec-dispatch 26, dispatch 18, pm-decision 17, shape 4, roadmap 1, goal-setting 1; `deliverable_cascade.py` is handoff-shaped, so a target-kind seam was introduced, not populated. No status flip from a sweep, no second join key. Shipped: terminal status, `archive/sizings/<YYYY-MM>/`, `deliverable_id`. Archival keys on status.
+
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-30-125, batch-35-012, batch-35-018, batch-35-021, batch-35-026, batch-35-035, batch-36-066, batch-49-016 -->
+- **Engine projection.** `sizing.read_object_fields` projects only intent, estimate, scout_evidence, appetite; contingency chunk C17 closed wont_do since `derived_from` is read directly.
+- **PM verbatims.** `pm_verbatims` captured per turn via `baton_pm_turns.append_turn`, rendered through `render_sizing_brief`, notice clause after a successful append (v4.4.10). Coverage rule: substring match after whitespace normalisation, or an `unrelated_turns` entry with a reason; engine predicate `coverage_gaps`.
+- **Sizing-scout** sizes work.
+- **Breadth.** Item, door and file count are breadth; shared files resolve to after sequencing within grouped sibling asks; a sizing records a depth rationale.

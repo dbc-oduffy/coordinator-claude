@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """
 refresh-plugin-live-install.py — Managed refresh for a registered plugin's live install.
 
@@ -248,9 +248,9 @@ def _import_registry_deps():
     split-brain documented in ``_read_registry`` — do not reintroduce it here.
     """
     _bootstrap_lib()
-    from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
+    from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 
-    require_dispatch_engine_on_path()
+    require_colocated_engine_on_path(__file__)
     from coordinator_core import machine_resolver
 
     return machine_resolver
@@ -406,6 +406,18 @@ def _git(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
         text=True,
         **_no_console_kwargs(),
     )
+
+
+def _eprint_fetch_failure(label: str, cwd: Path, result: subprocess.CompletedProcess) -> None:
+    """Name git's last stderr line, origin's URL and (for an ssh agent failure) the fix."""
+    _bootstrap_lib()
+    from git_fetch_failure import fetch_failure_detail, ssh_remediation
+
+    url = _git(["remote", "get-url", "origin"], cwd).stdout.strip()
+    eprint(f"{PROG}: {label}: {fetch_failure_detail(result.stderr, url)}")
+    remediation = ssh_remediation(result.stderr)
+    if remediation:
+        eprint(f"  {remediation}")
 
 
 def _git_ref_exists(cwd: Path, ref: str) -> bool:
@@ -1690,8 +1702,11 @@ def _handle_editable_sibling_venv(
                 eprint("  ends dirty is restored from snapshot and fails regardless.")
                 return 1
 
-        if _git(["fetch", "origin"], source_path).returncode != 0:
-            eprint(f"{PROG}: [editable_sibling_venv] git fetch failed in {source_path}.")
+        fetch = _git(["fetch", "origin"], source_path)
+        if fetch.returncode != 0:
+            _eprint_fetch_failure(
+                f"[editable_sibling_venv] git fetch failed in {source_path}", source_path, fetch
+            )
             return 1
 
         if _git_ref_exists(source_path, f"refs/remotes/{track_ref}"):
@@ -1933,8 +1948,9 @@ def _handle_default(
     old_sha = _git_rev_parse(live_path, "HEAD") or "unknown"
 
     print(f"{PROG}: [git-leg] fetching origin in {live_path}")
-    if _git(["fetch", "origin"], live_path).returncode != 0:
-        eprint(f"{PROG}: git fetch failed.")
+    fetch = _git(["fetch", "origin"], live_path)
+    if fetch.returncode != 0:
+        _eprint_fetch_failure("git fetch failed", live_path, fetch)
         return 1
 
     if _git_ref_exists(live_path, f"refs/remotes/{track_ref}"):

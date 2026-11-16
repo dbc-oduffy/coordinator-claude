@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """trim-file-cache — thin CLI over `coordinator/bin/lib/file_cache_trim.py`.
 
 Trims the Windows system file-cache working set to the standby list, on demand. Dry-run by

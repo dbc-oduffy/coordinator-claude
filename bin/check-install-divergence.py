@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """coordinator/bin/check-install-divergence.py
 
 Three-way blob-SHA install-divergence classifier. Shared primitive for

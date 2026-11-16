@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """spawn-trace-capture.py — one-command spawn-count capture for one op invocation.
 
 Spec backlink: state/handoffs/2026-08-14-windows-spawn-economics.md

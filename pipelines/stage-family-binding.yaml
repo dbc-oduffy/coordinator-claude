@@ -1,0 +1,12 @@
+# Role-to-family binding for research and review workflows (DR-480).
+# Opt-in per run: no stage uses it unless the run's brief names this binding
+# (coordinator/docs/wiki/coordinator-tripwires/a-stage-family-override-is-opt-in-never-default.md).
+# Validated by coordinator/schemas/stage-family-binding.schema.json.
+schema_version: 1
+opt_in: per-run
+runner: coordinator:family-stage-runner
+fallback: claude
+roles:
+  scout: grok
+  research: grok
+  review: codex

@@ -98,17 +98,17 @@ try:
         place_engine_root_on_path as _place_engine_root_on_path,
     )
 except Exception:
-    def _resolve_claude_klabauter_root():
+    def _resolve_claude_klabauter_root() -> None:
         return None
 
 
-    def _place_engine_root_on_path(root):
+    def _place_engine_root_on_path(root) -> Any:
         # Fallback mirrors the primitive's placement rule: never index 0 when the
         # hooks dir holds it, never the tail where site-packages outranks us.
         if root and root not in sys.path[:2]:
             sys.path.insert(1 if sys.path else 0, root)
         return root
-    def _arm_lazy_ops():
+    def _arm_lazy_ops() -> None:
         return None
 
 from _claude_md_ledger import (  # noqa: E402
@@ -150,7 +150,7 @@ def _fallback_is_governed(file_path: str) -> bool:
     return os.path.basename(file_path) == "CLAUDE.md"
 
 
-def _load_budget():
+def _load_budget() -> Any:
     """Resolve the engine-repo-owned SSOT module, or None on any failure."""
     root = _resolve_claude_klabauter_root()
     if not root:
@@ -167,7 +167,7 @@ def _load_budget():
         return None
 
 
-def _estimate_tokens(text):
+def _estimate_tokens(text) -> Optional[int]:
     """Best-effort token estimate via the engine repo's token oracle
     (`coordinator_core.ops.measure_token_envelope.estimate_tokens`), or None
     if the engine is unresolvable/unimportable. Reported alongside bytes in
@@ -196,7 +196,7 @@ def _estimate_tokens(text):
         return None
 
 
-def simulate(tool, inp):
+def simulate(tool, inp) -> Optional[str]:
     file_path = inp.get("file_path", "")
     if file_path:
         file_path = os.path.abspath(file_path)

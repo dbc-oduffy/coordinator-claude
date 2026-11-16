@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """plan-tasks-grouping-digest.py — CLI trampoline over claude-klabauter's
 coordinator_core.ops.plan_tasks_grouping_digest.
 

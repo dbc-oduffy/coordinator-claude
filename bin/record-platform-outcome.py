@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """record-platform-outcome — emit a platform-outcome record from a real ceremony run.
 
 PURPOSE: the writer for the `platform-outcome` schema

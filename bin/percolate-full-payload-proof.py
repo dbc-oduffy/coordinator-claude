@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """percolate-full-payload-proof.py — proves the whole klabauter payload once,
 into a wiped scratch destination, across every row, through the REAL
 `publish.py` CLI entrypoint (`main()`), and proves a second publish over that

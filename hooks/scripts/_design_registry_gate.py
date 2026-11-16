@@ -94,7 +94,7 @@ def _split_flow(body: str) -> list:
     return [i.strip() for i in items if i.strip()]
 
 
-def _scalar(raw: str):
+def _scalar(raw: str) -> Optional[str]:
     """One subset scalar: quoted, plain or `null`. Raises _SubsetError outside the subset."""
     value = _strip_comment(raw).strip()
     if not value:
@@ -111,7 +111,7 @@ def _scalar(raw: str):
     return value
 
 
-def _value(raw: str):
+def _value(raw: str) -> Optional[str] | list[Optional[str]]:
     """A scalar or a flow list of scalars."""
     value = _strip_comment(raw).strip()
     if value.startswith("["):
@@ -307,7 +307,7 @@ def load(repo_root) -> tuple:
 # ---- glob ----------------------------------------------------------------
 
 
-def _segment_regex(segment: str):
+def _segment_regex(segment: str) -> re.Pattern[str]:
     parts = []
     for ch in segment:
         if ch == "*":
@@ -513,7 +513,7 @@ def _is_plan(root: Path, target: Path) -> bool:
     return True
 
 
-def _ratified(root: Path, entry_id: str, items: list):
+def _ratified(root: Path, entry_id: str, items: list) -> tuple[bool, bool]:
     """(satisfied, saw_item) for the deviation items naming `entry_id`."""
     saw = False
     for item in items:

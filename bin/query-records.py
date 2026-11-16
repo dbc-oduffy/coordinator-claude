@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """query-records.py — CLI trampoline over the records.query engine.
 
 Finish-strangler restoration (BIG_PORT Wave, 2026-07-24): the retired

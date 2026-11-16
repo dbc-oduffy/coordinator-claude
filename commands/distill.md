@@ -12,24 +12,33 @@ canonical specs, deletes scaffolding. Distill purges `<repo>/scratch/` via the `
 Scratch Purge below); per-file disposition of tracked artifacts stays `/workstream-complete`'s
 `scratch-disposition-per-file`.
 
-Phase mechanics, the Workflow dispatch contract, every gate's evaluation logic, the
-PM-gate/dispatch-scope/`state/`-sweep boundaries, and the full Acceptance Criteria all live in
-`${CLAUDE_PLUGIN_ROOT}/pipelines/artifact-distillation/PIPELINE.md` — read there, don't re-derive
-it. Delete-safety guard schemas live below in this file — the guards gate an irreversible
-`git rm`. Rationale and worked evidence behind those calls: the plugin's `distill-residue` wiki
-page.
+Phase mechanics, the Workflow dispatch contract, gate logic, boundaries and the full Acceptance
+Criteria live in `${CLAUDE_PLUGIN_ROOT}/pipelines/artifact-distillation/PIPELINE.md`. Delete-safety
+guard schemas live below (they gate an irreversible `git rm`); rationale: the `distill-residue` wiki page.
+
+## Pre-dispatch
+
+Freshness is a standing invariant (`A-FRESHNESS-THE-OPERATOR-MUST-REMEMBER-IS-NOT-MAINTAINED`).
+Before the Workflow dispatches, run every check registered for `distill` in
+`coordinator/skill-preconditions.yaml` and state each verdict in the dispatch brief. Stale or
+missing: the entry's `on_stale` applies (`queue` = one line in the brief and the report, never a
+reindex).
 
 ## Execution vehicle
 
-The background **Workflow** is the vehicle unconditionally — scan-wave-journaled → cluster →
-one-file-owner synth wave, resumable across rate-limits and compaction. There is no size gate:
-a one-artifact run and a 500-artifact run both fire the same Workflow script; the former tiered
-split (small-batch single-Sonnet vs. large-batch Workflow-fanout) is retired, not reduced to a
-higher threshold. Manual serial `Agent` dispatch is the fallback only for genuinely non-Workflow
-work — a single ad-hoc scout or a hand confirmation outside a plan run, never a substitute for
-scope size. See `coordinator/docs/wiki/em-operating-model/workflow-orchestration.md` for the general doctrine this instantiates
-and `pipelines/artifact-distillation/PIPELINE.md` for this pipeline's own Workflow phase mechanics.
-The curated file behind `args.curatedFile` is written by the `distill.write_curated_clusters` op, not by hand. The Workflow's two input channels (`args.inputFile` with its list counts; `args.curatedFile` or inline `args.curatedTags`) are specified in `pipelines/artifact-distillation/phase-0-scoping.md` § Call contract and `pipelines/artifact-distillation/clustering-and-consolidation.md` § Curated-input channels.
+No size gate. Script first, bounded previews, never a fan-out over the whole corpus:
+bookkeeping is a script; agents run only at the judgment sites in `pipelines/artifact-distillation/PIPELINE.md` § Judgment sites.
+
+The triage doors are `project-rag` CLI verbs resolved through `machine-local get repos.project_rag` (a missing key a typed refusal naming it): since-last-run set `doc-delta --json --since <watermark>`, clusters `doc-topic-groups --json`, ripeness `doc-corpus-digest --json` (alias `doc-ripeness`, paged by `--cursor`/`--limit`). The EM reads them to narrow `<workflow_input_path>` before Prepare. Exit 3 is a named `no-producer` line in the report, and Prepare runs over the unnarrowed input.
+
+1. **Prepare (script):** first `python ${CLAUDE_PLUGIN_ROOT}/pipelines/artifact-distillation/mechanical_disposition.py state/scratch/artifact-distillation/<run-id>/input.json <repo-root> --pointer-index state/scratch/artifact-distillation/<run-id>/pointers.jsonl --pointer-page docs/pointer-index/durable-pointer-index.md --sha <HEAD sha> --widen` writes the zero-token pointer index over every non-captured scope row plus every tracked `archive/` and `state/` doc the scope never admits (the deep backlog) and merges it into the tracked page `docs/pointer-index/durable-pointer-index.md` (path, line span, sha, tag; the page is the coverage, never a capture, so commit it with the run); then `python ${CLAUDE_PLUGIN_ROOT}/pipelines/artifact-distillation/distill_mechanical.py prepare --repo-root <repo-root> --input-file <workflow_input_path> --pointer-index state/scratch/artifact-distillation/<run-id>/pointers.jsonl` writes `state/scratch/artifact-distillation/<run-id>/prepared.json` (load, clusters, source hashes, candidates).
+2. **Workflow (judgment only):** fire `distill-harvest.workflow.js` through `distill.launch_args` with `prepared_path` set to that repo-relative `state/scratch/artifact-distillation/<run-id>/prepared.json` (the op inlines it as `args.prepared`; never a hand-built args file); synth is at most 3 single-turn, no-tool `distill-synth` calls over `prepared.synth.payloads`; it returns a finalize manifest carrying `synth_results`. A leg-2 resume re-runs step 1 with `--verdicts <saved distill.curate_clusters return>` and the same `--run-id`, then launches with that `prepared.json` (the return rides at `prepared.curated`); `clustering-and-consolidation.md` § Curated-input channels. Tripwire: A-WORKFLOW-LAUNCH-CHECKS-ITS-AGENT-TYPES-AGAINST-THE-SESSION-ROSTER.
+3. **Finalize (script):** `python ${CLAUDE_PLUGIN_ROOT}/pipelines/artifact-distillation/distill_mechanical.py finalize --repo-root <repo-root> --manifest <manifest.json>` splices the synth results (cite-checked) and mints decision records, then runs promote, verify-citations, archive, scratch drop and index regen; exit 1 names the halted phase. It writes `state/scratch/artifact-distillation/<run-id>/promoted.json` and `state/scratch/artifact-distillation/<run-id>/splice-report.json` and names them in its report.
+4. **Continue (engine op):** `coordinator-invoke distill.launch_args` with `{leg: 2, run_id, repo_root, promoted_path, splice_report_path}` (those two repo-relative paths) writes `launch-args-leg2.json`; re-fire the Workflow from it. Never hand-compose the leg-2 args.
+
+A DR distill writes or edits passes `${CLAUDE_PLUGIN_ROOT}/scripts/dr-hygiene-scan.py` before commit.
+
+`Agent` stays in `allowed-tools` for the Phase 0 scouts only. Input channels: `pipelines/artifact-distillation/phase-0-scoping.md` § Call contract and `pipelines/artifact-distillation/clustering-and-consolidation.md` § Curated-input channels.
 
 **No PM gate.** The deletion gate is the delete-safety guards below plus the guard-visible
 provenance citation Phase 3d writes for every `DELETE` row. Additive knowledge writes (wiki/DR
@@ -62,7 +71,7 @@ divergence rollup, straight off disk. The ledger is the read path this harvest s
 `coordinator/docs/wiki/planning/plan-tasks-mutate-cli.md`. A plan predating the spine, or lacking a
 `## Tasks` block at all, falls back to the prior git-log/handoff reconstruction — the ledger
 answers nothing there. Before Phase 5 the EM runs
-`${CLAUDE_PLUGIN_ROOT}/bin/deferral-prose-audit.py --plan <path>` (report-only; the operator adds `--seed` only for hits they confirm) for each implemented plan
+`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/deferral-prose-audit" --plan <path>` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\deferral-prose-audit.exe"`, same arguments; report-only; the operator adds `--seed` only for hits they confirm) for each implemented plan
 in the harvest cohort that carries a `## Tasks` spine (`--plan` bypasses the `--since` cut, and a
 pre-spine plan would scan whole and is out of scope as a back-fill), because out-of-spine deferral
 prose is lost once the plan is archived; exit 2 is reported as missing coverage and never blocks
@@ -74,10 +83,7 @@ receipts (`*.mjs.emitted.json`, `state/**/*.mjs.emitted.json`) are pruned, scrip
 `python3 -m coordinator_core.invoke fleet.prune_emitted_output "{}" --repo <root>`. It deletes a
 finished unit (its plans implemented or abandoned, or its blitz wave landed) and ages out an unowned
 one after 7 days; it keeps tracked files, live claims and executing plans. Never hand-delete one.
-Untrack any that are committed: `git rm --cached -- <paths>` followed by a commit made from the
-index (`git commit -m <msg>` with nothing else staged, never `git commit -- <paths>`, which re-adds
-them). A `.gitignore` lacking the two patterns gets them appended first
-(`AN-EMITTED-WORKFLOW-SCRIPT-IS-NEVER-COMMITTED`).
+Untrack a committed one per `AN-EMITTED-WORKFLOW-SCRIPT-IS-NEVER-COMMITTED`.
 
 ---
 
@@ -233,7 +239,7 @@ check — cached Opus-tier judgment at Sonnet cost, zero additional wiring.
 
 ## Scratch Purge
 
-`fleet.scratch_hygiene` cadence `distill`, advisory, dry-run first; no local delete fallback:
+`finalize` runs this drop. `fleet.scratch_hygiene` cadence `distill`, advisory, dry-run first; no local delete fallback:
 
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" fleet.scratch_hygiene '{"repo_root":"<repo-root>","cadence":"distill","apply":false}'`
 

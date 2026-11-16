@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Restart one far-session bridge on a harness-shaped endpoint (cc-msg-<md5 hex>), then
 repoint its session registry entry, procStart and key file at the new bridge.
 
@@ -70,16 +71,22 @@ def reshape(cfg, settle_seconds=2):
     if len(keys) != 1:
         sys.exit(f"reshape: expected one key file for pid {cfg.old_pid}, found {len(keys)}")
 
-    endpoint = _roster().local_endpoint(far_sock)
+    endpoint = _roster().local_endpoint(f"{cfg.remote}:{far_sock}")
     if sys.platform != "win32":
         os.makedirs(os.path.dirname(endpoint), mode=0o700, exist_ok=True)
     _roster().tree_kill(cfg.old_pid)
     b = _roster().spawn(_roster().bridge_cmd(endpoint, cfg.log, cfg.remote, cfg.key, cfg.return_port, cfg.inbox))
     time.sleep(settle_seconds)
-    d.update(pid=b.pid, procStart=_roster().proc_start(b.pid), messagingSocketPath=endpoint)
+    d.update(pid=b.pid, procStart=_roster().proc_start(b.pid), pidDomain=_roster().pid_domain(), messagingSocketPath=endpoint, unimatrixRemote=cfg.remote)
     _roster().write_json_atomic(os.path.join(sess, f"{b.pid}.json"), d)
     os.remove(old_json)
-    os.replace(os.path.join(sess, keys[0]), os.path.join(sess, _roster().key_name(b.pid, endpoint)))
+    old_key = os.path.join(sess, keys[0])
+    with open(old_key, encoding="utf-8") as fh:
+        raw_key = fh.read()
+    new_key = os.path.join(sess, _roster().key_name(b.pid, endpoint))
+    _roster().write_peer_key(new_key, _roster().local_peer_key(
+        raw_key, d["procStart"], d.get("pidDomain") or _roster().pid_domain()))
+    os.remove(old_key)
     return f"{d.get('name')}: {cfg.old_pid} -> {b.pid} on {endpoint}"
 
 

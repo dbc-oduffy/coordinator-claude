@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Measure what a widened amplification discriminator actually silences, before it lands.
 
 Every suppressor in `coordinator_core/tests/test_no_unbatched_per_item_git_spawn.py` ships

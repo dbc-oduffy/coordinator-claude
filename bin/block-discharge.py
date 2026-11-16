@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """block-discharge -- the agent-authored discharge write, and the check that
 reads it back from outside the session it audits.
 

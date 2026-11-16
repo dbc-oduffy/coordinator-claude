@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 # Spec backlink: coordinator-content-repo coordinator-content-repo:pln-priority-ledger-durable-pm-pri-817d40 § C3
 """priority-set.py — CLI trampoline over claude-klabauter's priority.set op
 (coordinator_core/ops/priority_set.py).

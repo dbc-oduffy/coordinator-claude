@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """workday-start-run — launch or finish one deterministic workday-start run.
 
 Thin entrypoint: resolves the engine and calls `coordinator_core.workday_start.cli.main`.

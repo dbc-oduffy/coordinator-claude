@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """warm-runtime-litter-sweep.py — one-shot removal of abandoned warm-engine
 clone-key directories under the operator's real runtime base.
 

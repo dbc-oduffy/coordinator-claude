@@ -1,12 +1,11 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 # coordinator-workflow-scaffold.py — DoE-side veneer for the claude-klabauter workflow.scaffold op.
 #
 # Purpose: builds the workflow.scaffold params object from CLI flags, dispatches via
 # the shared cc_invoke.py transport seam (cc_invoke_bare(), the --bare/--params-file
 # convention), and writes the returned `.script` field to --out (or stdout when --out
 # is omitted). This file does NOT re-implement the op contract or the
-# workflow-skeleton-stamper engine itself — it is a thin transport veneer, same idiom
-# as handoff-has-live-children.py's cc_invoke round-trip.
+# workflow-skeleton-stamper engine itself — it is a thin transport veneer.
 #
 # This script used to carry a private hand-rolled
 # _cc_invoke() that spawned `coordinator_core.invoke workflow.scaffold --bare

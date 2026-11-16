@@ -23,7 +23,7 @@ Contract:
   exit 0  — ALWAYS. Malformed stdin or an unwritable log directory must never raise or return
             non-zero — fail-open is the whole contract for an observer hook.
 
-Where the record goes: `<git-common-dir>/coordinator-sessions/hook-observations/PostCompact.jsonl`
+Where the record goes: `<session hub>/hook-observations/PostCompact.jsonl`
 (one JSON object per line). This is DERIVED bookkeeping, not authored state, so it lives outside
 `state/subagent-share/` (DR-091 — that namespace is authored-only). `<git-common-dir>` is found by
 walking up from the payload's `cwd` (if present — since the payload shape is unconfirmed, this
@@ -43,6 +43,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _session_hub_path import hub_for_common  # noqa: E402
 try:
     from _git_common_dir import resolve_git_common_dir as _resolve_git_common_dir_str  # noqa: E402
 except Exception:
@@ -98,7 +99,7 @@ def _resolve_git_common_dir(start: Path) -> Path | None:
 
 def _append_record(git_common_dir: Path, record: dict) -> None:
     try:
-        log_dir = git_common_dir / "coordinator-sessions" / "hook-observations"
+        log_dir = hub_for_common(git_common_dir) / "hook-observations"
         log_dir.mkdir(parents=True, exist_ok=True)
         line = json.dumps(record, ensure_ascii=False)
         with (log_dir / f"{_EVENT_NAME}.jsonl").open("a", encoding="utf-8") as fh:

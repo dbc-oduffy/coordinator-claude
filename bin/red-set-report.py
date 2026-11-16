@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """red-set-report.py — derive the red-cell census for a pytest path, never assert it.
 
 Spec backlink: pln-make-the-bash-guards-suite-a-g-2f81d6 § C1b
@@ -30,10 +31,10 @@ WHAT IT EMITS
 MARKER EXPRESSION / TESTPATHS
     Read live from pyproject.toml's [tool.pytest.ini_options] (`markers`,
     `testpaths`) -- never hardcoded here, because both drift (see WHY above).
-    The fast-tier expression itself, `not cadence and not pending_fix and not
-    designed_red`, is the one figure this script's caller may pass via
-    --marker-expr; the default matches the tri-marker set actually declared
-    in pyproject.toml today.
+    The fast-tier expression itself, `not cadence and not complete and not
+    pending_fix and not designed_red`, is the one figure this script's caller
+    may pass via --marker-expr; the default matches the gate-marker set
+    actually declared in pyproject.toml today.
 
 WORKER CAP
     HARD CONSTRAINT: never bare `-n auto` -- unbounded parallel pytest-xdist
@@ -92,9 +93,9 @@ from typing import Optional
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-DEFAULT_MARKER_EXPR = "not cadence and not pending_fix and not designed_red"
+DEFAULT_MARKER_EXPR = "not cadence and not complete and not pending_fix and not designed_red"
 
-GENERATES = []  # every write (plugin source, report.json) lands under tempfile.TemporaryDirectory() per run_pytest_collect/run_pytest_json — no tracked artifact
+GENERATES = []  # every write (plugin source, report.json) lands under a managed-Temp tempfile.TemporaryDirectory() per run_pytest_collect/run_pytest_json — no tracked artifact
 
 # Re-entrancy sentinel (P0 belt-and-braces). `derive_red_set`'s unfiltered
 # execution pass (`run_pytest_json(..., marker_expr=None, ...)`) applies NO
@@ -107,6 +108,16 @@ GENERATES = []  # every write (plugin source, report.json) lands under tempfile.
 # FUTURE test landing back inside the measured tree fails loudly instead of
 # recursing to exhaustion.
 _REENTRANCY_ENV_VAR = "COORDINATOR_RED_SET_REPORT_ACTIVE"
+
+
+def _managed_temp_root() -> str:
+    """Managed Temp dir for this script's scratch; bootstraps `lib` so `cli_shared` imports."""
+    lib_dir = str(Path(__file__).resolve().parent / "lib")
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
+    import cli_shared
+
+    return cli_shared.managed_temp_root()
 
 
 def load_pytest_config(pyproject_path: Path = PYPROJECT_PATH) -> dict:
@@ -130,7 +141,7 @@ def declared_markers(pytest_config: dict) -> list[str]:
 # the suite into "runs per-commit" vs "excluded from the fast tier". Only the
 # NAMES are pinned here; whether pyproject.toml still declares each one (and
 # what it means) is read live by `default_marker_expr()` below, never assumed.
-FAST_TIER_GATE_MARKERS = ("cadence", "pending_fix", "designed_red")
+FAST_TIER_GATE_MARKERS = ("cadence", "complete", "pending_fix", "designed_red")
 
 
 def default_marker_expr(pyproject_path: Path = PYPROJECT_PATH) -> str:
@@ -162,9 +173,12 @@ def capped_worker_count(requested: int | None) -> int | None:
         return None
     physical_cores = os.cpu_count() or 1
     cap_by_cores = max(1, physical_cores // 2)
-    engine_root = str(Path(__file__).resolve().parents[2])
-    if engine_root not in sys.path:
-        sys.path.insert(0, engine_root)
+    lib_dir = str(Path(__file__).resolve().parent / "lib")
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
+    from cc_invoke import place_engine_root_on_path
+
+    place_engine_root_on_path(str(Path(__file__).resolve().parents[2]))
     from coordinator_core.telemetry import host_sampler
 
     avail = host_sampler.avail_mb()[0]
@@ -256,7 +270,7 @@ def run_pytest_collect(
     by a peer's concurrent commit landing between them the way two EXECUTION
     runs could (see module docstring, C1b).
     """
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(dir=_managed_temp_root()) as tmp:
         tmp_path = Path(tmp)
         report_path = tmp_path / "collect.json"
         plugin_path = tmp_path / f"{_COLLECT_PLUGIN_MODULE_NAME}.py"
@@ -356,7 +370,7 @@ def run_pytest_json(
     Uses a temp file for the report (rather than stdout scraping) so pytest's
     own summary noise never has to be parsed.
     """
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(dir=_managed_temp_root()) as tmp:
         tmp_path = Path(tmp)
         report_path = tmp_path / "report.json"
         plugin_path = tmp_path / f"{_PLUGIN_MODULE_NAME}.py"
@@ -617,7 +631,7 @@ def _run_pytest_child(target: str, mode: str) -> dict:
     carrying the read-nodeid plugin, which writes `{"collected": [...], "failed": [...]}` to a
     temp JSON file the parent reads back. Returns that parsed dict.
     """
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory(dir=_managed_temp_root()) as tmpdir:
         tmp_path = Path(tmpdir)
         plugin_path = tmp_path / f"{_CHILD_PLUGIN_MODULE_NAME}.py"
         plugin_path.write_text(_CHILD_PLUGIN_SOURCE, encoding="utf-8", newline="\n")

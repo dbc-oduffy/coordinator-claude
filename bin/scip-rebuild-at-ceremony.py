@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """coordinator/bin/scip-rebuild-at-ceremony.py -- best-effort ceremony hook into
 project-rag's `scip-rebuild --ceremony NAME` verb.
 
@@ -165,7 +166,7 @@ def _resolve_registry_key(key: str) -> tuple[str | None, str | None]:
             capture_output=True,
             text=True,
             check=False,
-            timeout=60,
+            timeout=2.0,
             **no_console_creationflags(),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -238,6 +239,15 @@ def _spawn_detached(argv: list[str], cwd: Path, log_path: Path) -> bool:
         log_handle.close()
 
 
+def _hub(common: Path) -> Path:
+    """The session hub for a git common dir, via the one shared resolver."""
+    if str(_REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT))
+    from coordinator_core.session_hub_path import hub_for_common
+
+    return hub_for_common(common)
+
+
 def _git_common_dir(repo_root: Path) -> Path | None:
     """Walk `.git` (dir or worktree pointer-file) to the common dir, the same
     shape `track-dispatched-agents.py`'s local-log writers use -- so this
@@ -270,7 +280,7 @@ def _running_rebuild_pid(common_dir: Path) -> int | None:
     """Pid of the live sequencer holding the rebuild lease the sequencer writes, else None.
     Unreadable or stale reads as no rebuild; the sequencer sweeps a stale lease itself."""
     try:
-        held = json.loads((common_dir / "coordinator-sessions" / _LEASE_NAME).read_text(encoding="utf-8"))
+        held = json.loads((_hub(common_dir) / _LEASE_NAME).read_text(encoding="utf-8"))
         owner = held.get("sequencer_pid") if isinstance(held, dict) else None
         if not isinstance(owner, int) or owner <= 0:
             return None
@@ -285,7 +295,7 @@ def _read_prior_publish_line(common_dir: Path) -> str | None:
     """Best-effort read of the sequencer's last-publish record's `line` field.
     Missing file, unreadable file, or malformed/non-dict JSON all read as
     "no prior line" -- never raises."""
-    record_path = common_dir / "coordinator-sessions" / _PUBLISH_RECORD_NAME
+    record_path = _hub(common_dir) / _PUBLISH_RECORD_NAME
     try:
         raw = record_path.read_text(encoding="utf-8")
     except OSError:
@@ -345,7 +355,7 @@ def run(ceremony: str, repo_root: Path) -> str:
     running = _running_rebuild_pid(common_dir)
     if running is not None:
         return f"scip-rebuild: skipped -- a rebuild is already running (sequencer pid {running})"
-    log_dir = common_dir / "coordinator-sessions" / "logs"
+    log_dir = _hub(common_dir) / "logs"
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     log_path = log_dir / f"scip-rebuild-{ceremony}-{stamp}.log"
 

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 coordinator.bin.measure-listener-availability -- committed sampler for the http-transport
 fail-open exposure window.

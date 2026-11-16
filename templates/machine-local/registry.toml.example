@@ -26,20 +26,25 @@ schema = 1
 # triangular or multi-drive setups where a single shared parent folder is not
 # feasible. See docs/wiki/hook-best-practices/machine-local-registry.md for the preference order.
 # ---------------------------------------------------------------------------
+# The one box that runs /workweek-start's weekly embedding pass for every repo; its value is
+# that box's coordinator.machine_slug, identical on every box. Unset = the pass refuses.
+"fleet.embed_box"              = ""
+
 # NOTE: there is deliberately no "repos.coordinator_claude" declaration here.
 # The OSS publish mirror is not a working tree, so it is not a repos.* entry —
 # its path lives at "publish.mirrors.coordinator_claude.path" below. Declaring
 # it under repos.* makes every repos.* enumerator (cross-repo memo routing
 # included) offer the publish mirror as a memo destination.
-"repos.market_intelligence4"               = ""
+"repos.dronesim"               = ""
 "repos.project_rag"            = ""
 "repos.project_rag_ue_addon"   = ""
 "repos.claude_unreal_holodeck" = ""
 # Additional sibling repos (declare what you use; leave others empty if you
 # don't have them on this machine):
-"repos.market_intelligence1"             = ""
-"repos.market_intelligence0"             = ""
+"repos.geneva_mvp"             = ""
+"repos.fifa_stats"             = ""
 "repos.experiments"            = ""
+"repos.general_work"           = ""
 # G-EM group-em home; empty means <settings-home>/group-em. Must lie outside every repo.
 "coordinator.group_em_home" = ""
 # empty means _general-work beside the registered repos (else under the user home), created on demand; must lie outside every repo and the group-em home.
@@ -50,7 +55,7 @@ schema = 1
 # registered during the 2026-07-14 cold-install dogfood that had no tracked
 # baseline declaration (each trips check-machine-local-regeneratability.py
 # Check 2 once classified below without a matching declaration here).
-"repos.market_intelligence3"                   = ""
+"repos.delphios"                   = ""
 "repos.project_opticon"            = ""
 "repos.project_rag_template_addon" = ""
 # repos.delphi_store and repos.market_intelligence are real on-disk sibling
@@ -226,19 +231,20 @@ concerns = ["project_rag", "unreal"]
 "publish.mirrors.coordinator_claude.path" = "session-accumulated-must-survive-crash"
 "external_workspaces"          = "session-accumulated-must-survive-crash"
 "stores"                       = "session-accumulated-must-survive-crash"
-"repos.market_intelligence4"               = "session-accumulated-must-survive-crash"
+"repos.dronesim"               = "session-accumulated-must-survive-crash"
 "repos.project_rag"            = "session-accumulated-must-survive-crash"
 "repos.project_rag_ue_addon"   = "session-accumulated-must-survive-crash"
 "repos.claude_unreal_holodeck" = "session-accumulated-must-survive-crash"
-"repos.market_intelligence1"             = "session-accumulated-must-survive-crash"
-"repos.market_intelligence0"             = "session-accumulated-must-survive-crash"
+"repos.geneva_mvp"             = "session-accumulated-must-survive-crash"
+"repos.fifa_stats"             = "session-accumulated-must-survive-crash"
 "repos.experiments"            = "session-accumulated-must-survive-crash"
+"repos.general_work"           = "session-accumulated-must-survive-crash"
 # tasks/2026-07-14-install-dogfood-friction.md § F8 — classes for repos.*
 # keys registered during the 2026-07-14 cold-install dogfood (see matching
 # declarations above). All repos.* keys are session-accumulated-must-survive-crash
 # by definition (§13): they encode this operator's machine layout, not
 # something an idempotent script can re-derive.
-"repos.market_intelligence3"                   = "session-accumulated-must-survive-crash"
+"repos.delphios"                   = "session-accumulated-must-survive-crash"
 "repos.project_opticon"            = "session-accumulated-must-survive-crash"
 "repos.project_rag_template_addon" = "session-accumulated-must-survive-crash"
 # repos.delphi_store and repos.market_intelligence sit beyond the § F8

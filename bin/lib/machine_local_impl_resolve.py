@@ -239,7 +239,7 @@ def _env_override_key(key: str) -> str:
     return "MACHINE_LOCAL_" + key.upper().replace(".", "_")
 
 
-def _load_toml_flat(path: str) -> dict:
+def _load_toml_raw(path: str) -> dict:
     if not os.path.isfile(path):
         return {}
     try:
@@ -251,10 +251,41 @@ def _load_toml_flat(path: str) -> dict:
             return {}
     try:
         with open(path, "rb") as f:
-            data = _tomllib.load(f)
+            return _tomllib.load(f)
     except Exception:  # noqa: BLE001 — faithful catch-all; malformed registry degrades to "not found"
         return {}
-    return _flatten_registry_table(data)
+
+
+def _load_toml_flat(path: str) -> dict:
+    return _flatten_registry_table(_load_toml_raw(path))
+
+
+def _flatten_concern(concern: str, data: dict, prefix: "str | None" = None) -> dict:
+    """Flatten one concern file under ``<concern>.``; a top-level ``[<concern>]``
+    table is not double-prefixed. Mirrors ``_machine_local.py::_flatten_concern``."""
+    out: dict = {}
+    base = prefix if prefix is not None else f"{concern}."
+    for k, v in data.items():
+        if k == "schema":
+            continue
+        if prefix is None and k == concern and isinstance(v, dict):
+            out.update(_flatten_concern(concern, v, f"{concern}."))
+            continue
+        full = f"{base}{k}"
+        if isinstance(v, dict):
+            out.update(_flatten_concern(concern, v, f"{full}."))
+        else:
+            out[full] = v
+    return out
+
+
+def _non_empty(flat: dict, key: str) -> "str | None":
+    if key not in flat:
+        return None
+    val = flat[key]
+    if isinstance(val, list):
+        val = "\n".join(str(i) for i in val)
+    return str(val) or None
 
 
 def _flatten_registry_table(data: dict, prefix: str = "") -> dict:
@@ -275,7 +306,9 @@ def registry_get(key: str) -> "str | None":
     no ``coordinator_core`` import (see module docstring's HARD CONSTRAINT).
 
     Resolution order: ``MACHINE_LOCAL_<KEY>`` env override (``"MACHINE_LOCAL_"
-    + key.upper().replace(".", "_")``) -> ``registry.local.toml`` ->
+    + key.upper().replace(".", "_")``) -> ``<c>.local.toml`` -> ``<c>.toml``
+    (``<c>`` a concern in registry.toml ``concerns``; registry keys under a
+    concern prefix never resolve) -> ``registry.local.toml`` ->
     ``registry.toml``, each loaded via ``tomllib``/``tomli`` and flattened to
     dotted keys. Empty string is NOT-FOUND (falls through to the next rung).
     A list value joins with ``"\\n"``. A malformed or absent file degrades to
@@ -296,16 +329,25 @@ def registry_get(key: str) -> "str | None":
         return _native_path_form(env_override)
 
     reg_dir = registry_dir()
-    for fname in ("registry.local.toml", "registry.toml"):
-        flat = _load_toml_flat(os.path.join(reg_dir, fname))
-        if key in flat:
-            val = flat[key]
-            if isinstance(val, list):
-                val = "\n".join(str(i) for i in val)
-            s = str(val)
-            if s:
-                return _native_path_form(s)
-    return None
+    registry = _load_toml_raw(os.path.join(reg_dir, "registry.toml"))
+    concerns = registry.get("concerns", [])
+    concerns = [str(c) for c in concerns] if isinstance(concerns, list) else []
+
+    first_seg = key.split(".")[0]
+    if first_seg in concerns:
+        for fname in (f"{first_seg}.local.toml", f"{first_seg}.toml"):
+            flat = _flatten_concern(first_seg, _load_toml_raw(os.path.join(reg_dir, fname)))
+            found = _non_empty(flat, key)
+            if found is not None:
+                return _native_path_form(found)
+    if first_seg.lower() in {c.lower() for c in concerns}:
+        return None
+
+    flat = _load_toml_flat(os.path.join(reg_dir, "registry.local.toml"))
+    found = _non_empty(flat, key)
+    if found is None:
+        found = _non_empty(_flatten_registry_table(registry), key)
+    return _native_path_form(found) if found is not None else None
 
 
 _CONTENT_ROOT_POINTER = ".coordinator-content-root"

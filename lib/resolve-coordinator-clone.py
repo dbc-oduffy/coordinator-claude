@@ -116,6 +116,10 @@ _LIB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
+# Kill ceiling for every machine-local spawn here (== coordinator_core.machine_local_spawn
+# .ML_SPAWN_TIMEOUT_S). subprocess.run kills and reaps the direct child on expiry.
+_ML_SPAWN_TIMEOUT_S = 2.0
+
 
 def _import_registry_get():
     """Resolve the engine root and import the canonical settings-home registry
@@ -194,7 +198,7 @@ def _registry_path() -> str:
                 [claude_home_bin, "machine-local"],
                 capture_output=True,
                 text=True,
-                timeout=10,
+                timeout=_ML_SPAWN_TIMEOUT_S,
             )
             reg_dir = result.stdout.strip()
         except (OSError, subprocess.TimeoutExpired):
@@ -226,7 +230,7 @@ def _registry_content_root() -> str:
             [machine_local_bin, "get", "repos.content_root"],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=_ML_SPAWN_TIMEOUT_S,
         )
     except (OSError, subprocess.TimeoutExpired):
         return ""

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """doctor-catalog-gen.py — SSOT metadata block generator for coordinator-doctor.md.
 
 Purpose: read bin/doctor-probes.toml and emit a compact markdown metadata

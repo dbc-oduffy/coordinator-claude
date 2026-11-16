@@ -14,7 +14,7 @@ DISPOSITION (C6c, docs/plans/2026-08-06-hook-spawn-fan-in-finish-and-extend.md
 `git rev-parse --show-toplevel` (a repo-ROOT resolution, now itself in-process
 via `_git_root_walk` with that subprocess as fallback only), and every read/
 write beyond that root resolution targets session-scoped sentinel/log files
-it creates itself under `<git_common_dir>/coordinator-sessions/<session_id>/`
+it creates itself under `<session hub>/<session_id>/`
 (`workflow-launched`, `multiwave-workflow-nudged`, `multiwave-dispatch-log`)
 -- generic per-session bookkeeping, never a read of source-repo working-data
 (docs/plans, state/*, agents/*.md, etc.). That is the same "common_dir" scope
@@ -61,8 +61,7 @@ COORDINATOR_OVERRIDE_MULTIWAVE_WORKFLOW=1 to suppress the nudge entirely
 (condition 1). Read from os.environ at call time, mirroring the bash
 oracle's process-env read (no re-plumb to a sentinel file -- this hook is
 a plain script invocation each time, not a resident engine call, so the
-env var IS reachable at hook-call time, unlike the resident-engine
-env-hatch re-plumb precedent in nudge-foreground-agent-dispatch.py).
+env var IS reachable at hook-call time).
 
 DENY-CONDITION CARE (there is no deny path here -- this hook is advisory
 only -- but the conditions that gate the ADVISORY firing must be preserved
@@ -138,11 +137,11 @@ except Exception:
         Message = _FallbackMessage
 
         @staticmethod
-        def compose(prose, alternative=None, anchor=None):
+        def compose(prose, alternative=None, anchor=None) -> _FallbackMessage:
             return _FallbackMessage(prose=prose.strip(), alternative=alternative, anchor=anchor)
 
         @staticmethod
-        def emit(message, channel):  # noqa: ARG004 -- single-channel fallback
+        def emit(message, channel) -> int:  # noqa: ARG004 -- single-channel fallback
             parts = [message.prose]
             if message.alternative:
                 parts.append("")
@@ -172,6 +171,7 @@ except Exception:
     _envelope = _FallbackEnvelope()
 
 from _win_portability import no_console_creationflags  # noqa: E402
+from _session_hub_path import hub_for_common  # noqa: E402
 try:
     from _git_common_dir import resolve_git_common_dir as _resolve_git_common_dir  # noqa: E402
 except Exception:
@@ -213,8 +213,7 @@ _WIKI_ANCHOR = (
 )
 
 # session_id format guard -- mirrors the bash oracle's guard (which itself
-# mirrors the AGENT_ID format guard in track-dispatched-agents.py / the
-# SESSION_ID guard in nudge-foreground-agent-dispatch.py). Nulls garbage
+# mirrors the AGENT_ID format guard in track-dispatched-agents.py). Nulls garbage
 # session_id so a malformed value can't produce a bogus SESSION_DIR path.
 _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{4,}$")
 
@@ -361,7 +360,7 @@ def main() -> int:
     if not common_dir:
         return 0
 
-    session_dir = Path(common_dir) / "coordinator-sessions" / session_id
+    session_dir = hub_for_common(Path(common_dir)) / session_id
 
     if tool_name == "Workflow":
         try:

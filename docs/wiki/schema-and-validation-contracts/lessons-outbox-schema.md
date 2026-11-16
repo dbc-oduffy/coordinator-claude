@@ -37,7 +37,7 @@ own outbox; the central machine reads across all registered peers via
 | `trigger` | string | optional | The precondition or symptom under which the lesson fires. Author-supplied at capture only — see § Structured facets (anti-fabrication). | `"drain step invoked from a non-main branch"` |
 | `why` | string | optional | The rationale behind the lesson. Author-supplied at capture only. | `"cutting from workstream entangles unrelated work into the drain commit"` |
 | `how_to_apply` | string | optional | The corrective action. Author-supplied at capture only. | `"cut the drain branch from peer main, never from the active workstream branch"` |
-| `pm_decision` | enum (string) | optional | The PM's ruling on this row, written by the EM after the central route run. May be ruled per-record or per-cluster: a cluster ruling (approve, defer, or reject every row sharing a triage cluster id in one utterance) writes the same `pm_decision` value to every row in that cluster, and the EM records the cluster id ruled on. The apply run selects rows where `pm_decision == apply`. One of `apply`, `defer`, `reject`. | `"apply"` |
+| `pm_decision` | enum (string) | optional | The ruling on this row, written by the EM itself after the central route run, never asked of the PM: verify pass → `apply`; verify refuted twice as already covered → `reject`; `needs-judgment` → an adjudicator agent's verdict. The field name is historical. May be ruled per-record or per-cluster: a cluster ruling (apply, defer, or reject every row sharing a triage cluster id in one utterance) writes the same `pm_decision` value to every row in that cluster, and the EM records the cluster id ruled on. The apply run selects rows where `pm_decision == apply`. One of `apply`, `defer`, `reject`. | `"apply"` |
 | `status` | string | optional | Closure status, written by the engine closer when this outbox row is applied. | `"closed"` |
 | `closed_at` | string (ISO 8601 UTC) | optional | Timestamp the engine closer closed this outbox row. Written by the engine closer; never set manually. | `"2026-09-21T10:00:00Z"` |
 | `closed_by` | string | optional | Identifier of the engine closer (or session) that closed this outbox row. Written by the engine closer; never set manually. | `"coordinator-lesson-apply"` |
@@ -188,14 +188,14 @@ three modes:
 
 - **project-local** — auto-applies bounded, low-risk dispositions without PM gating:
   `discard-ephemeral`, `migrate-to-existing-wiki`, `re-tag-local`, `dedupe`.
-- **cross-project** — every apply is PM-gated. This is the mode that produces outbox entries:
+- **cross-project** — every apply needs an EM-written `pm_decision: apply`. This is the mode that produces outbox entries:
   a `[universal]` lesson with a resolved central-wiki target invokes `coordinator-lesson-promote`,
   writing the YAML this schema describes.
 - **recheck** — fires from a `state/lesson-triage-recheck-due-*.md` marker; auto-extends if ≤5
   new universal lessons have accumulated, otherwise escalates to cross-project mode.
 
 Only `doctrine-edit`, `wiki-new`, `agent-prompt-edit`, `hook-edit`, `script-edit`, and
-cross-repo `project-structural` changes surface to the PM; the project-local auto-apply set
+cross-repo `project-structural` changes go to an adjudicator agent; the project-local auto-apply set
 above never does.
 
 ---
@@ -301,7 +301,7 @@ field-by-field mapping is: `YYYY-MM-DD` → `created`; `<source-repo>` → `from
 <!-- Required per plan § C2 and AC8.2 — defines the dry-run output used by
      migrate-improvement-queue-universals.py --apply as its guard input. -->
 
-the engine repo's `coordinator/bin/migrate-improvement-queue-universals.py --dry-run` writes its classification output to:
+the engine repo's `"$_py" <engine-root>/coordinator/bin/migrate-improvement-queue-universals.py --dry-run` (no launcher; interpreter ladder in `coordinator/snippets/resolve-coordinator-bin.md`) writes its classification output to:
 
 ```
 state/migrate-universals-dryrun-<ISO-date>.json

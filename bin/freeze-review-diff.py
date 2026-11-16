@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """freeze-review-diff.py — materialize a frozen review diff to disk by name.
 
 Purpose: coordinator:code-reviewer's Bash is allowlist-confined by

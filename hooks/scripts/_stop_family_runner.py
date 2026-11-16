@@ -28,6 +28,7 @@ import io
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
@@ -128,7 +129,7 @@ def _target_path_from_payload(payload: Any) -> Optional[str]:
     return None
 
 
-def _import_guard_module(guard: RegisteredStopFamilyGuard):
+def _import_guard_module(guard: RegisteredStopFamilyGuard) -> ModuleType:
     # Only reached once guard.descriptor.matches(target_path) is already True. Uses
     # importlib.util.spec_from_file_location, same as _guard_runner._import_guard_module,
     # because hyphenated filenames are not valid dotted-import identifiers.

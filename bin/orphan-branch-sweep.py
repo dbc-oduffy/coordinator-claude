@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """orphan-branch-sweep.py — read-only sweep classifying orphaned work/feature branches.
 
 Enumerates user-owned work/* and feature/* branches in the current repo and

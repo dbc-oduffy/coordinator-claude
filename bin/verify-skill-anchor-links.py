@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """verify-skill-anchor-links.py — dead-anchor gate for `<path>.md § <section>` citations.
 
 Thin DoE-side (contract) trampoline over claude-klabauter's

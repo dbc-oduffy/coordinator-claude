@@ -1,19 +1,22 @@
 ---
 name: update-docs
-description: "Sync all documentation artifacts to the current codebase state."
+description: "Sync documentation to the current codebase."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent"]
 argument-hint: "[--no-distill]"
 ---
 
 # Update Documentation — Repo-Wide Maintenance
 
-Repo-wide doc maintenance, any prior agent's changes. `--no-distill` skips Phase 13.
+Repo-wide doc maintenance, any prior agent's changes. `--no-distill` skips Phase 13. Doc, atlas,
+distill and index freshness is a standing invariant (`A-FRESHNESS-THE-OPERATOR-MUST-REMEMBER-IS-NOT-MAINTAINED`);
+this sweep is a near-no-op when it holds.
 
-**Split:** Phases 1–11d dispatch UNNAMED to a Sonnet doc-maintenance agent (`model: "sonnet"`;
-named breaks report delivery) and stop at 11d — subagents can't dispatch subagents. EM runs
-Phase 0, 6, 9's commit, 11a, 12, 11f/11g/11h/11h2/11i/11j, 13–15, and all escalations. Sonnet agent
-out-of-scope: `gh pr create/merge`, `git push origin main`, any commit to `main` — surface a
-merge urge to the EM instead.
+**Split:** the EM runs every script and CLI phase directly, no agent spawned, and all escalations;
+run the script and CLI phases first. The judgment agents are 2c's wiki refresh and 8b's keep/prune call
+on ambiguous candidates (`model: "sonnet"`, dispatched UNNAMED; named breaks report delivery), one agent
+each and only when its rows are non-empty. Wiki pages are refreshed only from the 2c op's `pages[]`, never
+by an agent reading the wiki or plan corpus. Either agent is out-of-scope for
+`gh pr create/merge`, `git push origin main`, any commit to `main` — surface a merge urge to the EM instead.
 
 Unless a row below says otherwise: **non-zero exit → surface path+error to PM, don't auto-fix,
 don't abort. Zero/nothing found → no Phase 14 line.** All CLIs run per
@@ -26,40 +29,49 @@ POSIX hosts. Rationale, worked examples, and incident write-ups for any row: wik
 `update-docs-probes fresh-scaffold-probe` (3-axis AND, false-negative-NEVER). Exit 0: relay the
 printed no-op message verbatim, stop. Exit 1: continue.
 
-### Phases (Sonnet-dispatched unless marked EM)
+Before any agent dispatch, run every check registered for `update-docs` in
+`coordinator/skill-preconditions.yaml` and state each verdict in the dispatched brief. Stale or
+missing: the entry's `on_stale` applies (`queue` = one line in the brief and Phase 14, never a
+reindex).
+
+### Phases (every row is EM-run, by script or CLI; judgment agents: 2c listed pages and 8b ambiguous candidates only)
 
 | # | Action |
 |---|---|
-| 0 | Branch guard: not on `main`; work on the day branch `work/<machine>/<YYYY-MM-DD>` (create it if absent). `coordinator-safe-commit --blanket --invoking-command update-docs "pre-docs quick-save"`. Push is Phase 9. |
-| 1–2b | Follow, in order: `${CLAUDE_PLUGIN_ROOT}/pipelines/update-docs/detect-current-state.md`, `source-index-maintenance.md`, `docs-readme-maintenance.md`. |
-| 3 | Update plan-doc status markers, completion dates, deviations. Never mark an executing plan complete: the engine gate (`plan.status`) refuses it; leave it. |
-| 4 | Memory is a pointer index (PM decisions, behavioral feedback, cross-repo/project pointers only) — size-guard-capped, drained at every closure ceremony. Lessons → `/learn-lessons`. |
+| 0 | Branch guard: refuse on `main`; stay on the current branch, create and switch none. No pre-run quick-save: a shared tree holds peers' edits. Push is Phase 9. |
+| 1–2b (EM script) | `python "${CLAUDE_PLUGIN_ROOT}/scripts/update_docs_bookkeeping.py" <phase> --repo "$(pwd)"` for `detect`, `indexes`, `readme` (`all` runs 1–8b in one report). Read-only; each `judgment_needed` row is the EM's edit, rules in `pipelines/update-docs/{detect-current-state,source-index-maintenance,docs-readme-maintenance}.md`. |
+| 2c (EM) | Script first: `coordinator-invoke ceremony.wiki_candidates '{}'`, then follow `pipelines/update-docs/wiki-plan-driven-update.md`. The since-last-run doc set is `project-rag doc-delta --json --since <watermark>`; a changelog entry's plans, decisions and wiki pages are `project-rag doc-changelog-touches --json <DOC[#ANCHOR]>` (project-rag CLI resolved through `machine-local get repos.project_rag`, a missing key a typed refusal naming it; exit 3 is a Phase 14 `no-producer` line, never a git or frontmatter scan). Empty `pages[]`: no dispatch. Op not registered: Phase 14 `no-producer` line, no dispatch. Else one Sonnet agent gets the listed pages plus each plan's preview (at most ~10k characters per plan), nothing else; never a fan-out over the whole corpus. |
+| 3 (EM script) | `update_docs_bookkeeping.py plans`. Never mark an executing plan complete: the engine gate (`plan.status`) refuses it; the script skips them. |
+| 4 (EM script) | `update_docs_bookkeeping.py memory` — a pointer index (PM decisions, behavioral feedback, cross-repo/project pointers only), size-guard-capped. Lessons → `/learn-lessons`. |
 | 5 | Retired, no-op — placeholder keeps numbering stable. |
-| 6 (EM) | `/learn-lessons --mode=local`, run in the EM session (a skill cannot run in the Sonnet subagent); the subagent skips it and continues with 7. |
-| 7 | CLAUDE.md — rare, only on a real architecture/rule/build-system change. |
-| 8 | Follow `pipelines/update-docs/handoff-archival.md`. |
-| 8b | Follow `pipelines/update-docs/artifact-pruning.md`. `git rm` is EM-scope — inventory only; every candidate arrives PRUNE or KEEP with a reason. |
-| 9 (EM) | Resolve the whole 8b inventory first: stage every PRUNE `git rm` into the commit, record each KEEP's reason. `coordinator-safe-commit --blanket --invoking-command update-docs "docs maintenance"`; then `coordinator-invoke push.outstanding '{}'` — decides HEAD-ahead-of-upstream and pushes only when it is; warn PM on push failure. Sonnet agent MUST NOT run this. |
-| 9b | `update-docs-probes repomap-gate` — resolves RAG tiering itself, prints the Phase 14 note. |
-| 10 | If `state/orientation_cache.md` exists: `regenerate-orientation-cache --invoker update-docs`. Never hand-author/patch it. No cache: skip. |
-| 10b | Only if RAG present and repomap ran as fallback: append `state/repomap-audit.log`. Two consecutive "no" entries → suggest retirement to PM, no auto-action. |
-| 11 | Follow `pipelines/update-docs/atlas-integrity-check.md`; its Mechanical layer step runs first, and a no-producer leg is reported, never handed to an agent. Also surface any RAG-staleness banner and >90-day `last_mapped` drift (informational). |
+| 6 (EM) | `/learn-lessons --mode=local`, run in the EM session. |
+| 7 (EM script) | `update_docs_bookkeeping.py claude-md` — "no architecture change detected" (no Phase 14 line) or one `judgment_needed` row; edit CLAUDE.md only on a real architecture/rule/build-system change. |
+| 8 (EM script) | `update_docs_bookkeeping.py handoffs` — each `archive-predecessor` row carries the guarded `housekeeping.cycle` params; run per `pipelines/update-docs/handoff-archival.md`. |
+| 8b (EM script, then judgment agent) | `update_docs_bookkeeping.py prune` — PRUNE/KEEP inventory per `pipelines/update-docs/artifact-pruning.md`. `git rm` is EM-scope. The judgment agent takes only its `judgment_needed` rows and returns PRUNE or KEEP with a reason each; no rows, no dispatch. |
+| 9 (EM) | Resolve the whole 8b inventory first: stage every PRUNE `git rm` into the commit, record each KEEP's reason. `coordinator-safe-commit --pathspec-from-file <paths this run wrote or git rm'd> "docs maintenance"` — never `--blanket`: the tree is shared, and a peer's unverified edits would ride along and be pushed; then `coordinator-invoke push.outstanding '{}'` — decides HEAD-ahead-of-upstream and pushes only when it is; warn PM on push failure. The judgment agent MUST NOT run this. |
+| 9b (EM CLI) | `update-docs-probes repomap-gate` — resolves RAG tiering itself, prints the Phase 14 note. |
+| 10 (EM CLI) | If `state/orientation_cache.md` exists: `regenerate-orientation-cache --invoker update-docs`. Never hand-author/patch it. No cache: skip. |
+| 10b (EM CLI) | Only if RAG present and repomap ran as fallback: append `state/repomap-audit.log`. Two consecutive "no" entries → suggest retirement to PM, no auto-action. |
+| 11 | Follow `pipelines/update-docs/atlas-integrity-check.md`; the EM runs its Mechanical layer step first, and a no-producer leg is reported, never handed to an agent. Also surface any RAG-staleness banner and >90-day `last_mapped` drift (informational). |
 | 11a (EM) | Narrative agents only for pages in the step's `pages_changed`, read from `scratch/atlas-mechanical/<date>-report.json` (no report: no dispatch, a Phase 14 line). One agent takes the listed pages in turn; a split is the EM's call, named in Phase 14. Each brief carries the page's `dead_paths` rows, drift notes, its system's `file_index` added/removed rows, and the index-first clause; a listed page with neither drift note nor `dead_paths` row is not sent. Empty set: no dispatch. |
 | 11b | Retired, no-op — placeholder keeps numbering stable. |
-| 11g | `sync-plugin-wiki`. Exit 5: dev-side mirror at `~/.claude/docs/wiki/` — resolve before proceeding. |
-| 11c | `refresh-queries`. Changed files fold into the Phase 9 commit. |
+| 11g (EM CLI) | `sync-plugin-wiki`. Exit 5: dev-side mirror at `~/.claude/docs/wiki/` — resolve before proceeding. |
+| 11c (EM CLI) | `refresh-queries`. Changed files fold into the Phase 9 commit. |
 | 11d | `lint-frontmatter --json`. `ok:false`: top 3 schemas + up to 5 files in Phase 14. Escalate at ≥2 consecutive non-zero runs. Native seam: `schema.validate` op. |
-| 12 (EM) | Resolve scope (`plugins/` if present at repo root, else invoking repo's own doc surface). Pre-count `[text](url)` links in `{skills,agents,commands}/*.md`; below a low per-file threshold, skip and report. Else dispatch `doc-link-checker` (scope + file filter only, never `--check-external`; it follows its own agent file's Output Contract/DONE-After-Write Protocol) via its auto-provisioned sidecar. Never halts. |
+| 12 (EM script) | `python "${CLAUDE_PLUGIN_ROOT}/scripts/doc_link_check.py" --repo "$(pwd)"` — local links only; it owns scope and the low-link skip. Feeds the Phase 14 doc-link line. Never halts. |
 | 11f (EM) | `verify-parallel-review-lens-orthogonality`. Non-zero: lens-domain collision — rename/drop the reviewer, don't auto-fix. |
 | 11h (EM) | `verify-skill-anchor-links`. Exit 1: dead anchors, don't auto-fix. Exit 2, or a run that checked zero anchors (total 0): **unverified** (broken/missing manifest or nothing checked) — report as missing coverage, never green and never a finding; absent manifest is exit 0/1, not 2. |
 | 11h2 (EM) | `verify-coverage --sweep-root "$(pwd)"`. **Non-zero HALTS `/update-docs`** — retarget, add a rationale to `REF_ALLOWLIST` in the engine repo's `verify_coverage.py`, or create the artifact. A zero-total report (nothing swept) is **unverified**, not green: report it as missing coverage. |
 | 11i (EM) | `update-docs-probes queue-prune-sweep`. Pruned: fold into the commit, report the count. |
 | 11j (EM) | `reap-stale-subagent-sidecars` — reaps on session liveness AND an age floor AND a status carve-out, never `status:` alone. Reaped: `git rm` into the commit, report the count. |
 | 11k (EM) | Follow `pipelines/update-docs/claudemeta-manifest-cadence.md`. Source-repo only, no-op elsewhere. |
-| 11m (EM) | `${CLAUDE_PLUGIN_ROOT}/bin/check-citation-integrity.py` — the doctrine corpus's citation ratchet. **No-launcher, plugin-local script — rung 3 of `resolve-coordinator-bin.md`'s precedence ladder, not the settings-home form line 20 prescribes for other rows.** Deliberate skip, exit 0, when `state/baselines/citation-integrity.json` is absent for the corpus being checked — not "script absent". Exit 1 names the NEW violations per class against that baseline. **Never auto-repair them**: a citation that merely MENTIONS a filename is not a broken link, and repairing a mention makes the docs false — see `citation-integrity.md`. Report them; a genuine one is the reporter's to fix by hand. |
-| 11n (EM) | `${CLAUDE_PLUGIN_ROOT}/bin/check-decision-citations.py` — the decision-id citation ratchet. **No-launcher, plugin-local script — rung 3 of `resolve-coordinator-bin.md`'s precedence ladder, not the settings-home form line 20 prescribes for other rows.** Deliberate skip, exit 0, when `state/baselines/decision-citations.md` is absent — not "script absent". Exit 1 names the NEW dangling ids with their citing files; exit 2 is **could not check**, reported as missing coverage. Report the checker's line in Phase 14; never halts the sweep. **Fire-response:** fix the citation, or route a genuinely lost record to the recovery plan — never `--emit-baseline` as the reply. Contract: `decisions-corpus.md` § Citation integrity. |
-| 11o (EM) | `${CLAUDE_PLUGIN_ROOT}/bin/fleet-claude-md-fleet-rule-scan.py` — project `CLAUDE.md` holds no fleet rules. **No-launcher, plugin-local script — rung 3 of `resolve-coordinator-bin.md`'s precedence ladder.** Scans this repo's `CLAUDE.md`; in the source repo (root holds `.coordinator-dev-repo`) run it with `--fleet`. Exit 1 names `stale` lines stating a retired fleet rule: cut the line in the owning repo (memo the owner when a sibling), never edit the registry. `restated` lines are advisory, reported in Phase 14. Exit 2 is **could not check**, reported as missing coverage. Never halts the sweep. |
-| 11p (EM) | `${CLAUDE_PLUGIN_ROOT}/bin/deferral-prose-audit.py` — deferral-shaped prose outside a plan's `## Tasks` spine, report-only. **No-launcher, plugin-local script — rung 3 of `resolve-coordinator-bin.md`'s precedence ladder.** The operator re-runs with `--seed` (or files by hand) only for hits they confirm; report the hit count in Phase 14. Exit 2 is **could not check**, reported as missing coverage. Never halts the sweep. |
+| 11m (EM) | `${CLAUDE_PLUGIN_ROOT}/bin/check-citation-integrity.py` — the doctrine corpus's citation ratchet. **Plugin-local no-launcher script (`resolve-coordinator-bin.md` rung 3).** Deliberate skip, exit 0, when `state/baselines/citation-integrity.json` is absent for the corpus being checked — not "script absent". Exit 1 names the NEW violations per class against that baseline. **Never auto-repair them**: a citation that merely MENTIONS a filename is not a broken link, and repairing a mention makes the docs false — see `citation-integrity.md`. Report them; a genuine one is the reporter's to fix by hand. |
+| 11n (EM) | `${CLAUDE_PLUGIN_ROOT}/bin/check-decision-citations.py` — the decision-id citation ratchet. **Plugin-local no-launcher script (`resolve-coordinator-bin.md` rung 3).** Deliberate skip, exit 0, when `state/baselines/decision-citations.md` is absent — not "script absent". Exit 1 names the NEW dangling ids with their citing files; exit 2 is **could not check**, reported as missing coverage. Report the checker's line in Phase 14; never halts the sweep. **Fire-response:** fix the citation, or route a genuinely lost record to the recovery plan — never `--emit-baseline` as the reply. Contract: `decisions-corpus.md` § Citation integrity. |
+| 11o (EM) | `${CLAUDE_PLUGIN_ROOT}/bin/fleet-claude-md-fleet-rule-scan.py` — project `CLAUDE.md` holds no fleet rules. **Plugin-local no-launcher script (`resolve-coordinator-bin.md` rung 3).** Scans this repo's `CLAUDE.md`; in the source repo (root holds `.coordinator-dev-repo`) run it with `--fleet`. Exit 1 names `stale` lines stating a retired fleet rule: cut the line in the owning repo (memo the owner when a sibling), never edit the registry. `restated` lines are advisory, reported in Phase 14. Exit 2 is **could not check**, reported as missing coverage. Never halts the sweep. |
+| 11m2 (EM) | Citation drift in the docs this run touched: `project-rag verify-citations --json DOC [DOC ...]` (verdicts `moved`/`dead`) and `project-rag doc-drift --json DOC [DOC ...]` (`drifted` rows), same invocation and exit-3 `no-producer` rule as 2c. Report-only, never auto-repair; no door, no hand-rolled scan. `changed-symbols` has no step here (system mapping is the atlas phases'). |
+| 11p (EM) | `${CLAUDE_PLUGIN_ROOT}/bin/deferral-prose-audit.py` — deferral-shaped prose outside a plan's `## Tasks` spine, report-only. **Plugin-local no-launcher script (`resolve-coordinator-bin.md` rung 3).** The operator re-runs with `--seed` (or files by hand) only for hits they confirm; report the hit count in Phase 14. Exit 2 is **could not check**, reported as missing coverage. Never halts the sweep. |
+| 11q (EM) | `${CLAUDE_PLUGIN_ROOT}/scripts/dr-hygiene-scan.py` — decision records carry no amendment, revision or superseded tail and titles state the current rule. Exit 1: rewrite each named DR whole or delete it (`DR-SUPERSESSION-EDITS-IN-PLACE-OR-DELETES`), repoint citers, fold into the commit; never add to EXEMPT without a reason. Also run `--similar-titles`: a cluster is a duplicate record; delete the restatement and repoint citers (the guard test fails on any cluster). |
+| 11r (EM script) | `python "${CLAUDE_PLUGIN_ROOT}/scripts/declaration_gate.py" --all --ty --json` — Python/TypeScript functions declaring no return or an unannotated parameter (`A-NEW-PYTHON-FUNCTION-DECLARES-ITS-RETURN`). Never halts; exit 2 or `ty` skipped is missing coverage, reported. Findings are the backfill queue: declare each in the repo's own source; `coordinator/bin`·`lib` rows are mirrors, reported not edited. |
 | 13 (EM) | Skip on `--no-distill`. `update-docs-probes distill-threshold` (owns the fire thresholds; read its exit code, never restate them). Exit 1: announce to PM, chain `/distill` via Skill tool. |
 | 14 (EM) | Report, below. |
 | 15 (EM, `~/.claude` only) | Elsewhere: "Phase 15: skipped — not running from ~/.claude." Else follow `pipelines/update-docs/cross-repo-registry-refresh.md`. |
@@ -90,9 +102,11 @@ Append a line only if its condition holds:
 | `**Pushed:**` | the push did **not** land — auto-push handles the routine case, and its success is not a PM line |
 | `**Plugin Doc-Link Health:**` | broken link(s) or a skipped-cap notice — omit when clean |
 | `**Architecture Atlas:**` | drift, staleness banner, quarterly drift note, or a leg read no-producer or declined — omit when clean |
+| `**Undeclared Returns:**` | the 11r sweep found N ≥ 1 functions (count, non-mirror count), or could not run — omit at 0 |
 | `**Frontmatter Schema Drift:**` | N ≥ 1 violations, or the sweep errored — omit at 0 |
 | `**Distillation:**` | threshold fired and `/distill` was chained — omit when "not needed" |
 | `**Cross-Repo Registry:**` | unreachable candidate(s), or skipped (cwd-gated out) — omit when clean |
+| `**Bookkeeping cost:**` | always, when 2c ran or read `no-producer`: the dispatched agent's `total_tokens` from the Agent tool's usage result (measured, never self-reported; `0 agents` when none) plus the op's `preview_chars_total` |
 | `**claudemeta Manifest:**` | regenerated on drift — omit when `--check` was clean or the generator is absent |
 
 Every other phase's count/file-list is never its own line — the commit already carries it, and

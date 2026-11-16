@@ -36,9 +36,12 @@ def _no_console_kw() -> dict:
     matches every `except Exception: "unknown"`/timeout-tolerant call site here).
     """
     try:
-        claude_klabauter_root = str(Path(__file__).resolve().parents[3])
-        if claude_klabauter_root not in sys.path:
-            sys.path.insert(0, claude_klabauter_root)
+        lib_dir = str(Path(__file__).resolve().parent)
+        if lib_dir not in sys.path:
+            sys.path.insert(0, lib_dir)
+        from cc_invoke import place_engine_root_on_path
+
+        place_engine_root_on_path(str(Path(__file__).resolve().parents[3]))
         from coordinator_core.win_portability import no_console_creationflags
 
         return no_console_creationflags()

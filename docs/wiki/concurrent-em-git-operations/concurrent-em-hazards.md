@@ -53,19 +53,11 @@ Indexed by the symptom you'll actually see. Each entry: the trap, why it happens
 
 **Rule.** Gate the commit on the check's exit code (non-zero → unstage with `git rm --cached -- <foreign>` or abort), or stage by explicit file list so the stray never enters the index.
 
-**`git rm --cached` on a tracked path needs the phantom-guard override.** This clone's
-`pre-commit` guard refuses a commit deleting a path still in HEAD **and** on disk; a deliberate
-`git rm --cached` is byte-identical to that phantom in `git status`, so the guard stops both rather
-than invent a distinction the data does not support. Named here, not left to the block message,
-because you reach for this mid-incident and a recovery step that fails when you need it is the
-advice-unreachable-from-the-triggering-state shape:
-
-    COORDINATOR_OVERRIDE_PHANTOM_STAGED_DELETION=1 git commit -- <paths>
-
-**Never carry it to the `git rm --cached` steps below.** Those untrack **not-in-HEAD** artifacts,
-which leave no staged row at all, so the guard cannot fire. The override is per-commit, not
-per-path: setting it there disarms **every** path in that commit, re-arming the phantom inside the
-incident you are recovering from.
+**`git rm --cached` on a tracked path stages its ignore rule in the same commit.** This clone's
+`pre-commit` guard refuses a commit deleting a path still in HEAD **and** on disk. A deliberate
+untrack passes when the commit also stages the `.gitignore` rule that ignores the path, with no
+unstaged edit to that `.gitignore`; a stale index never stages one. With no ignore rule, the path
+is not being untracked: `git reset -- <path>`.
 
 For `--blanket` sweep ceremonies, the blanket path subtracts live-sibling-claimed paths (Foreign set) before staging and unstages them via `git reset HEAD --`. → [`scoped-safety-commits.md`](./scoped-safety-commits.md) § "Carve-Outs and Why" for the blanket-path subtract mechanism.
 
@@ -941,4 +933,11 @@ The temp index never touches `.git/index`, so a sibling's concurrent staging or 
 
 **Rule.** For any enforced rule, before trusting it: enumerate the neighbouring operations that reach the same object store, file, or state, and ask whether the rule (and any mitigation layered on it) still holds at each one — `commit` has `amend`; `add` has `commit`; `before` has `after`; `new` has `changed`. Separately, before concluding a guard is ineffective from its outcome record alone, check whether it was ever reachable for the failure mode in question — a guard with a perfect record can mean "prevented everything" or "was never asked," and only the invocation path discriminates; acting on the outcome record risks deleting a correct guard while the real bypass stays live. Before any `git write-tree` under `GIT_INDEX_FILE`, test that the index file exists (`test -f "$GIT_INDEX_FILE"`), and after it refuse the empty-tree sha (the output of `git hash-object -t tree /dev/null`) unless an empty tree is the intended result — exit status and stderr cannot distinguish an empty write from a real one. Grep the tripwire registry for the mechanism before re-deriving it: a rule that already holds, correctly registered, is still worth nothing if nobody searches before constructing.
 
-Later hazards from here on: `coordinator-content-repo coordinator/docs/wiki/concurrent-em-git-operations/concurrent-em-hazards-lessons.md`.
+### H63 — A peer request is not a dispatch, and a stalled one looks exactly like work in progress
+
+**Symptom.** An EM hands work to a peer session, then reports upward that it is "waiting on" that peer. The work has not moved; the peer exited long ago. In the observed case three roadmap batons sat untouched for 24 minutes behind a peer that had already gone, and the PM's reply was two words: "waiting on... whom?"
+
+**Trap.** Asking a peer is a request, not a dispatch. It carries no accountability, no completion signal, and no liveness guarantee: the peer can decline it, sit on it, or exit without telling you, and all three look identical to work in progress. A dispatched agent reports back and its absence is detectable; a peer request fails silently.
+
+**Rule.** Work you own goes to your own dispatched agents, always. Never route critical-path work to a peer session. Before reporting anything as blocked on another session, confirm that session is alive (one free call). If a peer holds something of yours and has gone quiet, take it back: confirm liveness, say plainly that you are reclaiming it, and re-dispatch to your own agent.
+

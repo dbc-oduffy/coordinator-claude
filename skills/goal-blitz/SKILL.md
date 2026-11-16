@@ -1,6 +1,6 @@
 ---
 name: goal-blitz
-description: "PM-GATED. The VP-Product Reviewer (VP Product) sets and ratifies OKRs, the APM critiques, for every goal-seed or goal-setting sizing in one background wave, or named seeds."
+description: "PM-GATED. The VP-Product Reviewer sets and ratifies OKRs, the APM critiques, for every goal-seed or goal-setting sizing, or named seeds."
 description-budget: 320
 version: 1.0.0
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "Skill", "Workflow", "AskUserQuestion", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList"]

@@ -54,7 +54,7 @@ except Exception:
     # never crash the hook.
     _REAL_STOP_FAMILY_REGISTRY = ()  # type: ignore[assignment]
 
-    def _run_registered_stop_family_guards(registry, raw_payload_text, payload, skipped_out=None):  # type: ignore[no-redef]
+    def _run_registered_stop_family_guards(registry, raw_payload_text, payload, skipped_out=None) -> tuple[int, str]:  # type: ignore[no-redef]
         return 0, ""
 
 

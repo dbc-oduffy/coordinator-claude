@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """discharge-landed — CLI trampoline over the engine-repo's
 `handoff.discharge_landed` op (coordinator_core/ops/handoff_discharge_landed.py).
 

@@ -1,0 +1,7 @@
+# Distillation Log
+# Append-only. Each row = one distilled source artifact.
+# Columns: run | path | disposition | fate
+
+## Run [DATE] (seed)
+
+<!-- Seed run section: no rows yet. `/distill` appends rows under its own `## Run` headers. -->

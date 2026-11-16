@@ -26,7 +26,7 @@ Three independent pre-flight checks beyond the diff freeze. Each fires or skips 
 **Check 3 — Test evidence (`weekly-gate-tests.py`)**
 
 - _Diff includes **unintended** failing tests, runtime artifacts, or stack traces in the work-in-progress notes?_ (i.e., evidence of a problem the EM has not yet diagnosed — NOT verdict-bearing smoke output where a BLOCK or WARN is the expected outcome)
-  → EM runs the failing test invocation and captures stdout/stderr to a file, then runs `bin/weekly-gate-tests.py --test-output <path> --out <findings>` to classify the failures. Read the findings file. Real failures block the dispatch; flakes/env failures get logged and the review proceeds.
+  → EM runs the failing test invocation and captures stdout/stderr to a file, then runs `"$_py" <plugin-root>/bin/weekly-gate-tests.py --test-output <path> --out <findings>` to classify the failures. Read the findings file. Real failures block the dispatch; flakes/env failures get logged and the review proceeds.
 - _Diff has clean test runs (or no test surface yet — pre-TDD scaffold)?_
   → Skip `weekly-gate-tests.py` at pre-flight.
 

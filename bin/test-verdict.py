@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """test-verdict.py — thin door-served CLI over `coordinator_core.ops.verdict_record_op`.
 
 `main(argv)` shim, `reverify-delivery.py` shape: engine imports happen inside `main()`, the module

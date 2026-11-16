@@ -88,6 +88,7 @@ _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 import _message_envelope as _envelope  # noqa: E402
+from _session_hub_path import hub_for_common  # noqa: E402
 
 try:
     from _git_common_dir import resolve_git_common_dir as _resolve_git_common_dir  # noqa: E402
@@ -220,7 +221,7 @@ def main() -> int:
 
     # Rooted at the git COMMON dir, never `<git_root>/.git` -- a worktree's `.git` FILE
     # would silently never persist this session's sentinel.
-    session_dir = Path(common_dir) / "coordinator-sessions" / session_id
+    session_dir = hub_for_common(Path(common_dir)) / session_id
     nudged_sentinel = session_dir / _SENTINEL_NAME
     if nudged_sentinel.is_file():
         return 0

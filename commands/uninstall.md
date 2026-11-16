@@ -1,6 +1,6 @@
 ---
 name: uninstall
-description: "Reverses the coordinator install, fully or back to marketplace."
+description: "Reverse the coordinator install, fully or to marketplace."
 allowed-tools: ["Read", "Bash"]
 argument-hint: "[--keep-marketplace] [--purge-operator-config [--force]] [--dry-run]"
 disable-model-invocation: true
@@ -45,10 +45,10 @@ Every leg is idempotent and fail-loud on ambiguity.
 This command is the mechanical half. Weighing an unexpected surface, when to stop, and the rule
 that uncertainty routes to **reported-and-untouched** (never a guessed reversal) lives in
 the engine authoring repo's wiki, not this clone. Resolve `<claude-klabauter-root>` with `machine-local get
-repos.claude_klabauter`, then read:
+repos.claude_klabauter`, then read the page `uninstall-agentic-judgment.md` in:
 
 ```
-<claude-klabauter-root>/docs/wiki/uninstall-agentic-judgment.md
+<claude-klabauter-root>/docs/wiki/
 ```
 
 Read it whenever a run turns up a surface nothing below covers.
@@ -113,7 +113,7 @@ engine-computable fact.
 17. **Operator `~/.claude` git-hook gate regions** — REVERSE, across `pre-commit`, `post-merge`,
     `post-checkout`.
 18. **Manifest-required env key (`CLAUDE_CODE_ENABLE_TODO_TOOLS`)** — CANNOT-REVERSE-SAFELY.
-    The writer of the all-machines rows is `bin/check-settings-env.py --apply` (install.md's
+    The writer of the all-machines rows is `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-settings-env" --apply` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\check-settings-env.exe" --apply`; install.md's
     Settings env values step); it never removes a key, only repairs a wrong/missing value, so there
     is nothing for this script itself to reverse. `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` is
     retired and never written; older installs may still carry it. Manual, only if certain nothing
@@ -196,7 +196,7 @@ engine-computable fact.
     `python "<plugin-root>\templates\bin\install-box-cache-trim-task.py" --uninstall` (no-op if
     never installed): it deletes the task from an elevated shell; exit 3 means it needs one, so
     print that command for the operator to run from an elevated terminal.
-36. **`crossSessionInbound` seed** — DELIBERATELY-NOT-REVERSED. `bin/seed-cross-session-inbound.py --apply` sets it only when absent; an operator preference once set. Manual: delete the top-level `crossSessionInbound` key from `~/.claude/settings.json`.
+36. **`crossSessionInbound` seed** — DELIBERATELY-NOT-REVERSED. `"$_py" <plugin-root>/bin/seed-cross-session-inbound.py (`$_py` per `snippets/resolve-coordinator-bin.md`) --apply` sets it only when absent; an operator preference once set. Manual: delete the top-level `crossSessionInbound` key from `~/.claude/settings.json`.
 37. **Codex and agy host seeding (`unimatrix-install.py`)** — REVERSE. Run
     `"$_py" <plugin-root>/bin/unimatrix-install.py --uninstall` (`$_py` per `snippets/resolve-coordinator-bin.md`): it removes the coordinator-doctrine
     block from `$CODEX_HOME/AGENTS.md` and `~/.gemini/GEMINI.md`, the seeded skills, and the guard
@@ -217,7 +217,7 @@ Resolve the engine root per § Backing script, then invoke (PowerShell):
 - **Full-remove:** exits 0, "no coordinator tree resolved".
 - **Revert-to-marketplace:** exits 0, single canonical tree at `~/.claude/plugins/coordinator-claude`.
 
-Also check `coordinator/lib/resolve-coordinator-clone.py --for-content` / `--for-git-ops`:
+Also check `python3 coordinator/lib/resolve-coordinator-clone.py --for-content` / `--for-git-ops`:
 full-remove → both fail-loud; revert-to-marketplace → both resolve to the flat tree.
 
 ## Running-in-Claude-Code validation

@@ -58,6 +58,7 @@ out of reach from here and is accepted-broken per the de-bash campaign's
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 _TRANSPORT_FAILURE_EXIT = 3
@@ -120,7 +121,7 @@ def _resolve_coordinator_root() -> str:
     return proc.stdout.strip()
 
 
-def _import_main():
+def _import_main() -> Callable[[list[str]], int]:
     """Resolve the coordinator root, then the engine root via cc_invoke's
     ladder (env var -> settings-home pointer file -> coordinator-claude-klabauter-root.sh)
     rather than re-deriving it -- this is a plain in-process import, not an

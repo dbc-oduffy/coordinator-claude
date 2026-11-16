@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """nlm-run-gate: settings-home forwarder to DoE's notebooklm run-gate script.
 
 Runs deep-research/notebooklm/nlm-run-gate.py from the resolved DoE pipelines

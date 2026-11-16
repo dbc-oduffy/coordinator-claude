@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Fold the four guard-enforcement join shards into the single artifact
 the coordinator content repo reads to decide whether a doctrine rule is enforced here.
 

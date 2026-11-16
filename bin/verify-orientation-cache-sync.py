@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """verify-orientation-cache-sync.py — Schema verifier for state/orientation_cache.md.
 
 Trampoline over claude-klabauter coordinator_core.ops.verify_orientation_cache_sync

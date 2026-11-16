@@ -29,6 +29,7 @@ HOST_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z
 USER_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,63}")
 KEY_BODY_RE = re.compile(r"[A-Za-z0-9+/]{16,}={0,2}")
 MEMBER_FIELDS = ("box", "host", "user", "relay_pub", "from_cidrs")
+OPTIONAL_MEMBER_FIELDS = ("file_pub", "relay_pubs")  # file_pub: the file-transfer key, absent = no file leg; relay_pubs: {peer box: per-pair relay key}
 SNAPSHOT_FIELDS = ("collective", "epoch", "prev_digest", "members")
 RUN_TIMEOUT_SECONDS = 30
 
@@ -66,8 +67,8 @@ def is_ip_literal(host):
 
 
 def _validate_member(m):
-    if not isinstance(m, dict) or set(m) != set(MEMBER_FIELDS):
-        raise MembershipError(f"member must have exactly {list(MEMBER_FIELDS)}")
+    if not isinstance(m, dict) or not set(MEMBER_FIELDS) <= set(m) <= set(MEMBER_FIELDS) | set(OPTIONAL_MEMBER_FIELDS):
+        raise MembershipError(f"member must have {list(MEMBER_FIELDS)} and at most {list(OPTIONAL_MEMBER_FIELDS)}")
     box, host, user, pub, cidrs = (m[k] for k in MEMBER_FIELDS)
     if not isinstance(box, str) or not BOX_RE.fullmatch(box):
         raise MembershipError(f"invalid box name {box!r}")
@@ -78,6 +79,28 @@ def _validate_member(m):
     parts = pub.split() if isinstance(pub, str) else []
     if len(parts) < 2 or parts[0] != "ssh-ed25519" or not KEY_BODY_RE.fullmatch(parts[1]):
         raise MembershipError(f"member {box}: relay_pub must be an ssh-ed25519 public key")
+    if "file_pub" in m:
+        fparts = m["file_pub"].split() if isinstance(m["file_pub"], str) else []
+        if len(fparts) < 2 or fparts[0] != "ssh-ed25519" or not KEY_BODY_RE.fullmatch(fparts[1]):
+            raise MembershipError(f"member {box}: file_pub must be an ssh-ed25519 public key")
+        if fparts[1] == parts[1]:
+            raise MembershipError(f"member {box}: file_pub must differ from relay_pub")
+    if "relay_pubs" in m:
+        pairs = m["relay_pubs"]
+        if not isinstance(pairs, dict) or not pairs:
+            raise MembershipError(f"member {box}: relay_pubs must be a non-empty object of peer box -> key")
+        seen = set()
+        for peer, key in pairs.items():
+            kparts = key.split() if isinstance(key, str) else []
+            if not isinstance(peer, str) or not BOX_RE.fullmatch(peer):
+                raise MembershipError(f"member {box}: relay_pubs peer {peer!r} is not a valid box name")
+            if len(kparts) < 2 or kparts[0] != "ssh-ed25519" or not KEY_BODY_RE.fullmatch(kparts[1]):
+                raise MembershipError(f"member {box}: relay_pubs[{peer}] must be an ssh-ed25519 public key")
+            if kparts[1] in seen:
+                raise MembershipError(f"member {box}: relay_pubs[{peer}] duplicates another relay_pubs key")
+            if "file_pub" in m and kparts[1] == m["file_pub"].split()[1]:
+                raise MembershipError(f"member {box}: relay_pubs[{peer}] must differ from file_pub")
+            seen.add(kparts[1])
     if not isinstance(cidrs, list):
         raise MembershipError(f"member {box}: from_cidrs must be a list")
     for c in cidrs:
@@ -230,7 +253,13 @@ def _check_chain(snap, held):
 
 def _ssh_verify(canon, sig, pin_text, run):
     kind, body, _ = _pin_fields(pin_text)
-    tmp = tempfile.mkdtemp(prefix="unimatrix-verify-")
+    import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import ensure_engine_on_path
+
+    ensure_engine_on_path(__file__)
+    from coordinator_core.temp_layout import managed_tempdir
+
+    tmp = tempfile.mkdtemp(prefix="unimatrix-verify-", dir=managed_tempdir())
     try:
         allowed = Path(tmp) / "allowed_signers"
         sigfile = Path(tmp) / "snapshot.sig"
@@ -414,13 +443,36 @@ def adopt(home, snap, sig, notifier=notify, run=subprocess.run):
 
 # ---- authorized_keys ----------------------------------------------------------------------------
 
-def authorized_keys_lines(members, relay_line_fn):
-    """One authorized_keys line per member: `relay_line_fn(key_body)` with `from="<cidrs>",` prefixed.
+def member_key_bodies(m):
+    """Every relay key body of a validated member: `relay_pub` first, then each `relay_pubs` body, deduped in order."""
+    bodies = [m["relay_pub"].split()[1]] + [k.split()[1] for k in m.get("relay_pubs", {}).values()]
+    return list(dict.fromkeys(bodies))
 
-    A member with no from_cidrs gets the relay line unprefixed."""
+
+def pair_key_for(m, peer_box):
+    """The relay key line `m` uses toward `peer_box`: `relay_pubs[peer_box]` when present, else `relay_pub`."""
+    return m.get("relay_pubs", {}).get(peer_box, m["relay_pub"])
+
+
+def member_lines(members, relay_line_fn, file_line_fn=None):
+    """(key body, authorized_keys line) per member key: one relay line per distinct relay key body
+    (`member_key_bodies`), then the file line when the member carries `file_pub` and `file_line_fn` is given.
+    Each gets `from="<cidrs>",` prefixed when the member has cidrs."""
     out = []
     for m in members:
         _validate_member(m)
-        line = relay_line_fn(m["relay_pub"].split()[1])
-        out.append(f'from="{",".join(m["from_cidrs"])}",{line}' if m["from_cidrs"] else line)
+        keys = [(body, relay_line_fn) for body in member_key_bodies(m)]
+        if file_line_fn is not None and "file_pub" in m:
+            keys.append((m["file_pub"].split()[1], file_line_fn))
+        for body, fn in keys:
+            line = fn(body, m["box"])
+            out.append((body, f'from="{",".join(m["from_cidrs"])}",{line}' if m["from_cidrs"] else line))
     return out
+
+
+def authorized_keys_lines(members, relay_line_fn, file_line_fn=None):
+    """One authorized_keys line per member key: `relay_line_fn(key_body, box)` for the relay key and
+    `file_line_fn(key_body, box)` for a `file_pub` key, `from="<cidrs>",` prefixed.
+
+    A member with no from_cidrs gets the line unprefixed."""
+    return [line for _, line in member_lines(members, relay_line_fn, file_line_fn)]

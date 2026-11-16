@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """check-settings-env — assert `settings.json`'s `env` block carries the VALUES the manifest requires.
 
 WHY THIS EXISTS. Coordinator-content-repo's `templates/settings-manifest.md` § Environment Variables names the

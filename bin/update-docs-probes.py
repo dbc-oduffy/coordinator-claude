@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """update-docs-probes.py — thin exit-code-contract shim over
 `coordinator_core.ops.updatedocs_gates`'s 4 probe gates.
 
@@ -151,6 +151,14 @@ def _cmd_fresh_scaffold_probe(args: argparse.Namespace) -> int:
 
 
 def _cmd_repomap_gate(args: argparse.Namespace) -> int:
+    """Delegates to `updatedocs_gates._gate_repomap`.
+
+    Exit codes:
+      0 — repomap skipped (RAG fresh) or regeneration started detached (GateVerdict.CLEAN).
+      1 — a gate FINDING verdict (the repomap gate no longer returns one).
+      2 — the gate could not run: generate-repomap.py unresolvable or could
+          not be spawned (GateVerdict.UNAVAILABLE); summary goes to stderr.
+    """
     overrides = {
         "rag_state": args.rag_state,
         "check_rag_state_cli": args.check_rag_state_cli,
@@ -166,6 +174,9 @@ def _cmd_repomap_gate(args: argparse.Namespace) -> int:
         overrides["generate_repomap_cli"] = str(_BIN_DIR / "generate-repomap.py")
 
     result = gates._gate_repomap(Path(args.repo_root), settings_home, overrides)
+    if result.verdict == gates.GateVerdict.UNAVAILABLE:
+        print(result.summary, file=sys.stderr)
+        return 2
     print(result.summary)
     if result.verdict == gates.GateVerdict.FINDING:
         return 1

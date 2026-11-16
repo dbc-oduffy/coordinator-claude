@@ -10,9 +10,10 @@ This wrapper is where that answer lives: it blocks until a slot frees, runs the
 command, and releases on the way out. The guard's job reduces to requiring the
 wrapper; the counting happens here, where the command's lifetime is known.
 
-WAITING is the design: a fan-out of 876 scoped runs should COMPLETE, taking K
-at a time, so the bound shows up as latency. Only when the wait elapses does it
-refuse (exit 75), never run unserialized.
+WAITING is the design for a fan-out that passes `--wait`: scoped runs COMPLETE,
+taking K at a time, so the bound shows up as latency. The default wait is short;
+when it elapses the wrapper refuses (exit 75) naming the blocker, never runs
+unserialized.
 
 Usage:
     with-tier-t-slot [--owner-label LABEL] [--wait SECS] -- <command> [args...]
@@ -223,9 +224,10 @@ def _win32_resolve_command(command: List[str]) -> Optional[List[str]]:
     return None
 
 #: How long to wait for a slot before refusing with `_EXIT_SLOT_TIMEOUT`.
-#: Generous: the runs this bounds are short by construction, so a caller that
-#: waits this long is behind a genuinely full box rather than a wedged one.
-_DEFAULT_WAIT_SECS = 300.0
+#: Short: the refusal names the blocker, and a caller behind a suite run that
+#: lasts tens of minutes must learn that in seconds, not sit through a wait.
+#: `--wait` lengthens it for a fan-out that is meant to queue.
+_DEFAULT_WAIT_SECS = 15.0
 
 #: EX_TEMPFAIL: no slot within the wait; the wrapped command was not run to
 #: completion. There is no flag to run anyway.
@@ -371,11 +373,20 @@ def main(argv: List[str]) -> int:
         slot = tier_t_slots.acquire_slot(owner, cmd_text, wait, pid=os.getpid())
         if slot is None:
             taken, cap, holders = tier_t_slots.occupancy()
-            held_by = "; ".join(
+            blocker = tier_t_slots.suite_mutex_blocker()
+            parts = [
                 f"slot {h.get('slot')} owner={h.get('owner')} pid={h.get('pid')} "
                 f"cmd={h.get('cmd')!r}"
                 for h in holders
-            ) or "no live holder visible"
+            ]
+            if blocker is not None:
+                parts.insert(
+                    0,
+                    f"suite mutex owner={blocker.get('owner')} pid={blocker.get('pid')} "
+                    f"cmd={blocker.get('cmd')!r} started_at={blocker.get('started_at')} "
+                    "(slots are not offered while a foreign suite run holds it)",
+                )
+            held_by = "; ".join(parts) or "no live holder visible"
             print(
                 f"with-tier-t-slot: no slot free after {wait:.0f}s ({taken}/{cap} taken) — "
                 f"refusing to run unserialized. Held by: {held_by}",

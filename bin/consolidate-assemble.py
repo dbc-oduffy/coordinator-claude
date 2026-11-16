@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # consolidate-assemble — CLI trampoline over claude-klabauter
 # coordinator_core.consolidate_assemble (the computed-skill assembler for
 # `/consolidate-git`'s branch/worktree sprawl inventory + absorb/delete

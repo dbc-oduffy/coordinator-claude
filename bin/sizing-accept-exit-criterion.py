@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """sizing-accept-exit-criterion.py -- argparse trampoline over the
 `sizing.accept_exit_criterion` op (`coordinator_core/ops/sizing_accept_exit_criterion.py`).
 

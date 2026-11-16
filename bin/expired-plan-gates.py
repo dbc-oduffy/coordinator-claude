@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """expired-plan-gates — list gated chunk rows on plans that are still live.
 
 WHY THIS EXISTS. `/workday-start` Step 1.2 sweeps `awaiting_gate` off *handoff* frontmatter and

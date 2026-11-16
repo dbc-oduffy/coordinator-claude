@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """check-anchor-freshness — flag a coordinator plugin triple anchor that did not move this week.
 
 WHY THIS EXISTS. `/workweek-complete` bumps the plugin triple anchor

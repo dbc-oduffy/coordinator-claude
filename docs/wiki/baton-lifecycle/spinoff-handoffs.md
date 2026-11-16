@@ -4,6 +4,12 @@ title: Spinoff Handoffs — Mid-session Forks vs Continuations
 status: active
 created: 2026-05-06
 tags: [spinoff-handoffs]
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
+    omitted_reasons:
+      archived_spec: private-source
+      last_verbose_sha: private-source
 ---
 
 # Spinoff Handoffs
@@ -627,3 +633,8 @@ The guard is idempotent: a not-yet-seeded baton passes through normally; a re-se
 
 - **Verify each Carried-Forward item before executing or deleting it.** Many are already done, premise-wrong, or ratified-permanent; 'delete N dead X' items are often guard-dead but oracle-live. Dispatch verify-first agents told to report when unclear, not guess.
 - **Check a baton's acceptance signal against the governing plan's AC.** A paraphrased recommended-next-step can over-scope the plan and contradict the handoff's own Key Decisions.
+
+## Decision record
+
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-1-062 -->
+Spinoffs are forks, not continuations: `predecessor: none` is the link.

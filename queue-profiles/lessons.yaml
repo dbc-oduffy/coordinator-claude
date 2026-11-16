@@ -157,8 +157,11 @@ triage_policy: |
     - "scope: universal or fleet with a central-wiki target is universal."
     - "A domain-looking universal is routed locally, and its fix writes scope: project."
 
+  already_covered:
+    - "A row whose rule is already stated at HEAD (prior_art hit) is discard, citing the hit as path:line; never a fix verdict and never dedupe-for-recurrence-note unless the survivor is an open row."
+
   dedupe:
-    - "dedupe: the row restates an open row or a wiki rule in other words. The fix appends a recurrence note to the survivor and closes this row."
+    - "dedupe: the row restates an open row in other words. The fix appends a recurrence note to the survivor and closes this row."
 
   prior_art:
     - "Before a wiki-append, wiki-new or 'uncaptured' claim, search for the lesson's rule (its mechanism, not its wording) across coordinator/docs/wiki and the tripwire index, and cite the strongest hit. A rule already stated generically elsewhere is dedupe or discard, never a narrower duplicate."
@@ -195,24 +198,24 @@ appetite:
     where: [[["proposed_target", "present"], ["scope", "==", "project"]], [["target_wiki", "present"], ["scope", "==", "project"]]]
     concurrency: 4
     extra_verification: true
-    batch_size: {default: 4}
+    batch_size: {default: 20}
     triage_depth: standard
     window: 1
-    max_agent_calls: 40
+    max_agent_calls: 20
 
   standard:
     where: [[["scope", "==", "project"]], [["scope", "absent"]]]
     concurrency: 6
     extra_verification: false
-    batch_size: {default: 4}
+    batch_size: {default: 40}
     triage_depth: standard
     window: 2
-    max_agent_calls: 40
+    max_agent_calls: 20
 
   sweep:
     concurrency: 8
     extra_verification: true
-    batch_size: {default: 4}
+    batch_size: {default: 40}
     triage_depth: shallow
     window: 4
     max_agent_calls: 200

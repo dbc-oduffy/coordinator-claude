@@ -100,8 +100,10 @@ import importlib.util
 import json
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Optional
+from types import ModuleType
+from typing import Any, Optional
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _PLUGIN_ROOT = _SCRIPT_DIR.parent.parent
@@ -196,7 +198,7 @@ class SeamError(RuntimeError):
     question look identical downstream, and the second one must never read as the first."""
 
 
-def _load_module(path: Path, name: str):
+def _load_module(path: Path, name: str) -> ModuleType:
     """Import a hyphenated sibling by path. `aggregate-rollup.py` is not an importable module
     name, and copying its ten-line sha recipe here instead would make a third home for one fact."""
     spec = importlib.util.spec_from_file_location(name, path)
@@ -214,7 +216,7 @@ def _load_module(path: Path, name: str):
     return module
 
 
-def _engine_plan_gate():
+def _engine_plan_gate() -> Callable[..., Any]:
     """`compute_gate_report`, through the shared `_engine_root` seam.
 
     The SAME seam `mise-prep-gate.py` and `emit-dispatch-workflow.py` resolve through,

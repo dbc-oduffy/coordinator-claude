@@ -2,7 +2,7 @@
 """SessionEnd hook — best-effort archival of this session's bookkeeping dir.
 
 WHY SessionEnd AND NOT the /workstream-complete ceremony: archival moves
-`<git-common-dir>/coordinator-sessions/<sid>/` to `.archive/<sid>-<date>/`,
+`<session hub>/<sid>/` (`_session_hub_path.hub_for_common`) to `.archive/<sid>-<date>/`,
 which resets every once-per-session guard the directory backs (nudge
 sentinels, dispatch evidence, `started_at`, `meta.json`). `/workstream
 -complete` fires MID-session — a session can close several workstreams
@@ -92,16 +92,24 @@ def _note_degradation(payload: dict, note: str) -> None:
         cwd = payload.get("cwd")
         probe = Path(cwd).resolve() if isinstance(cwd, str) and cwd else Path.cwd()
         for candidate in (probe, *probe.parents):
-            if (candidate / ".git").exists():
-                out = subprocess.run(
-                    ["git", "-C", str(candidate), "rev-parse",
-                     "--path-format=absolute", "--git-common-dir"],
-                    capture_output=True, text=True, timeout=5, check=False,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                )
-                if out.returncode != 0 or not out.stdout.strip():
-                    return
-                log_dir = Path(out.stdout.strip()) / "coordinator-sessions" / "logs"
+            dot_git = candidate / ".git"
+            if dot_git.exists():
+                # A `.git` directory IS the common dir: no spawn. Only a `.git` file
+                # (linked worktree/submodule) needs git to resolve the common dir.
+                if dot_git.is_dir():
+                    common = dot_git
+                else:
+                    out = subprocess.run(
+                        ["git", "-C", str(candidate), "rev-parse",
+                         "--path-format=absolute", "--git-common-dir"],
+                        capture_output=True, text=True, timeout=5, check=False,
+                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    )
+                    if out.returncode != 0 or not out.stdout.strip():
+                        return
+                    common = Path(out.stdout.strip())
+                from _session_hub_path import hub_for_common
+                log_dir = hub_for_common(common) / "logs"
                 log_dir.mkdir(parents=True, exist_ok=True)
                 keys = ",".join(sorted(k for k in payload if isinstance(k, str)))
                 stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

@@ -293,6 +293,12 @@ Dismissing a downstream throw/guard risk with "the input can't be malformed, it'
 
 **How to apply.** Before arguing a value can't hit a guard/throw because it's "always X," enumerate every producer of that value (every row source, ingest path, fallback), not just the one in mind — and prefer the non-throwing wrapper on any render/read path regardless of the structural argument.
 
+## A Precedent's Rules and Its Live Instance Are Two Artifacts — Check Both
+
+"Do it like we did X" names a ratified decision record and a live on-disk instance that can have drifted apart. The instruction-giver usually describes the instance they can see. Reading the record alone templates the right shape for the wrong reason; copying the instance alone inherits its drift, including unwritten failure modes. (Observed case: a decision specified an external, user-installed, no-fork vendoring pattern; the live reference clone was unmodified, yet two projects' configs executed its source at runtime under a different server key, and nothing in either repo declared the path.)
+
+**How to apply.** Resolve both in parallel (independent reads): read the decision record yourself; dispatch an agent to characterize the instance (what is on disk, what executes, what registers it, what in any repo points at it, whether it was edited in place). Propose the intended shape and flag every divergence rather than reproducing what is on disk. Two probes pay every time: `git status` inside a reference clone (an edited clone is a covert fork), and a grep for the clone's absolute path across every repo (no hit means zero declared coupling). Drift in another repo's tree is a finding for that repo's owner: route it, do not fix it from here.
+
 ## Field rules
 
 - **A surface migration sweeps non-code callers.** Grep `.md` command fences and `hooks.json` for the moved path, not only executable code — no linter or test sees those.

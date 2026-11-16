@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """repo-setup-args-and-register.py — naked-Python port of the residual bash
 logic previously embedded in coordinator-content-repo's `coordinator/skills/repo-setup/SKILL.md`.
 

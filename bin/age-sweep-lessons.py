@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Age-archive aged [universal] entries from state/lessons/*.yaml.
 
 WHY THIS EXISTS

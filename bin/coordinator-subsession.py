@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """coordinator/bin/coordinator-subsession.py -- a refusing launcher for a
 `claude -p` subsession.
 

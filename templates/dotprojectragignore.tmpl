@@ -92,6 +92,13 @@ docs/plans/**
 state/sizings/**
 state/plan-sidecars/**
 
+# Engine run state: per-run manifests, stage records and halt markers under the
+# engine's run roots. They turn over with every fire, are read through engine ops
+# rather than retrieval, and project-rag's own watcher already skips state/warp.
+state/warp/**
+state/plan-blitz/**
+state/queue-grind/**
+
 # Swept scratch — non-durable working space by convention.
 tasks/**
 scratchpad/**

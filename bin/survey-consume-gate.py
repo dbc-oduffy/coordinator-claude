@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """coordinator/bin/survey-consume-gate.py — EM-side Phase-0.5 consume-gate,
 in-process.
 
@@ -29,10 +30,14 @@ I/O contract: reads one JSON object on stdin —
     "system_dirs": ["<dir>", ...] | null,
     "excluded_dirs": ["<dir>", ...] | null,
     "coverage_floor": <float> | null,
+    "run_dir": "<dir for structure.json>" | null (default <repo_root>/scratch/survey-runs/<run_id>),
+    "atlas_pages": ["<atlas page path>", ...] | null,
     "predicate_only": <bool> (optional, default false; true returns only the
                              rag predicate and invokes no op)
   }
-and writes ONE JSON object to stdout.
+and writes ONE JSON object to stdout. Rag present: the census slot is the tree census
+(`chunk_table.source == "tree"`, no op) and the manifest carries `structure_path`
+(`None` plus `structure_unavailable_reason` when project-rag cannot answer). Rag absent: cartography.
 
 Coverage floor: `coverage_floor` overrides `DEFAULT_COVERAGE_FLOOR` (0.5) —
 config is deliberately not a hardcoded constant, since a code repo
@@ -404,6 +409,53 @@ def _run_cartography_extraction(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _run_tree_census(config: dict[str, Any]) -> dict[str, Any]:
+    """Census slot for a rag-present repo: one `git ls-files` bucketed in-process (no op, no model).
+
+    Returns the census-shaped payload (`source: "tree"`); a failure is `ok: false` with a
+    `declined_reason`, so the caller falls back to the agentic census wave.
+    """
+    census_buckets = config.get("census_buckets") or []
+    if not census_buckets:
+        return {"ok": False, "declined_reason": "no censusBuckets supplied — the tree census needs caller-supplied system boundaries, declining"}
+    try:
+        _ensure_claude_klabauter_on_path(config)
+        from coordinator_core.architecture_survey import census_shape, tree_census
+
+        payload = tree_census.build(config["repo_root"], census_buckets)
+        findings = census_shape.validate(payload)
+    except Exception as exc:  # noqa: BLE001 -- any failure declines to the agentic census
+        return {"ok": False, "declined_reason": f"tree census failed ({type(exc).__name__}: {exc}) — falling back to the agentic census wave"}
+    if findings:
+        return {"ok": False, "declined_reason": f"tree census payload invalid ({findings[0]}) — falling back to the agentic census wave"}
+    return payload
+
+
+def _ensure_claude_klabauter_on_path(config: dict[str, Any]) -> None:
+    claude_klabauter_root = str(config["claude_klabauter_root"])
+    if claude_klabauter_root not in sys.path:
+        sys.path.insert(0, claude_klabauter_root)
+
+
+def _fetch_structure(config: dict[str, Any]) -> dict[str, Any]:
+    """Writes `structure.json` into the run dir; never fails the gate.
+
+    Returns `{"structure_path": <path>}` or, when project-rag cannot answer,
+    `{"structure_path": None, "structure_unavailable_reason": <why>}`.
+    """
+    try:
+        _ensure_claude_klabauter_on_path(config)
+        from coordinator_core.architecture_survey import structure
+
+        costs_path = Path(config["claude_klabauter_root"]) / "coordinator_core" / "architecture_survey" / "rag_read_costs.json"
+        costs = json.loads(costs_path.read_text(encoding="utf-8"))
+        run_dir = Path(config.get("run_dir") or Path(config["repo_root"]) / "scratch" / "survey-runs" / str(config["run_id"]))
+        structure.fetch(config["repo_root"], run_dir, list(config.get("atlas_pages") or []), costs=costs)
+        return {"structure_path": str(run_dir / "structure.json")}
+    except Exception as exc:  # noqa: BLE001 -- StructureUnavailable and any read/validation failure degrade the same way
+        return {"structure_path": None, "structure_unavailable_reason": f"{type(exc).__name__}: {exc}"}
+
+
 def _count_files_on_disk(repo_root: str, dirs: list[str]) -> int:
     """Counts every file actually present under each of `dirs` (relative to
     `repo_root`), recursively. A missing/non-directory entry contributes 0,
@@ -502,8 +554,11 @@ def run_gate(config: dict[str, Any]) -> dict[str, Any]:
             "coverage": None,
         }
 
-    chunk_table: dict[str, Any] | None = None
-    if not rag.get("rag_present"):
+    structure_fields: dict[str, Any] = {}
+    if rag.get("rag_present"):
+        chunk_table = _run_tree_census(config)
+        structure_fields = _fetch_structure(config)
+    else:
         chunk_table = _run_cartography_extraction(config)
 
     churn_result = _run_churn(config)
@@ -525,6 +580,7 @@ def run_gate(config: dict[str, Any]) -> dict[str, Any]:
         "chunk_table": chunk_table,
         "churn_result": churn_result,
         "coverage": coverage,
+        **structure_fields,
     }
 
 

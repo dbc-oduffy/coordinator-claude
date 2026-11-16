@@ -5,10 +5,10 @@ status: active
 relates_to:
   - docs/wiki/addon-protocol.md
   # sibling pages: <project-rag-root> = `machine-local get repos.project_rag`, <project-rag-ue-addon-root> = `machine-local get repos.project_rag_ue_addon`
-  - <project-rag-ue-addon-root>/docs/wiki/standalone-vs-ue-augmented.md
+  - docs/wiki/addon-protocol/corpus-class-taxonomy.md
   - docs/wiki/addon-protocol/addon-receiver-scaffold.md
   - <project-rag-root>/docs/wiki/artifact-shape-conformance/thin-wrapper-graceful-fail.md
-  - <project-rag-ue-addon-root>/docs/wiki/triad-roles-doctrine.md
+  - "<project-rag-ue-addon-root> sibling page: triad-roles-doctrine.md (directory <project-rag-ue-addon-root>/docs/wiki/)"
 ---
 
 

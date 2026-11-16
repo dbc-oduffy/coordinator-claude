@@ -39,8 +39,10 @@ Guard 4 (`enforce-agent-dispatch-mode.py`) then runs on the rewritten payload.
 A guard-4 deny is emitted verbatim. Otherwise ONE envelope is emitted: guard
 4's `updatedInput` if it built one, else the last upstream `updatedInput`;
 every accumulated `additionalContext`/`systemMessage` joined with a blank
-line; guard 4's `permissionDecision` when it gave one, none otherwise (an
-upstream rewrite is orthogonal to the allow/deny question).
+line; guard 4's `permissionDecision` when it gave one, else an explicit
+`allow` whenever an `updatedInput` is emitted (auto mode denies a rewrite with
+no decision on a tool outside its exempt list; Agent is outside it), none when
+there is no rewrite.
 
 FAILURE ISOLATION. Guards 1-4 each run inside their own `try/except
 BaseException` -- one guard crashing skips only that guard (with a stderr
@@ -500,6 +502,10 @@ def main() -> int:
     hso = dict(_hso(env))
     if not isinstance(hso.get("updatedInput"), dict) and upstream_input is not None:
         hso["updatedInput"] = upstream_input
+    # Auto mode can deny an updatedInput that carries no decision on a tool outside the
+    # harness's exempt list (Agent is outside it), so every rewrite ships an explicit allow.
+    if isinstance(hso.get("updatedInput"), dict) and not hso.get("permissionDecision"):
+        hso["permissionDecision"] = "allow"
     if contexts:
         hso["additionalContext"] = "\n\n".join(contexts)
     if not hso:

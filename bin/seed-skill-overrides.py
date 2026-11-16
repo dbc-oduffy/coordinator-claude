@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Idempotently seed bundled-skill skillOverrides into a Claude Code settings.json.
 
 Purpose: merge the coordinator's bundled-skill override entries into the user's

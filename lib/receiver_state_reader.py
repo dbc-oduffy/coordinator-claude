@@ -7,8 +7,8 @@ verdict ladder last say about that session?** It is Arm A of the carrier choice
 made in `gem-11` -- see `docs/decisions/DR-group-em-read-pass-carrier.md` for
 the full ladder vocabulary, the arm-choice measurement, and why Arm A won.
 
-THE CARRIER -- `.git/coordinator-sessions/<session_id>/receiver-state.json`,
-written by claude-klabauter's `coordinator_core.session.receiver_state` module
+THE CARRIER -- `.coordinator-local/coordinator-sessions/<session_id>/receiver-state.json`
+(the session hub, outside `.git`), written by claude-klabauter's `coordinator_core.session.receiver_state` module
 (`write_receiver_state`). See the DR above for the vocabulary and the
 measurement backing this choice.
 
@@ -87,7 +87,8 @@ from typing import Any, Optional
 STALE_AFTER_SECONDS = 3600
 
 _SIBLING_FILENAME = "receiver-state.json"
-_SESSIONS_DIRNAME = os.path.join(".git", "coordinator-sessions")
+# Inline twin of session_hub_path.hub_for_root: this stdlib-only lib module imports no engine.
+_SESSIONS_DIRNAME = os.path.join(".coordinator-local", "coordinator-sessions")
 _SAFE_SID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 _LADDER_VERDICTS = frozenset({"PAUSED", "PRODUCING", "UNKNOWN"})

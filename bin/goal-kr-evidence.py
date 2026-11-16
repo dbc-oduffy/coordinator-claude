@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """goal-kr-evidence — read-only per-KR evidence correlator for never-assessed goals.
 
 Ported from coordinator-content-repo `coordinator/bin/goal-kr-evidence.py` (W2-C6,
@@ -297,12 +298,19 @@ def build_report(
     assessment = gas_module.assess(goals_dir, today=today)
     parse_iso_week = gas_module._parse_iso_week
 
-    handoffs_dir = repo_root / "state" / "handoffs"
-    plans_dir = repo_root / "docs" / "plans"
     completed_dir = repo_root / "archive" / "completed"
 
-    handoff_records = _load_markdown_records(sorted(handoffs_dir.glob("*.md")) if handoffs_dir.is_dir() else [])
-    plan_records = _load_markdown_records(sorted(plans_dir.glob("*.md")) if plans_dir.is_dir() else [])
+    lib_dir = str(Path(__file__).resolve().parents[1] / "lib")
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
+    import output_tree_layout
+
+    handoff_records = _load_markdown_records(
+        output_tree_layout.iter_tree_entries(repo_root, "state/handoffs", "*.md")
+    )
+    plan_records = _load_markdown_records(
+        output_tree_layout.iter_tree_entries(repo_root, "docs/plans", "*.md")
+    )
     completed_records = _load_markdown_records(sorted(completed_dir.rglob("*.md")) if completed_dir.is_dir() else [])
 
     fk_records = handoff_records + plan_records + completed_records

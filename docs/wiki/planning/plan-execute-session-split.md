@@ -8,6 +8,9 @@ related:
   - plugins/coordinator-claude/coordinator/skills/execute-plan/SKILL.md
   - plugins/coordinator-claude/coordinator/skills/review/SKILL.md
   - plugins/coordinator-claude/coordinator/docs/wiki/reviewer-pipeline/review-integration-doctrine.md
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
 ---
 
 <!--
@@ -97,6 +100,9 @@ execution showed (i.e. the fix doesn't fix it), or (b) the saturation→instabil
 reproduce across a reasonable number of same-session execution-handoff cycles under instrumented
 saturation (i.e. the failure mode this doctrine exists to prevent turns out not to recur). Either
 result should trigger a revisit of the default, not a quiet dismissal of the trigger.
+
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-11-003, batch-11-004 -->
+The deferred enforcement hook and this n=1 falsification trigger are owned by a `state/improvement-queue` entry for the instance-3 revisit, so the trigger has a tracked owner.
 
 ### Relationship to `workflow-orchestration.md`
 

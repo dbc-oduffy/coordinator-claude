@@ -15,7 +15,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 _SCRIPTS_DIR = str(Path(__file__).resolve().parent)
 if _SCRIPTS_DIR not in sys.path:
@@ -86,7 +86,7 @@ def run_hook(cwd: str, now: Optional[float] = None) -> list:
     inner = _sr.default_invoke(INVOKE_TIMEOUT_S)
     replied = False
 
-    def invoke(params: dict):
+    def invoke(params: dict) -> Any:
         nonlocal replied
         reply = inner(params)
         # Tracks the latest call, so a parsed dry run followed by a failed apply still retries.

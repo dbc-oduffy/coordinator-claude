@@ -15,6 +15,7 @@ Contract:
 """
 
 from __future__ import annotations
+from types import ModuleType
 
 import datetime
 import json
@@ -37,7 +38,7 @@ _DENY_REASON = (
 )
 
 
-def _layout():
+def _layout() -> ModuleType:
     import importlib.util
 
     path = os.path.normpath(os.path.join(_HERE, "..", "..", "lib", "research_layout.py"))

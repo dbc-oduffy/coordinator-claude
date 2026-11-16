@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """workday-complete-args-and-validate.py — /workday-complete front-door arg
 parsing + cross-machine targeted-wrap guard + Step-1 validate invocation.
 

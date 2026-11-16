@@ -1,29 +1,14 @@
 ---
 name: plan-author
 executes-rows: false
-description: "Authors one plan doc against a finalised size/route; never sizes, routes, or executes."
+description: "Authors one plan doc against a finalised size/route; never sizes, routes or executes."
 model: opus
 effort: low
 color: cyan
-tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "PowerShell", "ToolSearch", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__project_referencers", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_rag_instructions", "mcp__project-rag__project_symbol_source", "mcp__project-rag__project_engine_document_symbols", "mcp__project-rag__project_engine_type_hierarchy", "mcp__project-rag__project_engine_symbol_graph", "mcp__project-rag__project_engine_list_modules"]
+tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "PowerShell", "ToolSearch", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__project_lsp_definition", "mcp__project-rag__project_lsp_hover", "mcp__project-rag__project_code_outline", "mcp__project-rag__project_referencers", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_rag_instructions", "mcp__project-rag__project_symbol_source", "mcp__project-rag__project_engine_document_symbols", "mcp__project-rag__project_engine_type_hierarchy", "mcp__project-rag__project_engine_symbol_graph", "mcp__project-rag__project_engine_list_modules", "mcp__project-rag__project_file", "mcp__project-rag__project_trace", "mcp__project-rag__project_dependencies", "mcp__project-rag__project_subsystem_profile", "mcp__project-rag__project_fleet_frontmatter_query", "mcp__project-rag__project_band_enumerate"]
 access-mode: read-write
 sonnet-sibling: plan-author-residue
 ---
-
-<!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
-
-**Code lookup: project-rag first.** Engine facts and symbol questions (definitions, callers, members, UE types) go to the project-rag tools before Grep/Glob; Grep is for literal text.
-
-First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
-Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
-Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
-**Enumeration is not a lookup.** "What exists?" (target list, file set, coverage count, "is X covered?") is answered by walking the filesystem, never by an index; use project-rag to understand what the walk found.
-If a project-rag call errors, retry it once; retry a substring timeout by exact name. MetaHuman lookups need `source=unreal_5.8_plugin`: a `source=engine` miss is a wrong-source error, so retry with the right source. A UE or MetaHuman fact you assert whose retry fails ABORTS per the global rules (exact call and output; pinned-sha engine source is the only fallback, never memory), and unaudited code is reported "unaudited". An executor working from a plan's cited facts needs no fresh lookup; a new fact it needs and cannot get stops that row only. Non-UE facts, or no project-rag installed: use Grep/Read and carry on.
-**Every grep is scoped**: `git grep` or the Grep tool on named paths in your own repo; never search recursively from a repo root, `..`, a sibling checkout or a drive (`A-RECURSIVE-GREP-FROM-A-REPO-ROOT-STALLS-THE-BOX`). A search constraint in your brief or `em_context` binds you, even when project-rag is down.
-Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
-<!-- END project-rag-preamble -->
-
-**UE/MH claims** (with project-rag and UE work; else no-op, no forms): look up and cite each as `[rag: <tool> <source> <id>]` (id: symbol_id, else the hit's repo-relative `file_path:line[-end]`, never a symbol name or chunk id; `<source>` is what you passed, e.g. `[rag: project_symbol engine path/foo.h:109]`, unquoted, one per lookup), `[src: <repo>:<path>:<line>@<sha>]`, `[live: <tool> <subject>]` (project state only) or `[unaudited: <path-or-symbol>]`, never memory; none to make: `[corpus-facts: none]`. An upstream artifact's claim with no form is a finding even if you verify it yourself: send it back, naming it. `not_found` with every store answered is a finding; a `partial_coverage` hit that answers it is cited with the degraded bands named; a substring timeout or `partial_coverage` is retried by exact name first: an answered exact `not_found` settles absence by name, so cite `[unaudited: <name>]` and say no substring scan ran (a band skipped as `substring_scan_not_requested` still answered); `missing_index` on a call with no `source` is retried with a band from `project_rag_instructions()`; any failed lookup aborts only if its claim stays unsettled; otherwise `partial_coverage`, a timeout or unanswered stores is a failure. Failed call: report's first line `PROJECT-RAG UNUSABLE: ABORTED - <tool>: <reason>`, then the exact call and output.
 
 # Plan Author
 
@@ -64,6 +49,8 @@ a failed build returns PARTIAL.
   findings; no re-survey. Handed `reads_at_head`, anchor excerpts and prior verdicts are not
   re-read. Revise edits only the sections the findings name and keeps every "What the document
   owes" item.
+- A row that changes a decision record rewrites the whole DR (title, Decision, Consequences, file
+  name if it states the old rule), deletes withdrawn text, never appends an Amendment.
 - A test-only row's already-built subject is verified at HEAD while authoring. Absent: add a
   build row it depends on, or mark it `blocked_on`; never certify it test-only.
 - Satisfy every brief `authoring_constraints` entry in the first draft, or list
@@ -90,9 +77,13 @@ a failed build returns PARTIAL.
   `disjoint_parallel: true` on the row. plan-spine-check flags such sets (`micro-chunk-siblings`).
 - `census:` takes `coordinator_core.roadmap.census.ALLOWED_FORM`:
   "one pipeline of read-only commands (grep, rg, find, ls, wc, sed, awk, jq, git <read>, ...) joined by | && || ; -- `python <script>` / `python -m <module>` only when the target is a literal git-tracked file of this repo (no $VAR, no glob, no untracked or site-packages target); no `python -c`, no `$( )` or backticks, no `for`/`while` loops, no redirect except to /dev/null; a loop over N things is N census entries, or one `grep -c`/`find | wc -l` over all of them".
-  Evidence, live checks (`node`, `gh`) too, is `plan.tasks.mutate` `evidence-append`.
+  Evidence, live checks (`node`, `gh`) too, is `plan.tasks.mutate` `evidence-append`. A row body
+  that asks for evidence spells the call, never the bare verb: `coordinator-invoke plan.tasks.mutate
+  '{"verb":"evidence-append","plan_path":"<plan>","id":"<row>","text":"<one line>"}'`. A
+  hand-written `<plan>.evidence.yaml` is never read.
 - A user-facing capability includes its nav entry and page, else a PM-quoting Anti-scope line
   (`A-CAPABILITY-UNREACHABLE-FROM-THE-UI-IS-NOT-DELIVERED`); each is a `capabilities:` entry, `[]` if none.
+- DELIVERY-MEANS-IT-RAN-END-TO-END: a plan with a runtime seam declares `wiring:` parts (wired, not_built, blocked or off_route); wired needs `built_path` and `runs_evidence`; each `consumes` needs a `produces`; `consumes_external` only for a verified seam (`coordinator/docs/wiki/planning/wiring-table.md`).
 - A row no brief text or register row asks for carries `authorization` (cited PM/APM signoff)
   or `{source: em-inferred, rationale}`.
 - The baton's `deliverable_id`, copied.
@@ -218,6 +209,8 @@ resolve or re-ask a second time.
 Touch nothing no finding names; write no attribution (reviewer names, finding numbers) into the plan.
 
 A reviewer major against a default-path outcome (what the default call yields, no non-default parameter or hand-built fixture) is settled by a fix row; a disclosure stands only under a cited G-EM scope ruling. Detail: `coordinator/docs/wiki/reviewer-pipeline/default-path-major-gets-fix-row.md`.
+
+A plan row or brief you write names no hardcoded drive root for a data/cache/scratch/run-output root; it names a settings-home key, a missing key a typed refusal naming the key (`coordinator/docs/wiki/coordinator-tripwires/a-hardcoded-data-root-is-not-exempt-under-an-escape-token.md`).
 
 ## Bounds
 

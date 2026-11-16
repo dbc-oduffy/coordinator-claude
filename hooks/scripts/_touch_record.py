@@ -24,9 +24,17 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
+
+from _session_hub_path import hub_for_common
 
 
-def _touch_path(line: str):
+
+def session_dir_for(git_dir: str, session_id: str) -> str:
+    """This session's directory under the canonical session hub for `git_dir`."""
+    return str(hub_for_common(Path(git_dir)) / session_id)
+
+def _touch_path(line: str) -> str | None:
     line = line.strip()
     if not line:
         return None
@@ -113,5 +121,5 @@ def _touch_lines(git_dir: str, session_id: str) -> list[str]:
     rows with no `path` are skipped -- a malformed row degrades this to
     fewer touches, never to a crash on an edit-path hook.
     """
-    session_dir = os.path.join(git_dir, "coordinator-sessions", session_id)
+    session_dir = session_dir_for(git_dir, session_id)
     return _touch_record_jsonl_paths(session_dir) + _touched_txt_paths(session_dir)

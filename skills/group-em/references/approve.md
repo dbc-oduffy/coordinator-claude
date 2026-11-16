@@ -5,7 +5,7 @@ order: 3
 situation: approve
 ---
 1. **Standing check** (§ Standing check).
-2. Run `<plugin-root>/bin/plan-reversibility-eligibility.py <plan-path> --json` (C9). `eligible:
+2. Run `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/plan-reversibility-eligibility" <plan-path> --json` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\plan-reversibility-eligibility.exe"`, same arguments) (C9). `eligible:
    false` → escalate per the threshold page's shape, stop, do not dispatch. This CLI is the single
    source of truth.
 3. Confirm the falsifier baseline shows the prime exit criterion false **and that a blinded

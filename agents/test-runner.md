@@ -1,7 +1,7 @@
 ---
 name: test-runner
 executes-rows: true
-description: "Runs a diff's scoped tests and execute-review prep. Never the fast/full suite."
+description: "Runs a diff's scoped tests, execute-review prep. Never the fast/full suite."
 model: haiku
 effort: low
 color: green
@@ -47,11 +47,12 @@ Resolve the runner from the repo, scoped to the brief's files or node ids.
 | Ecosystem | Scoped invocation shape |
 |---|---|
 | Python | `python3 -m pytest <file> [<file>::<test_name> …]` |
-| JS/TS (pnpm) | `pnpm test -- <file>`, or the package's own scoped script |
-| JS/TS (npm/yarn) | `npm test -- <file>` / `yarn test <file>` |
-| Vitest / Jest direct | `pnpm vitest run <file> --maxWorkers=2` / `pnpm jest <file> --maxWorkers=2` |
+| JS/TS | `<pm> test -- <file>` (yarn: `yarn test <file>`), or the package's own scoped script |
+| Vitest / Jest direct | `<pm-exec> vitest run <file> --maxWorkers=2` / `<pm-exec> jest <file> --maxWorkers=2` |
 | Go | `go test ./<pkg> -run '<TestName>'` |
 | Rust | `cargo test --test <target> <test_name>` |
+
+The JS package manager is the one whose lockfile sits nearest the package, walking up: `pnpm-lock.yaml` → pnpm (`pnpm exec`), `package-lock.json` → npm (`npx --no-install`), `yarn.lock` → yarn (`yarn`). No lockfile: halt UNAVAILABLE. A mismatched manager installs on first run and rewrites `node_modules`.
 
 Read the manifest (`package.json`, `pyproject.toml`, `Makefile`) before inventing a command. A workspace package filter (`pnpm --filter <pkg> test`) is scoping, not breadth.
 
@@ -90,6 +91,8 @@ Read the manifest (`package.json`, `pyproject.toml`, `Makefile`) before inventin
 Excerpts are 1–5 lines, verbatim. No findings, severity or fix: those are the reviewer's and the parser's.
 
 All green? Replace the Failures table with: `All briefed tests passed.`
+
+Take `git status --porcelain` before and after the run. Any path new after it goes under `## Test pollution`, verbatim, whatever the result: a test wrote into the repo (Windows per-drive cwd: `coordinator/docs/wiki/test-design-discipline/test-filesystem-containment.md`).
 
 ## Baseline Attribution
 

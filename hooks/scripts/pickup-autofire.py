@@ -138,6 +138,7 @@ from pathlib import Path, PureWindowsPath
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
+from _session_hub_path import hub_for_common  # noqa: E402
 try:
     # Fail-open: a copy/deploy missing its sibling _engine_root.py must still
     # fail open rather than crash on import.
@@ -157,11 +158,11 @@ try:
     from _forwarder_resolve import forwarder_argv as _forwarder_argv  # noqa: E402
     from _forwarder_resolve import resolve_forwarder as _resolve_forwarder  # noqa: E402
 except Exception:
-    def _resolve_forwarder(bin_dir, name):  # type: ignore[misc]
+    def _resolve_forwarder(bin_dir, name) -> Path | None:  # type: ignore[misc]
         candidate = bin_dir / name
         return candidate if candidate.is_file() else None
 
-    def _forwarder_argv(script_path, tail=()):  # type: ignore[misc]
+    def _forwarder_argv(script_path, tail=()) -> list[str]:  # type: ignore[misc]
         raise OSError("forwarder resolution unavailable -- import fallback declined to guess a launch decision")
 
 
@@ -528,7 +529,7 @@ def _session_decision_file_path(repo_root: Path, session_id: str, artifact_path:
     from the same two inputs. `.git` is used directly rather than a worktree
     `.git`-file redirection lookup, since worktrees are banned by doctrine."""
     name = f"{_sanitize_for_filename(session_id)}__{_sanitize_for_filename(artifact_path)}.json"
-    return repo_root / ".git" / "coordinator-sessions" / "decisions" / name
+    return hub_for_common(repo_root / ".git") / "decisions" / name
 
 
 def _write_decision_files(decisions: list[dict], session_id: str) -> list[Path]:

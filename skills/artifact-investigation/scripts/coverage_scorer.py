@@ -18,7 +18,7 @@ WEIGHTS = {"must": 3, "should": 2, "could": 1}
 COVERAGE_FILE = "coverage.json"
 
 
-def score_stage(run, stage, items):
+def score_stage(run, stage, items) -> dict:
     """Coverage record for one stage over the requirement `items`."""
     rec = {"stage": stage, "coverage": "unknown", "provisional": False, "score": None}
     if not run_folder.is_landed(stage):
@@ -42,12 +42,12 @@ def score_stage(run, stage, items):
     return rec
 
 
-def score_run(run):
+def score_run(run) -> dict:
     items = run_folder.read_requirements(run)
     return {"stages": [score_stage(run, s, items) for s in run_folder.stage_ids()]}
 
 
-def main(argv=None):
+def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Score per-stage requirement coverage for a run folder.")
     ap.add_argument("run", help="run folder")
     args = ap.parse_args(argv)

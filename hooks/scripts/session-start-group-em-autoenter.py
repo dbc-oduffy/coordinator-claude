@@ -24,6 +24,7 @@ configured far box; never waited on). Fails open (silent exit 0) on any error.
 """
 
 from __future__ import annotations
+from types import ModuleType
 
 import importlib.util
 import json
@@ -40,7 +41,7 @@ _REENTRY_SOURCES = frozenset({"resume", "clear", "compact"})
 _TYPE_IT_HINT = "Type `/group-em` to enter by hand."
 
 
-def _autofire():
+def _autofire() -> ModuleType:
     spec = importlib.util.spec_from_file_location(
         "_gem_autoenter_autofire", _HOOKS_DIR / "group-em-autofire.py"
     )

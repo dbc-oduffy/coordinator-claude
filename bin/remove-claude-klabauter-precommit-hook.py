@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 remove-claude-klabauter-precommit-hook — standalone remover for claude-klabauter's
 registry-driven `.git/hooks/pre-commit` gate chain.

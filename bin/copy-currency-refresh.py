@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """copy-currency-refresh -- off-boot recompute of the git-derived `Copies:` answers.
 
 The boot banner (`project-orientation.py::copies_banner`) only reads
@@ -27,10 +28,12 @@ GENERATES = []
 
 #: Pointer files naming the doctrine checkout. Trap: the engine mirror ships
 #: coordinator/bin without coordinator/hooks, so self-location alone fails there.
-_ROOT_POINTERS = (
-    Path.home() / ".claude" / ".coordinator-content-root",
-    Path.home() / ".coordinator-claude-settings" / ".coordinator-content-root",
-)
+def _root_pointers() -> tuple:
+    home = Path.home()
+    return (
+        home / ".claude" / ".coordinator-content-root",
+        home / ".coordinator-claude-settings" / ".coordinator-content-root",
+    )
 
 
 def resolve_scripts_dir() -> Path:
@@ -40,7 +43,7 @@ def resolve_scripts_dir() -> Path:
     if env_root:
         candidates.append(Path(env_root) / "hooks" / "scripts")
     candidates.append(Path(__file__).resolve().parents[1] / "hooks" / "scripts")
-    for pointer in _ROOT_POINTERS:
+    for pointer in _root_pointers():
         try:
             root = pointer.read_text(encoding="utf-8").strip()
         except OSError:
@@ -53,11 +56,19 @@ def resolve_scripts_dir() -> Path:
     return candidates[1]
 
 
-_SCRIPTS_DIR = resolve_scripts_dir()
+_SCRIPTS_DIR: Optional[Path] = None
+
+
+def _bootstrap() -> None:
+    """Resolve the hooks/scripts dir once per run; import resolves nothing."""
+    global _SCRIPTS_DIR
+    _SCRIPTS_DIR = resolve_scripts_dir()
 
 
 def load_orientation():
     """Load project-orientation.py by path; its cache-key and resolution helpers are the boot path's."""
+    if _SCRIPTS_DIR is None:
+        _bootstrap()
     spec = importlib.util.spec_from_file_location(
         "project_orientation_for_refresh", _SCRIPTS_DIR / "project-orientation.py"
     )
@@ -262,6 +273,7 @@ def main(argv: list) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--cache", help="cache file to write (default: the boot path's)")
     args = parser.parse_args(argv)
+    _bootstrap()
     po = load_orientation()
     path = Path(args.cache) if args.cache else po.copies_cache_path()
     try:

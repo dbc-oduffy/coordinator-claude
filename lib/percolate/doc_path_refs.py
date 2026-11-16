@@ -141,6 +141,18 @@ class _PathEval:
             elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value is not None:
                 self.env.setdefault(node.target.id, node.value)
 
+    def scoped(self, scopes: list[ast.AST], line: int) -> "_PathEval":
+        """Evaluator whose names bind per scope, outermost first: the innermost scope's last binding
+        before `line`, outer scopes' last binding, falling back to the file-wide first binding."""
+        out = _PathEval.__new__(_PathEval)
+        out.file = self.file
+        out.env = dict(self.env)
+        for i, scope in enumerate(scopes):
+            limit = line if i == len(scopes) - 1 else None
+            for name, value in _own_bindings(scope, limit):
+                out.env[name] = value
+        return out
+
     def ev(self, n: ast.expr, depth: int = 0) -> str | None:
         if depth > 12:
             return None
@@ -188,16 +200,52 @@ class _PathEval:
         return None
 
 
+_FUNC_NODES = (ast.FunctionDef, ast.AsyncFunctionDef)
+
+
+def _own_bindings(scope: ast.AST, before_line: int | None):
+    """(name, value) simple assignments in `scope`'s own body, in source order, skipping nested
+    defs/classes/lambdas and, when `before_line` is set, assignments at or after it. A binding whose
+    value reads its own name is skipped, so a rebinding cannot make the name self-referential."""
+    found: list[tuple[int, str, ast.expr]] = []
+    stack = list(getattr(scope, "body", []))
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (*_FUNC_NODES, ast.ClassDef, ast.Lambda)):
+            continue
+        target = value = None
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            target, value = node.targets[0].id, node.value
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value is not None:
+            target, value = node.target.id, node.value
+        if target is not None and (before_line is None or node.lineno < before_line) and not any(
+            isinstance(x, ast.Name) and x.id == target for x in ast.walk(value)
+        ):
+            found.append((node.lineno, target, value))
+        stack.extend(ast.iter_child_nodes(node))
+    for _, name, value in sorted(found, key=lambda t: t[0]):
+        yield name, value
+
+
 def _sys_path_inserts(tree: ast.AST, ev: _PathEval) -> list[str]:
-    """Statically resolvable dirs the file inserts/appends on sys.path."""
+    """Statically resolvable dirs the file inserts/appends on sys.path. Each insert's names bind in
+    its own enclosing function(s) first, then module scope, so two functions may reuse a name."""
     dirs: list[str] = []
+    parents = {id(c): p for p in ast.walk(tree) for c in ast.iter_child_nodes(p)}
     for n in ast.walk(tree):
         if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in ("insert", "append")):
             continue
         v = n.func.value
         if not (isinstance(v, ast.Attribute) and v.attr == "path" and isinstance(v.value, ast.Name) and v.value.id == "sys"):
             continue
-        d = ev.ev(n.args[-1]) if n.args else None
+        chain: list[ast.AST] = []
+        p = parents.get(id(n))
+        while p is not None:
+            if isinstance(p, _FUNC_NODES):
+                chain.append(p)
+            p = parents.get(id(p))
+        scoped = ev.scoped([tree, *reversed(chain)], n.lineno)
+        d = scoped.ev(n.args[-1]) if n.args else None
         if d is not None:
             dirs.append(d)
     return dirs

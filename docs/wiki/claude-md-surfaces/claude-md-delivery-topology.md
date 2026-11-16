@@ -178,6 +178,11 @@ Do not ask an agent whether it has a file — it will confabulate. **Ask it to r
 to that file.** To test the boot-vs-lazy distinction, probe before anything has read the directory
 in question. To test fleet reach, probe from a *sibling repo* session, not from the doctrine repo.
 
+Each box derives its live `~/.claude/CLAUDE.md` and `rules/rules.md` from its own clone, so
+cross-box agreement is measured, never assumed: `python setup/doe-tools/global-doctrine-box-drift.py`
+reports per-box drift against one shared commit (`GLOBAL-DOCTRINE-BOX-DRIFT`); direction is tracked
+to live only.
+
 ## Which copy a session runs
 
 Three runtime copies can go stale silently: the **engine mirror** (the resolved engine root), the

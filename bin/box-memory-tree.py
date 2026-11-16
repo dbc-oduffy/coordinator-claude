@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """box-memory-tree.py {suspend,resume} PID -- suspend or resume a whole process tree.
 
 Prints one line on stdout, exit 0:

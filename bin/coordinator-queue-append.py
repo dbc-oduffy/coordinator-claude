@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 coordinator-queue-append — append a structured YAML entry to a coordinator queue.
 

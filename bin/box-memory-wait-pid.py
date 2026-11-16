@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """box-memory-wait-pid.py PID [--interval S] [--timeout S] [--result PATH] -- wait on a PID, print one line.
 
 Output is exactly one line on stdout:

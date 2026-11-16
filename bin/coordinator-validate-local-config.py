@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """coordinator-validate-local-config — author-time argv-only gate for a
 repo's coordinator.local.md.
 

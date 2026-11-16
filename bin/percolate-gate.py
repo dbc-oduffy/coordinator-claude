@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """percolate-gate.py — naked-Python engine for the `/percolate` skill's
 residual imperative gate logic (coordinator-content-repo coordinator/skills/percolate/SKILL.md).
 
@@ -378,7 +379,10 @@ def _cmd_branch0_gate(args: argparse.Namespace) -> int:
 _TIER_HIGH = re.compile(
     r"(sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|"
     r"AKIA[A-Z0-9]{16}|xox[bpars]-[A-Za-z0-9-]{10,}|ya29\.[A-Za-z0-9_-]{20,}|"
-    r"-----BEGIN [A-Z ]+PRIVATE KEY-----)"
+    # A key's armor line either ends the line (a PEM file) or runs into its
+    # base64 body (a key inlined in JSON as `-----BEGIN ...-----\nMIIE...`);
+    # a marker followed by anything else is code that parses keys, not a key.
+    r"-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----(?:\s*$|(?:\\n|\s)*[A-Za-z0-9+/]{16,}))"
 )
 
 # Tier MEDIUM — generic identity/internal-path shapes (no operator-specific
@@ -402,7 +406,9 @@ _TIER_HIGH = re.compile(
 # the final-label set because RFC 2606 reserves the `.example` TLD as well as
 # the three second-level `example.*` domains (`t@t.example` is fixture data).
 _TIER_MEDIUM = re.compile(
-    r"(~/\.claude/(tasks|projects|memory|plans)/|/x/[a-z-]+|[XxCc]:/[a-z-]+|"
+    r"(~/\.claude/(tasks|projects|memory|plans)/|/x/[a-z-]+|"
+    r"(?<![A-Za-z0-9._-])/(?:Users|home)/[^/\\\s`'\"()\[\],;]+/|"
+    r"(?<![A-Za-z0-9])[A-Za-z]:[/\\]+[A-Za-z0-9_-]+|"
     r"[A-Za-z0-9._%+-]+@"
     r"(?!(?:example\.(?:com|net|org)|"
     r"(?:[A-Za-z0-9-]+\.)*(?:test|example|invalid|localhost))(?![A-Za-z0-9.-]))"
@@ -536,7 +542,14 @@ def _medium_line_gates(line: str) -> bool:
             marked = _line_has_path_marker(line)
         if marked:
             continue
-        seg_start = match.end() if token.startswith("~") else match.start() + _PATH_ROOT_LEN
+        if token.startswith("~"):
+            seg_start = match.end()
+        elif token.startswith(("/Users/", "/home/")):
+            seg_start = match.start() + token.index("/", 1) + 1
+        elif token[1:2] == ":":
+            seg_start = match.end() - len(token[2:].lstrip("/\\"))
+        else:
+            seg_start = match.start() + _PATH_ROOT_LEN
         segment = _PATH_SEGMENT_RE.match(line, seg_start).group(0)
         if not _is_placeholder_segment(segment):
             return True

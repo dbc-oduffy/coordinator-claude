@@ -128,7 +128,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _message_envelope import compose, render  # noqa: E402
+from _message_envelope import Message, compose, render  # noqa: E402
 from _posture import resolve_posture  # noqa: E402
 import _fleet_posture  # noqa: E402
 
@@ -138,7 +138,7 @@ _NUDGE_ANCHOR = (
 )
 
 
-def _compose_advisory(posture: str):
+def _compose_advisory(posture: str) -> Message:
     """The single unconditional advisory emitted at every firing posture.
     Renders no verdict on the question at hand -- it does not classify,
     match, or inspect `tool_input.questions` at all -- and blocks nothing."""
@@ -151,7 +151,7 @@ def _compose_advisory(posture: str):
     return compose(prose, anchor=_NUDGE_ANCHOR)
 
 
-def _compose_refusal(fleet_posture: str):
+def _compose_refusal(fleet_posture: str) -> Message:
     """Refusal text for a verified fleet posture: names the text-turn route."""
     prose = (
         f"[fleet posture: {fleet_posture}] AskUserQuestion is refused: a modal "
@@ -161,7 +161,7 @@ def _compose_refusal(fleet_posture: str):
     return compose(prose, anchor=_NUDGE_ANCHOR)
 
 
-def _fleet_refusal(session_id: str, payload: dict):
+def _fleet_refusal(session_id: str, payload: dict) -> str | None:
     """Fleet posture name when a verified posture applies to this session, else None.
     Fails to None: any reader error leaves the advisory path in charge."""
     try:

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """strict-editable-finder-probe — detects finder-based/non-src editable installs on a shared
 Python interpreter.
 

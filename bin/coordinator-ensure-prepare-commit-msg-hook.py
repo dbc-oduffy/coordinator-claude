@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 coordinator-ensure-prepare-commit-msg-hook — idempotent install/repair of the
 Session-Id trailer prepare-commit-msg hook in the current git repo.

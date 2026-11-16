@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 # Filename note: the `.sh` suffix is KEPT (not dropped, unlike coordinator-auto-push)
 # — three live callers hardcode the literal `.sh` name (coordinator/skills/workstream-
 # start/SKILL.md, coordinator/commands/workday-start.md, coordinator/pipelines/

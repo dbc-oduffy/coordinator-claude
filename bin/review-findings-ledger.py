@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """review-findings-ledger.py — CLI trampoline over claude-klabauter's
 coordinator_core.ops.review_findings_ledger.
 

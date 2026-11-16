@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """coordinator-safe-commit — Scoped safety commit helper (naked-Python port,
 Wave 2 of the coordinator-session-family-repoint-and-delete plan, chunk C2a).
 
@@ -775,6 +776,10 @@ def do_pathspec(args: "Args") -> None:
     # "never considered it".
     if args.declared_reverts:
         params["declared_reverts"] = args.declared_reverts
+    if (args.invoking_command or os.environ.get("CLAUDE_INVOKING_COMMAND", "")).strip().lstrip(
+        "/"
+    ).removesuffix(".md") in ("distill", "distillation"):
+        params["one_commit"] = True
     # Bounded retry (2 extra attempts, short fixed backoff -- never an
     # unbounded loop) on `.git/index.lock` contention, expected under the
     # ~50-session load norm: `preflight_reap_stale_lock`
@@ -932,7 +937,9 @@ def _holder_context(
             bits.append(SHARED_GHOST_MARKER)
     except Exception:
         pass
-    sessions_dir = os.path.join(worktree_root, ".git", "coordinator-sessions", sid)
+    from coordinator_core.session_hub_path import session_dir_for  # noqa: PLC0415
+
+    sessions_dir = str(session_dir_for(Path(worktree_root) / ".git", sid))
     try:
         import json  # noqa: PLC0415
 
@@ -1805,6 +1812,61 @@ def _git_output_lines(git_args: Sequence[str]) -> List[str]:
     if result.returncode != 0:
         return []
     return result.stdout.splitlines()
+
+
+def _refuse_dry_run_rollback(
+    worktree_root: str,
+    present: Sequence[str],
+    deleted: Sequence[str],
+    declared_reverts: Sequence[str],
+) -> None:
+    """Exit 1 with the real run's staged-rollback refusal text when the
+    pathspec's worktree blobs restore an earlier version. Writes blobs only,
+    never the index or a ref; a probe that cannot hash answers "no refusal".
+    """
+    from coordinator_core.git import rollback_check  # noqa: PLC0415
+    from coordinator_core.git.git_dir import resolve_git_common_dir  # noqa: PLC0415
+    from coordinator_core.ops.ceremony import git_native  # noqa: PLC0415
+
+    head = _git_rev_parse_head()
+    if head == "INITIAL":
+        return
+    from coordinator_core.git.git_state import read_tree_spine  # noqa: PLC0415
+
+    declared = {d.replace("\\", "/") for d in declared_reverts}
+    hashable = list(present)
+    assembled: Dict[str, object] = {}
+    if hashable:
+        hashed = git_native._hash_worktree_blobs(hashable, cwd=worktree_root)
+        shas = hashed.stdout.split() if hashed.returncode == 0 else []
+        if len(shas) == len(hashable):
+            assembled.update({p: (0, s) for p, s in zip(hashable, shas)})
+    for p in deleted:
+        assembled[p] = rollback_check.ABSENT
+    spine = read_tree_spine(worktree_root, list(assembled))
+    if spine is None:
+        return
+    moved = rollback_check.moved_deletions(assembled, spine, rollback_check.ABSENT)
+    candidates: Dict[str, object] = {}
+    for p, val in assembled.items():
+        if p in declared or p in moved:
+            continue
+        if val is not rollback_check.ABSENT:
+            d, _, name = p.rpartition("/")
+            head_entry = spine.get(d, {}).get(name)
+            if head_entry is not None and head_entry[1] == val[1]:
+                continue
+            candidates[p] = val[1]
+        else:
+            candidates[p] = rollback_check.ABSENT
+    if not candidates:
+        return
+    findings = rollback_check.find_exact_blob_rollbacks(
+        resolve_git_common_dir(worktree_root), head, candidates
+    )
+    if rollback_check.refusal(findings):
+        print(f"ERROR: {rollback_check.refusal_detail(findings, candidates)}", file=sys.stderr)
+        sys.exit(1)
 
 
 def _git_rev_parse_head() -> str:
@@ -2742,6 +2804,11 @@ def do_blanket(session_id: str, args: "Args", cs_core, cs_liveness, cs_claims) -
         for f in dirty:
             print(f"  {f}", file=sys.stderr)
         print(f"Would commit with subject: {args.subject}", file=sys.stderr)
+        print(
+            "(the live-peer withhold also acts on the staged index and may unstage "
+            "further paths)",
+            file=sys.stderr,
+        )
         print("(no git add or commit executed)", file=sys.stderr)
         sys.exit(0)
 
@@ -2845,6 +2912,8 @@ def do_blanket(session_id: str, args: "Args", cs_core, cs_liveness, cs_claims) -
             sys.exit(1)
 
         sibling_set: Set[str] = set()
+        peer_starts: Dict[str, "datetime"] = {}
+        root = None
         if base and os.path.isdir(base):
             # This feeds the F0/F1
             # foreign-path subtract, the only correction preventing a
@@ -2880,6 +2949,11 @@ def do_blanket(session_id: str, args: "Args", cs_core, cs_liveness, cs_claims) -
                 own_lines
             )
             root = _git_root_core.git_root()
+            from coordinator_core.session.blanket_withhold import (  # noqa: PLC0415
+                read_peer_starts,
+            )
+
+            peer_starts = read_peer_starts(base, live_ids, session_id)
             for sl_sid in live_ids:
                 if sl_sid == session_id:
                     continue
@@ -2943,6 +3017,27 @@ def do_blanket(session_id: str, args: "Args", cs_core, cs_liveness, cs_claims) -
             for p in excluded_paths:
                 print(f"  {p}", file=sys.stderr)
 
+        if peer_starts:
+            from coordinator_core.session.blanket_withhold import (  # noqa: PLC0415
+                withheld_paths,
+            )
+
+            excluded_set = set(excluded_paths)
+            remaining_staged = [
+                p for p in _git_diff_cached_names() if p and p not in excluded_set
+            ]
+            withheld = withheld_paths(root, remaining_staged, own_set, peer_starts)
+            if withheld:
+                _git_reset_unstage_many(withheld)
+                subtracted_count += len(withheld)
+                print(
+                    f"INFO: blanket: withheld {len(withheld)} path(s) written after a "
+                    "live peer started:",
+                    file=sys.stderr,
+                )
+                for p in withheld:
+                    print(f"  {p}", file=sys.stderr)
+
         if subtracted_count > 0 and _git_diff_cached_is_empty():
             print(
                 "INFO: blanket: nothing to commit — all staged paths belong to live siblings "
@@ -2950,6 +3045,14 @@ def do_blanket(session_id: str, args: "Args", cs_core, cs_liveness, cs_claims) -
                 file=sys.stderr,
             )
             sys.exit(0)
+
+    # A clean tree (nothing staged by `git add -A`) is a no-op, not a failure.
+    if _git_diff_cached_is_empty():
+        print(
+            f"INFO: blanket: nothing to commit — working tree clean [session: {session_id or '?'}]",
+            file=sys.stderr,
+        )
+        sys.exit(0)
 
     _blanket_check_destructive_shape(args.subject)
 
@@ -3879,6 +3982,9 @@ def main(argv: Sequence[str]) -> None:
         if args.dry_run:
             present, deleted, untracked = _classify_paths_for_commit_v2(
                 _worktree_root_from_cwd(), args.paths
+            )
+            _refuse_dry_run_rollback(
+                _worktree_root_from_cwd(), present, deleted, args.declared_reverts
             )
             print(
                 f"DRY RUN — pathspec: would commit {len(present)} path(s) "

@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """percolate-parse-dryrun.py — naked-Python assembler computing the
 `/percolate` skill's (coordinator-content-repo coordinator/skills/percolate/SKILL.md)
 dry-run-stdout parse steps and the Step-3 PM-confirmation gate-fire

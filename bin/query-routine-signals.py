@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """query-routine-signals.py -- the porter over `routine_signals.collect`.
 
 No shebang line, no exec bit: this is only ever spawned as `python3

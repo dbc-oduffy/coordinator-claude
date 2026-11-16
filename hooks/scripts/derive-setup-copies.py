@@ -87,7 +87,7 @@ _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 
-from _message_envelope import CHANNEL_STOP, compose, emit  # noqa: E402
+from _message_envelope import CHANNEL_STOP, Message, compose, emit  # noqa: E402
 
 #: Wiki section documenting parity-mode semantics (permanent vs temporary
 #: contract-only rows, canonical->derived direction) referenced from advisories.
@@ -233,7 +233,7 @@ def _derive_or_raise(row: ResolvedRow) -> None:
     shutil.copyfile(row.canonical, row.derived)
 
 
-def _compose_derived_write_advisory(file_path: str, row: ResolvedRow):
+def _compose_derived_write_advisory(file_path: str, row: ResolvedRow) -> Message:
     """Pure composer for a write landing on a DERIVED copy directly (either
     parity mode) -- separable from stdin/exit-code plumbing so it can be
     called directly per emission site. Full carve-out prose (permanent vs
@@ -275,7 +275,7 @@ def _exc_reason(exc: Exception) -> str:
     return getattr(exc, "strerror", None) or str(exc)
 
 
-def _compose_read_failure_message(row: ResolvedRow, exc: Exception):
+def _compose_read_failure_message(row: ResolvedRow, exc: Exception) -> Message:
     """Pure composer for a canonical-read failure. Fail-loud contract
     rationale relocated to `_WIKI_ANCHOR`; `row.canonical` rides the exempt
     `alternative` slot instead of being repeated inline (see `_exc_reason`)."""
@@ -283,7 +283,7 @@ def _compose_read_failure_message(row: ResolvedRow, exc: Exception):
     return compose(prose, alternative=str(row.canonical), anchor=_WIKI_ANCHOR)
 
 
-def _compose_contract_only_message(row: ResolvedRow):
+def _compose_contract_only_message(row: ResolvedRow) -> Message:
     """Pure composer for a canonical write matching a contract-only row.
     Permanent-vs-temporary parity-mode reasoning relocated to
     `_WIKI_ANCHOR`; `row.derived` (the file to confirm or hand-edit) rides
@@ -301,7 +301,7 @@ def _compose_contract_only_message(row: ResolvedRow):
     return compose(prose, alternative=str(row.derived), anchor=_WIKI_ANCHOR)
 
 
-def _compose_write_failure_message(row: ResolvedRow, exc: Exception, source_bytes: bytes):
+def _compose_write_failure_message(row: ResolvedRow, exc: Exception, source_bytes: bytes) -> Message:
     """Pure composer for a derived-write failure after a successful
     canonical read. `row.derived` rides the exempt `alternative` slot."""
     prose = (
@@ -311,7 +311,7 @@ def _compose_write_failure_message(row: ResolvedRow, exc: Exception, source_byte
     return compose(prose, alternative=str(row.derived), anchor=_WIKI_ANCHOR)
 
 
-def _compose_success_message(row: ResolvedRow, source_bytes: bytes):
+def _compose_success_message(row: ResolvedRow, source_bytes: bytes) -> Message:
     """Pure composer for a successful byte-copy re-derivation. `row.derived`
     rides the exempt `alternative` slot instead of being repeated inline
     alongside `row.canonical`."""

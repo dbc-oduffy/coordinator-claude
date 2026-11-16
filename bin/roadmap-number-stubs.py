@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from __future__ import annotations
 #
 # roadmap-number-stubs — CLI trampoline over claude-klabauter

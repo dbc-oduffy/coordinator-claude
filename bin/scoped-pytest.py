@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """scoped-pytest — run one named test file or node id under the scoped admission.
 
 Usage: `scoped-pytest --allow <file> [--allow <file> ...] -- <pytest args and targets>`.

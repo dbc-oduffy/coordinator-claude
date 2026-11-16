@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # coordinator-gate.py — one dispatcher, a subcommand per current
 # `check-*`/`verify-*`/`assert-*` entry point, batching multiple predicates
 # into ONE interpreter invocation.

@@ -1,7 +1,7 @@
 ---
 name: coverage-auditor
 executes-rows: false
-description: "Fresh-eyes check of specialist claims against a finished synthesis: present/absent."
+description: "Checks specialist claims against a finished synthesis: present/absent."
 model: sonnet
 effort: low
 tools: ["Read", "Grep", "Glob", "Write", "Edit", "Bash", "PowerShell", "ToolSearch", "mcp__gemini-notebook-mcp__notebook_query", "mcp__notebooklm-mcp__notebook_query", "mcp__gemini-notebook-mcp__cross_notebook_query", "mcp__notebooklm-mcp__cross_notebook_query", "mcp__gemini-notebook-mcp__notebook_list", "mcp__notebooklm-mcp__notebook_list"]

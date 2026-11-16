@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """
 check-engine-drift.py -- CLI trampoline: read-only consumer of claude-klabauter's
 registered "engine.drift" op, via coordinator/bin/lib/cc_invoke.py.
@@ -19,8 +19,7 @@ No new claude-klabauter module authored for this port: the engine-side probe log
 already lives entirely in claude-klabauter's registered "engine.drift" op
 (coordinator_core/ops/engine_drift.py, @register_op, async handler) -- this
 script is, and was already (per its own prior header), a pure CLI-rendering
-veneer with no legacy body to strangle (same shape as
-handoff-has-live-children.sh, R1 DOE-PORT template Section 4). The port
+veneer with no legacy body to strangle (R1 DOE-PORT template Section 4). The port
 converts the bash veneer's manual two-stage interpreter resolution plus a
 raw subprocess spawn plus an inline "python3 -c" JSON parse into a direct
 call to the EXISTING DoE-side Python transport,

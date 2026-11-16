@@ -54,6 +54,7 @@ against disposable fixture roots that only reach it via `cwd`.
 """
 
 from __future__ import annotations
+from types import ModuleType
 
 import json
 import os
@@ -67,7 +68,7 @@ import _watch_module  # noqa: E402
 _resolve_watch_module = _watch_module.resolve_watch_module
 
 
-def _resolve_uhura_module():
+def _resolve_uhura_module() -> ModuleType | None:
     """Import the engine copy of `uhura-mode`, or None.
 
     `coordinator/bin/uhura-mode.py` (engine-owned) carries a hyphen and is not an importable

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Gate for /architecture-survey: a survey write must not add or bump a `last_attested:` line.
 
 Lists every added, modified, or renamed page under the systems directory whose diff against

@@ -6,10 +6,10 @@ status: active
 
 # Daily Summary Procedure
 
-Reference wiki for `/workday-complete` Step 4, holding the heavy-weight artifacts the command body walks through inline.
+Reference wiki for `/workday-complete` Step 6b-7, holding the heavy-weight artifacts the command body walks through inline.
 
-> Reference wiki for `/workday-complete` Step 4. Heavy-weight artifacts extracted here to keep the
-> command body under 200 lines. Step 4 walks these sections inline — do not skip them.
+> Reference wiki for `/workday-complete` Step 6b-7. Heavy-weight artifacts extracted here to keep the
+> command body under 200 lines.
 >
 
 ---
@@ -17,8 +17,10 @@ Reference wiki for `/workday-complete` Step 4, holding the heavy-weight artifact
 ## Weekly Reviewer — Sonnet Observer, No Persona Routing
 
 The strategic review runs once a week in `/workweek-complete` Step 7b, as an **unnamed Sonnet
-worker** (`general-purpose`, `model: "sonnet"`). There is no domain→persona routing: personas
-(the Game Dev Reviewer / the Front-End Reviewer / the Data Science Reviewer / the Staff Engineer) are Opus-only, and the daily ceremony dispatches the analyst only.
+worker** (`general-purpose`, `model: "sonnet"`). It is the one agent the daily/weekly doc path
+keeps: its alignment notes and architectural-risk flags need model judgment. There is no
+domain→persona routing: personas (the Game Dev Reviewer / the Front-End Reviewer / the Data Science Reviewer / the Staff Engineer) are Opus-only, and the daily
+ceremony dispatches no agent.
 
 **Role: observer, not judge.** The worker leaves a **paper trail for the Staff Engineer** — alignment notes,
 debt candidates, architectural-risk *flags*. It renders no final architectural verdict. The Opus
@@ -29,164 +31,63 @@ floor: the observer runs every week, however few commits.
 
 ---
 
-## Sonnet Analyst Prompt Template
+## Daily Summary Script Contract
 
-Use this verbatim when dispatching the Phase 4b analyst agent
-(`model: "sonnet"`, `run_in_background: true`).
+Script first, no model call, no analyst dispatch (`docs/decisions/DR-1649-bookkeeping-is-script-first-under-a-1m-bar.md`).
+The project-rag `plans-completed --project-root . [--since <when>] [--until <when>]` door lists the plans whose
+`status` flipped to a terminal value in a commit inside the window (default: the 24h ending now),
+sorted by sizing (XXL first, `?` last), each with the sha that recovers a plan distill has deleted;
+the EM appends them below the script's summary. Bounded previews: a reader of a plan takes at most
+~10k chars of it, and never fans out over the corpus. The strategic observer stays weekly (Step 7b).
 
----
+`coordinator/scripts/daily-doc-rollup.py` writes the daily summary and the completion-log
+clusters; no agent runs. Both subcommands print a JSON report `{written, skipped, elapsed_s}` and
+exit 0 on success, 1 on git failure.
 
-**Analyst instructions:**
+**`summary --repo <root> --day YYYY-MM-DD [--machine <slug>] [--backfilled] [--force]`** writes
+`archive/daily-summaries/<day>-<machine>.md` (per-machine naming, mirroring
+`state/week-changelog/<date>-<machine>.md`); an existing summary is not overwritten without
+`--force`. Machine: `--machine`, else `$COORDINATOR_MACHINE`, else the machine resolver.
 
-1. **Read** `tasks/daily-review-scratch/inventory.md` (the Step 4a output).
+- **Frontmatter** is the Rollup Frontmatter Standard below. `commits` and `covered_tip_sha` come
+  from `git log --no-merges` over the day window; `covered_tip_sha` is the newest commit in that
+  window, `none` when the window is empty. Never hand-type it.
+- **Work Completed** is residue-first (§ Source Discipline): one line per that day's
+  `archive/completed/` entry (title, nature, its SHAs), then the commits no entry claims, grouped
+  by subject prefix with short SHAs. A mechanical assertion that every day entry appears in the
+  output fails the run (exit 1) when one is missing.
+- **Systems Affected** is `git diff --numstat` grouped by top-level directory.
+- The script writes no `## Architectural Decisions` section: that is judgment prose, and the
+  weekly observer reads the week's diffs for it.
 
-2. **Extract baseline:** Parse the `> Baseline:` header line from the inventory to get the commit
-   hash and timestamp. Example:
+**`clusters --repo <root> --day YYYY-MM-DD`** adds a `narrative:` field on the lead (earliest)
+entry of each `chain:` value with two or more `archive/completed/` entries that day whose lead
+carries none: members and SHAs in date order, at most 300 words, never a new entry file. A lead
+entry already carrying `narrative:` is skipped, so a rerun is a no-op.
 
-   ```bash
-   BASELINE=$(grep '^> Baseline:' tasks/daily-review-scratch/inventory.md \
-     | sed 's/^> Baseline: //' | awk '{print $1}')
-   ```
+**Coverage anchor (required):** `covered_tip_sha` is the completeness anchor a downstream backfill
+scan reads to detect under-covered days. A summary MISSING this field on a day that has committed
+work is treated as a GAP (fail-loud) by the scan — never as "unknown → pass".
 
-3. **Read the actual diffs** for architectural understanding:
+**Anchor semantics — content-true tip, not actual tip:** `covered_tip_sha` MUST be the newest
+commit the summary's content actually describes. The script's summary covers the whole day
+window, so its anchor is the window tip; a hand-written partial summary anchors to the tip of the
+range its prose covers, not the session-end tip. → See
+`## Coverage Anchor Semantics and Phase A0 Backfill Deductions` below.
 
-   ```bash
-   git diff <baseline>..HEAD
-   ```
+**Machine-defer convention (optional):** When a summary covers a day where work was actually
+done on a different machine, add `defers_to: <machine-slug>` at line start in the summary
+body (no `>` blockquote prefix — the backfill scan reads this field with a line-anchor grep):
 
-   If the diff exceeds ~3000 lines, focus on the files with the most changes (from the inventory's
-   file change table). Use `git diff <baseline>..HEAD -- <path>` for targeted reads.
+```
+defers_to: machine-a
+```
 
-4. **Read commit messages in full** for context on intent:
-
-   ```bash
-   git log --since="<baseline>" --format="%H%n%s%n%b%n---"
-   ```
-
-5. **Read plan docs** referenced in the inventory (if any) for context on what was being built
-   and why.
-
-6. **Write the daily summary** to `archive/daily-summaries/YYYY-MM-DD-<machine>.md` (per-machine naming — mirrors `state/week-changelog/<date>-<machine>.md`):
-
-   Before writing, compute the required coverage anchor values from git — do NOT hand-type these:
-
-   ```bash
-   # Full 40-char SHA of the newest commit in today's window (same date bounds step9 uses).
-   # YESTERDAY and TODAY are YYYY-MM-DD strings for the previous and current calendar day.
-   COVERED_TIP_SHA="$(git log --no-merges --format=%H \
-     --after="${YESTERDAY}T23:59:59Z" --before="${TODAY}T23:59:59Z" | head -1)"
-   [[ -z "${COVERED_TIP_SHA}" ]] && COVERED_TIP_SHA="none"
-
-   # Machine name — uses the canonical cs_compute_machine resolver.
-   # Resolution order: $COORDINATOR_MACHINE → machine-local registry coordinator.machine_slug
-   # → $COMPUTERNAME → hostname. Always lowercased. COORDINATOR_MACHINE overrides for tests.
-   # POSIX-host form (this is the cc-root-source-guard.md SSOT preamble, not a coordinator-CLI
-   # invocation); a PowerShell host resolves the trusted root by its own PowerShell-native path.
-   _cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.content-root" 2>/dev/null || cat "${CLAUDE_HOME:-$HOME}/.claude/.content-root" 2>/dev/null)/coordinator}"
-   _cc_doe="$(cat "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.content-root" 2>/dev/null || true)"
-   if [ -z "$_cc_doe" ]; then
-     _cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.content-root" 2>/dev/null || true)"
-   fi
-   _cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .content-root
-   _cc_trusted=0
-   case "$_cc_root" in
-     "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-   esac
-   [ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-   case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-   [ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-   [ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-   [ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.content-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-   # cs_compute_machine is natively imported from coordinator_core.machine_resolver
-   # (de-bash campaign, unit "daily-branch" — coordinator-daily-branch.sh is retired).
-   _cc_machine_py="python3"; command -v python3 >/dev/null 2>&1 || _cc_machine_py="python"
-   COVERED_MACHINE="$("$_cc_machine_py" -c '
-import sys
-sys.path.insert(0, "'"${_cc_root}"'/hooks/scripts")
-from _engine_root import resolve_claude_klabauter_root
-mr = resolve_claude_klabauter_root()
-if mr not in sys.path:
-    sys.path.insert(0, mr)
-from coordinator_core.machine_resolver import compute_machine
-print(compute_machine())
-')"
-   ```
-
-   ```markdown
-   ---
-   rollup_schema: 1
-   grain: day
-   period: YYYY-MM-DD
-   repo: <owner>/<repo>
-   machine: <machine-slug or null>
-   commits: <int or null>
-   covered_tip_sha: <40-char SHA, "none", or null>
-   covered_machine: <machine-slug or null>
-   backfilled: false
-   ---
-   # Daily Summary — YYYY-MM-DD
-
-   > Generated: YYYY-MM-DD HH:MM by /workday-complete Step 4
-   > Baseline: <commit-hash> (<date>)
-   > Commits: N | Files changed: M
-   covered_tip_sha: <40-char SHA from git command above, or "none" if no commits>
-   covered_machine: <machine>
-
-   ## Work Completed
-   - **[Feature/system]** — [what changed and why] | commits: [hashes]
-   - ...
-
-   ## Systems Affected
-   | System | Files Changed | Lines +/- | Nature of Change |
-   |--------|--------------|-----------|-----------------|
-   | ...    | ...          | ...       | ...             |
-
-   ## Architectural Decisions (Explicit & Implicit)
-   - [Decision description — e.g., "Player pawn hardcoded as drone class"]
-     - **Rationale:** [why this was done, from commit messages/plan docs]
-     - **Risk:** [what this locks in or limits]
-   - ...
-   ```
-
-   **Coverage anchor (required):** `covered_tip_sha` is the completeness anchor a downstream
-   backfill scan reads to detect under-covered days. A summary MISSING this field on a day that
-   has committed work is treated as a GAP (fail-loud) by the scan — never as "unknown → pass".
-   Always derive from the git command above; never hand-type the SHA.
-
-   **Anchor semantics — content-true tip, not actual tip (this is the whole ballgame):**
-   `covered_tip_sha` MUST be the newest commit the summary's **content actually describes** (the
-   *content-true tip*), NEVER blindly the day's actual/descendant tip. A summary whose prose stops
-   mid-day but is anchored to the actual tip is certified complete by the scan even though dozens of
-   later commits are absent — the scan trusts the anchor, not the prose. Mechanical anchor injection
-   (Phase A0) is therefore safe ONLY for already-complete summaries; for partial summaries, anchor to
-   the content-true tip (which correctly re-flags the gap) or route the date to a Phase A
-   content-assembly analyst. The analyst must set `covered_tip_sha` to the tip of the range its prose
-   actually covers — not the session-end tip if writing stopped mid-day. → See
-   `## Coverage Anchor Semantics and Phase A0 Backfill Deductions` below.
-
-   **Machine-defer convention (optional):** When a summary covers a day where work was actually
-   done on a different machine, add `defers_to: <machine-slug>` at line start in the summary
-   body (no `>` blockquote prefix — the backfill scan reads this field with a line-anchor grep):
-
-   ```
-   defers_to: machine-a
-   ```
-
-   This declares that `state/week-changelog/<date>-machine-a.md` covers this machine's work for
-   the day. **The backfill scan enforces the pointer:** if `state/week-changelog/<date>-<target>.md`
-   does not exist on disk, the scan emits `DANGLING-DEFER: <date> <this-machine> -> <target>` to
-   stderr and a `DANGLING-DEFER` TSV row to stdout — it never silently trusts a defer whose
-   changelog target is absent. This guard exists to prevent the failure mode where
-   a machine-b summary deferred to machine-a's own changelog that had not been written.
-
-   **Create `archive/daily-summaries/` directory if it doesn't exist.**
-
-7. **The "Architectural Decisions" section is the key value-add.** Don't just list what changed —
-   identify decisions that were made (even implicitly) and their consequences. Examples:
-   - "Added a direct dependency from module A to module B" — coupling risk
-   - "Used a concrete class where an interface would allow future flexibility" — extensibility risk
-   - "Hardcoded a configuration value that may need to vary" — flexibility risk
-   - "Chose approach X over Y" — tradeoff documentation
+This declares that `state/week-changelog/<date>-machine-a.md` covers this machine's work for
+the day. **The backfill scan enforces the pointer:** if `state/week-changelog/<date>-<target>.md`
+does not exist on disk, the scan emits `DANGLING-DEFER: <date> <this-machine> -> <target>` to
+stderr and a `DANGLING-DEFER` TSV row to stdout — it never silently trusts a defer whose
+changelog target is absent.
 
 ---
 
@@ -204,7 +105,7 @@ detector is defeated, not satisfied.
 **Mechanical injection (Phase A0)** is safe only for a summary whose content already covers the
 full day's commit range. For partial summaries (prose stops mid-day), anchor to the content-true
 tip instead — this correctly re-flags the gap on the next scan — or route the date to a Phase A
-content-assembly analyst. The analyst assembles from existing completion entries (authored truth,
+content-assembly pass. That pass assembles from existing completion entries (authored truth,
 not re-derivation) before a mechanically-correct anchor is set.
 
 ### Phase A0 content-completeness guard
@@ -217,7 +118,7 @@ check whether the prose is plausibly complete for the day's commit range (defens
 - Count `## Work Completed` bullets in the summary file.
 - **Large mismatch** (e.g. completion entries ≥ 2× Work-Completed bullets AND entries ≥ 3) →
   **CONTENT-GAP**: do NOT inject a masking anchor. Surface the date as requiring content-assembly
-  (Phase A analyst). Log the entry count and bullet count for auditability.
+  (Phase A). Log the entry count and bullet count for auditability.
 - **Commit-density signal** (complement to the completion-count heuristic): count commits dated
   to `<date>` reachable from the tip SHA (`git log <tip> --since="<date> 00:00:00"
   --until="<date> 23:59:59"`), then count distinct commit SHAs cited in the summary that resolve
@@ -338,7 +239,7 @@ inline code fixes.
 
 ## Health Ledger Entry Schema
 
-After the analyst completes, update `state/health-ledger.md`:
+After the summary script completes, update `state/health-ledger.md`:
 
 1. If it doesn't exist, create it with this shape (two audit clocks above a per-system table —
    the schema established by the weekly-gate/arch-survey restructure; do **not**
@@ -399,11 +300,10 @@ roughly 10 completion entries/day, and commit-first analysts missed **30% of dec
 residue-first second pass closed it to 75/75. Dailies feed release notes, so a dropped entry
 becomes a dropped release-note line.
 
-**Brief analysts to read their day's completion entries first and cover every one**, then verify
-coverage mechanically: query the entries for the span and assert each is traceable in the output.
-This is a step, not a spot-check — sub-agents report success either way. The same backfill had a
-bucketing worker silently drop an entry and report success, and the gap-fill agents did the same;
-only the mechanical assertion caught either.
+The summary script reads the day's completion entries first and covers every one, then asserts
+coverage mechanically: each entry for the span must be traceable in the output, else exit 1. A
+hand-written or agent-written summary (backfill content-assembly) follows the same rule: cover
+every entry, then verify mechanically — sub-agents report success either way.
 
 ---
 
@@ -411,9 +311,9 @@ only the mechanical assertion caught either.
 
 | Situation | Action |
 |---|---|
-| No commits since baseline | Write a minimal daily summary noting "no work today"; skip analyst dispatch |
-| `standup.py` exits non-zero | Fall back: EM runs git commands directly, writes inventory manually; proceed to analyst dispatch |
-| Analyst dispatch fails | Fall back: EM writes a minimal work summary from the inventory |
+| No commits since baseline | The script writes a minimal summary with `covered_tip_sha: none` |
+| `daily-doc-rollup.py summary` exits 1 | EM writes a minimal work summary from the day's `archive/completed/` entries |
+| `daily-doc-rollup.py clusters` exits 1 | Skip the clustering; the entries stay unclustered, report one line |
 | Weekly observer dispatch fails | Skip it, note "strategic review skipped" in `WEEK-SUMMARY.md` |
 | No strategic docs exist | Observer focuses on pure architectural principles instead of roadmap alignment |
 | No debt entries to write | Skip the write; `coordinator-queue-append` creates the entry file; `state/debt-backlog/` directory must exist |
@@ -445,10 +345,25 @@ Every daily summary and every archived week carries frontmatter in one shape, so
 Cockpit parses facts without scraping prose. The keys mirror the cockpit contract's `day-rollup` /
 `week-rollup` entities (`grain`, `period`, `repo`, `deterministic_facts.commits`).
 
-- **Day** — `archive/daily-summaries/YYYY-MM-DD[-<machine>].md`, keys exactly as the template
-  above, in that order. Unknown value → `null`, never omitted. Keys outside the standard are kept
-  under a nested `legacy:` map, never at top level. `covered_tip_sha` stays line-anchored so the
-  backfill scan still reads it.
+- **Day** — `archive/daily-summaries/YYYY-MM-DD[-<machine>].md`, keys exactly as below, in that
+  order. Unknown value → `null`, never omitted. Keys outside the standard are kept under a nested
+  `legacy:` map, never at top level. `covered_tip_sha` stays line-anchored so the backfill scan
+  still reads it.
+
+  ```yaml
+  ---
+  rollup_schema: 1
+  grain: day
+  period: YYYY-MM-DD
+  repo: <owner>/<repo>
+  machine: <machine-slug or null>
+  commits: <int or null>
+  covered_tip_sha: <40-char SHA, "none", or null>
+  covered_machine: <machine-slug or null>
+  backfilled: false
+  ---
+  ```
+
 - **Week** — every `archive/week-changelogs/<week-start>/` holds exactly one `WEEK-SUMMARY.md`
   (never `WEEK-DIGEST.md`, `week-changelog.md`, or a dated variant) opening with:
 

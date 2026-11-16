@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """record-superseding-review.py -- CLI over review_mint.record_superseding_review.
 
 Writes the stranded-run superseding review record and prints its

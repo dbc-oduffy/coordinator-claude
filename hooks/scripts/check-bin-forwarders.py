@@ -66,6 +66,8 @@ FORWARDER_NAMES = (
     "statusline.py",
     "strict-editable-finder-probe.py",
     "structural-index-refresh.py",
+    # Retired upstream; the mirror file stays until the engine repo deletes it, and this entry
+    # goes in the same change.
     "subagent-statusline.py",
     "survey-consume-gate.py",
     "tier-last-run.py",

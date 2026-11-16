@@ -33,7 +33,7 @@ from _sentinel_write_guard import extract_target_path, reconstruct_after  # noqa
 _GUARDED_TOOLS = ("Write", "Edit", "MultiEdit")
 
 
-def _repo_root_of(target: Path):
+def _repo_root_of(target: Path) -> Path | None:
     """Parent of the `docs/plans` directory holding `target`, or None when out of scope."""
     if target.suffix != ".md":
         return None

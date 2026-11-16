@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """review-stamp.py — CLI trampoline over claude-klabauter's coordinator_core.ops.review_stamp.
 
 Coordinator-content-repo docs/plans/2026-09-27-review-inside-execute-plan.md, row MK1. Binds a

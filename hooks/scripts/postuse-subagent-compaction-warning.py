@@ -68,6 +68,24 @@ def context_tokens(transcript: Path) -> tuple[int | None, str | None]:
     return None, None
 
 
+def agent_transcript(parent: object, agent_id: str) -> str | None:
+    """The subagent's own transcript, `<parent-stem>/subagents/**/agent-<id>.jsonl`.
+
+    Trap: in a subagent's payload `transcript_path` names the PARENT session's transcript; reading
+    it warns a small relay agent with the parent's token count, so it is never used directly."""
+    if not isinstance(parent, str) or not parent:
+        return None
+    root = Path(parent).with_suffix("") / "subagents"
+    name = f"agent-{_safe(agent_id)}.jsonl"
+    direct = root / name
+    if direct.is_file():
+        return str(direct)
+    try:
+        return next((str(p) for p in root.glob(f"*/*/{name}")), None)
+    except OSError:
+        return None
+
+
 def _window(model: str | None, tokens: int = 0) -> int:
     """Transcript model ids rarely say "1m", so a context already past the default window proves
     the larger one; otherwise assume the default."""
@@ -90,8 +108,10 @@ def _reap_old_markers(directory: Path, max_age_s: float = 86400.0) -> None:
 def evaluate(payload: dict) -> str | None:
     """The warning text when a new band has been crossed, else None."""
     agent_id = payload.get("agent_id")
-    transcript = payload.get("agent_transcript_path") or payload.get("transcript_path")
-    if not isinstance(agent_id, str) or not agent_id or not isinstance(transcript, str):
+    if not isinstance(agent_id, str) or not agent_id:
+        return None
+    transcript = payload.get("agent_transcript_path") or agent_transcript(payload.get("transcript_path"), agent_id)
+    if not isinstance(transcript, str):
         return None
     tokens, model = context_tokens(Path(transcript))
     if tokens is None:

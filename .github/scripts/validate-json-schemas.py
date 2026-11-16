@@ -6,11 +6,11 @@ import sys
 import pathlib
 
 
-def err(errors: list, file: str, msg: str):
+def err(errors: list, file: str, msg: str) -> None:
     errors.append(f"{file}: {msg}")
 
 
-def validate_settings(path: pathlib.Path, errors: list):
+def validate_settings(path: pathlib.Path, errors: list) -> None:
     """Validate settings.json structure."""
     name = str(path)
     try:
@@ -50,7 +50,7 @@ def validate_settings(path: pathlib.Path, errors: list):
                             err(errors, name, f"permissions.deny[{i}] must be a string, got {type(item).__name__}")
 
 
-def validate_known_marketplaces(path: pathlib.Path, errors: list):
+def validate_known_marketplaces(path: pathlib.Path, errors: list) -> None:
     """Validate known_marketplaces.json structure.
 
     Expected: object keyed by marketplace name, each value has:
@@ -99,7 +99,7 @@ def validate_known_marketplaces(path: pathlib.Path, errors: list):
             err(errors, name, f"{prefix}: missing or invalid 'lastUpdated' (must be string)")
 
 
-def validate_installed_plugins(path: pathlib.Path, errors: list):
+def validate_installed_plugins(path: pathlib.Path, errors: list) -> None:
     """Validate installed_plugins.json structure.
 
     Expected: {version: int, plugins: {key: [array of install records]}}
@@ -150,7 +150,7 @@ FILES = [
 ]
 
 
-def main():
+def main() -> int:
     errors = []
 
     for relpath, validator in FILES:

@@ -1,11 +1,14 @@
 ---
 name: workday-start
-description: "Morning orient — triage handoffs, staleness, priorities."
+description: "Morning orient: triage handoffs, staleness, priorities."
 allowed-tools: ["Read", "Write", "Grep", "Glob", "Bash", "Agent", "Workflow"]
 argument-hint: "[optional day focus]"
 ---
 
 # Workday Start — Morning Orientation
+
+**Non-Claude EM:** this command is the Claude-native path; a non-Claude EM takes the engine-op path at
+`coordinator/docs/wiki/non-claude-workers/non-claude-em-path.md`.
 
 **Announce:** "Running workday-start to prepare the day's context."
 
@@ -29,11 +32,13 @@ PowerShell, the POSIX launcher form otherwise) and run, solo:
 
 Route on its exit code and print the receipt either way:
 
-- **0 with a `Workflow(` line** — fire that line verbatim, then render the returned `briefing`
-  verbatim. Do not cite or re-derive the template path; the line carries it.
+- **0 with a `Workflow(` line** — run `python "${CLAUDE_PLUGIN_ROOT}/scripts/workday_start_argv_run.py" run --digest <receipt digest path>`
+  first; `workflow_needed: false` skips the line. Else fire it verbatim, render the returned `briefing`. On
+  `scripted_finish: true`, Write the returned object to `workflow-results.json` beside the digest, run the
+  script's `finish --digest <path>`, render the `finish` action's `briefing`.
 - **0 without a `Workflow(` line** — the printed receipt is the briefing; render it.
 - **3** — a run is already in flight. Finish it: `workday-start-run finish --run-id <id>` with the
-  id the receipt names. If the workflow's agents never ran, fire its `Workflow(` line first.
+  id the receipt names. If the workflow's agents never ran, run the 0-branch steps first.
 - **4** — the workflow template is missing. Resolve `${CLAUDE_PLUGIN_ROOT}` before calling it absent
   (`coordinator/docs/wiki/coordinator-tripwires/a-missing-workflow-script-is-an-unresolved-plugin-root.md`),
   then report the receipt and the path it names.
@@ -41,8 +46,7 @@ Route on its exit code and print the receipt either way:
   already filed.
 - **Any other non-zero** — report the receipt verbatim and stop.
 
-After the workflow returns, if it did not itself run `finish`, run
-`workday-start-run finish --run-id <id>` and render its briefing verbatim.
+A workflow that returns neither a `briefing` nor `scripted_finish`: run `workday-start-run finish --run-id <id>`, render its briefing.
 
 ## What the run decides, not the EM
 
@@ -73,12 +77,16 @@ ceremony never offers, nominates or calls `groupem.enter`; the G-EM is entered f
 
 ## The one sanctioned refresh
 
-After the briefing renders, when staleness was flagged, run the structural-index refresh
-(`structural-index-refresh`, `snippets/resolve-coordinator-bin.md`, launched windowless) only after
-`box-memory-snapshot.py --admit-peak <GiB>` admits; HOLD (exit 4) means skip and report. Incremental
-or structural only, never a fresh full embed while production project-rag is serving; a full
-re-embed is a human ask. `/workweek-start` inherits this via its Step 10 chain
-(`coordinator/docs/wiki/coordinator-tripwires/a-reindex-is-a-staleness-flag-never-an-agent-trigger.md`).
+After the briefing renders, when staleness was flagged: report it and carry on. The daemon's
+branch-refresh seeds the index from the newest published release when it is absent, unproven or
+older, the branch owner's proven refresh publishes, and non-owners pull; no step here does that by hand.
+FALLBACK ONLY, when the seed failed and staleness persists past a daemon cycle: on the branch owner
+(`work/<box>/<date>`) run the structural-index refresh (`structural-index-refresh`,
+`snippets/resolve-coordinator-bin.md`, launched windowless), only after
+`box-memory-snapshot.py --admit-peak <GiB>` admits; HOLD (exit 4) means skip and report. Say so
+loudly in the briefing. It never starts embedding work; a re-embed is a human ask. `/workweek-start` chains here
+(`coordinator/docs/wiki/coordinator-tripwires/a-branch-owner-builds-the-index-and-no-trigger-embeds.md`,
+`coordinator/docs/wiki/coordinator-tripwires/a-reindex-is-a-staleness-flag-never-an-agent-trigger.md`).
 
 ## Adopt a klabauter push (this box only)
 
@@ -91,6 +99,7 @@ drive another box (`coordinator/docs/wiki/coordinator-tripwires/a-box-adopts-an-
 
 Start a reindex on a stale flag outside the section above: the corpus-currency probe is read-only.
 Bug-sweep / daily-code-health / deep-architecture-survey / update-docs (dedicated invocations).
-Merge to main. Choose work (`/workstream-start`'s Engage section). `/update-docs` and `/bug-sweep`
-are recommended, never auto-dispatched from here — a PM call. `/workday-complete` is the evening
+Merge to main. Choose work (`/workstream-start`'s Engage section). `/update-docs` freshness is an
+invariant the idle Stop leg and `/workday-complete` Step 8c fire, not something started from here;
+`/bug-sweep` stays a PM call. `/workday-complete` is the evening
 counterpart.

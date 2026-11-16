@@ -44,6 +44,31 @@ def resolve_console_python() -> str | None:
     return None
 
 
+HOMEBREW_PYTHONS = ("/opt/homebrew/bin/python3", "/usr/local/bin/python3")
+
+
+def unimatrix_python(
+    pin_value: str | None = None,
+    *,
+    platform: str | None = None,
+    homebrew=HOMEBREW_PYTHONS,
+    is_executable=None,
+) -> str | None:
+    """The one interpreter unimatrix's supervisor and its forced-command relays both run.
+
+    The `unimatrix.python` pin when set (existence is the caller's check); else, on darwin, the first
+    executable Homebrew candidate (sshd's PATH python3 there is the CLT stub); else the console python.
+    """
+    if pin_value:
+        return pin_value
+    if (platform or sys.platform) == "darwin":
+        check = is_executable or (lambda p: os.path.isfile(p) and os.access(p, os.X_OK))
+        for cand in homebrew:
+            if check(cand):
+                return cand
+    return resolve_console_python()
+
+
 def python_argv(script: str, *args: str) -> list[str] | None:
     interpreter = resolve_console_python()
     if interpreter is None:

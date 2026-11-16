@@ -284,6 +284,12 @@ inline findings, because there is no argument to put them in, and the failure be
 error at the boundary instead of a judgment call in the middle. That structural fix is tracked as
 a baton, not resolved by this wiki entry.
 
+## A Flagged Subagent Request Fails Under "Ask Each Time" — Retry on Fallback
+
+Under "Ask each time", a flagged subagent request ends with `Agent terminated early due to an
+API error` rather than falling back. Re-dispatch that chunk once on the fallback; a second
+failure is reported, not looped.
+
 ## Review-Dispatch Pre-Scaffold When the Sidecar CLI Is Off PATH
 
 A `code-reviewer` (or similar findings agent) cannot self-scaffold its own findings sidecar when
@@ -1443,9 +1449,9 @@ counts a transcript (that boundary is engine-side only; verified by grep of the 
 transcript-open/count logic, which returns nothing) —
 one JSON line per completed subagent, `kind: "zero-tool-use"` regardless of the actual count (the
 op has no zero-gate of its own; filtering happens on read) — to
-`<git-common-dir>/coordinator-sessions/<session_id>/subagent-zero-tool-use.jsonl`. Note this is
-the git **common** dir, not a bare `.git` path — the distinction matters under worktrees and is
-why the wiki calls it out explicitly rather than leaving it implicit in a path string. A
+`<session hub>/<session_id>/subagent-zero-tool-use.jsonl`. The session hub is
+`.coordinator-local/coordinator-sessions/` beside a `.git` common dir, resolved from the common dir
+(not a bare `.git` path), so worktrees share it. A
 `SubagentStop` `hookSpecificOutput.additionalContext` reaches only the completing subagent's own
 context, never the EM's, so Stage 1 emits nothing the EM would see directly.
 

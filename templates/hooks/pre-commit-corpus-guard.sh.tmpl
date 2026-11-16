@@ -1,0 +1,10 @@
+#!/bin/sh
+# Pre-commit corpus-artifact guard hook. repo-setup substitutes <G> with the guard's resolved
+# path (forward slashes). The guard is a forwarder importing lib/ beside itself: exec it in
+# place, never copy it.
+PY=
+for c in python3 python; do
+  if command -v "$c" >/dev/null 2>&1 && "$c" -c "" >/dev/null 2>&1; then PY=$c; break; fi
+done
+[ -n "$PY" ] || { echo "pre-commit: no working python on PATH" >&2; exit 1; }
+exec "$PY" "<G>" "$@"

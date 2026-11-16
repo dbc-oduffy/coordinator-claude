@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """break_glass.py — Tier 1 operator-recovery diagnose-then-repair sweep for a
 wedged coordinator install.
 

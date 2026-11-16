@@ -36,7 +36,7 @@ def load_allowlist() -> set[str]:
     return entries
 
 
-def check_allowlist_staleness(allowlist: set[str], warnings: list):
+def check_allowlist_staleness(allowlist: set[str], warnings: list) -> None:
     """Warn about allowlist entries that no longer match anything."""
     for entry in sorted(allowlist):
         parts = entry.split(":", 1)
@@ -67,7 +67,7 @@ def get_tracked_files() -> list[pathlib.Path]:
     return [pathlib.Path(f) for f in result.stdout.strip().splitlines() if f]
 
 
-def main():
+def main() -> int:
     errors = []
     warnings = []
 

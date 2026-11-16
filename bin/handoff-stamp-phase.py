@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """handoff-stamp-phase.py — CLI trampoline over claude-klabauter's `handoff.stamp_phase`
 op, the sibling landed entrypoint `handoff-archive-transition.py` did not yet
 cover.

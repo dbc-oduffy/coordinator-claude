@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """handoff-loe-summary.py — Read helper: compute the /handoff Session Ledger
 row in one call.
 
@@ -171,7 +171,7 @@ def _loe_metrics(session_id: str, include_children: bool) -> dict:
         git_root = mod._resolve_git_root()
         if git_root is None:
             return dict(_FALLBACK_LOE)
-        sessions_base = os.path.join(git_root, ".git", "coordinator-sessions")
+        sessions_base = mod._session_hub(git_root)
         agent_dispatches, opus_dispatches = mod._count_session(sessions_base, session_id)
         if include_children:
             agent_dispatches, opus_dispatches = mod._sum_children(

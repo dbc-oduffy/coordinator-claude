@@ -4,11 +4,9 @@ Part of [`PIPELINE.md`](PIPELINE.md); phases still run in its strict sequence.
 
 After all Phase 1.5 verdicts are PASS (or batches are marked FAIL/SKIP), regroup nuggets from input-batch grouping to output-topic grouping.
 
-**For ≤100 nuggets:** Coordinator reads all Phase 1 scratch files and builds the clustering table directly (mechanical, not wasteful at this scale).
+**Deterministic, at any nugget count, no agent:** `distill_mechanical.py prepare --nuggets N.json [--verdicts V.json]` groups nuggets by topic key (the `topicKey` or tag, resolved through the curation verdicts when supplied: keep/normalize on `canonical_slug`, merge on `merge_target`, drop excluded), slugifies each key, and sorts clusters by slug and nuggets by (source, id). A cluster whose slug resolves in `wikiSlugs` is homed; every other cluster is new at `wikiDirs[0]`. A nugget with no topic, or a tag lacking a verdict, stops the run. In-count equals clustered plus dropped, asserted. The former Haiku clustering agent is retired.
 
-**For >100 nuggets:** Dispatch a single Haiku clustering agent using the **Clustering: Haiku Clustering Prompt** from `agent-prompts/clustering.md`. The agent produces a mapping of `{system_tag → [nugget_ids_with_batch_references]}`. Coordinator validates the mapping before proceeding.
-
-**Output:** topic dispatch table mapping each guide topic to its source nuggets across all batches. This table drives Phase 2 dispatch.
+**Output:** the `clusters` list in `prepared.json` mapping each guide topic to its source nuggets across all batches. This list drives Phase 2 dispatch.
 
 ---
 
@@ -89,10 +87,10 @@ gate cannot see. The policy still lives in exactly one place (their gate); we on
 it.
 
 **Mechanism, not tidying.** `drop_summary.by_cause` makes the 2→3 delta legible: the entire delta is
-`below-threshold` (60 / 39 / 0 at thresholds 3 / 2 / 1), while `bare-no-sibling` stays FLAT at 25
-across all three thresholds — structural, threshold-invariant, moving the knob changes nothing
-about it. The extra drops at 3 are not junk being cleaned up; they are real small topics, which is
-exactly why the ruling above goes the way it does.
+`below-threshold` (60 / 39 / 0 at thresholds 3 / 2 / 1). A bare tag with no sibling is kept, never
+dropped: it homes through its cited path like any other nugget. The extra drops at 3 are not junk
+being cleaned up; they are real small topics, which is exactly why the ruling above goes the way it
+does.
 
 **Corroboration, not a dependency.** Their gate now auto-derives `keep_threshold` when the caller
 omits it; we always pass ours in, so their auto-derivation never fires for us. On their mature
@@ -122,7 +120,7 @@ share exceeds `DROP_SHARE_WARNING_THRESHOLD` (0.25, a first guess — the engine
 since landed, see the threshold derivation above, and does not by itself argue for moving this
 number) — a visibility tripwire, not a gate; it never halts a run or suppresses output.
 
-**Curated-input channels (invocation B).** `distill.write_curated_clusters` is the step that writes the curated-clusters file: call it with `tag_counts` (and optional `keep_threshold`, as for `distill.curate_clusters`) and an `output_path` under the run's scratch dir (repo-relative, confined to `state/scratch/`). It writes the `distill.curate_clusters` return whole and atomically, plus `contradictionClusterCount`. Pass the returned `output_path` as `args.curatedFile`, `curated_verdict_count` as `args.curatedVerdictCount`, and `contradiction_cluster_count` as `args.contradictionClusterCount`; no file is composed by hand and no agent reads a count. Inline `args.curatedTags` remains for a small run and takes a `{tag: verdict}` map or the op's `verdicts` list. Setting both halts `curated-input-ambiguous`. `contradictionClusters`, when the launcher has them, go in the curated file with `contradictionClusterCount`.
+**Curated-input channels (invocation B).** `distill.write_curated_clusters` is the step that writes the curated-clusters file: call it with `tag_counts` (and optional `keep_threshold`, as for `distill.curate_clusters`) and an `output_path` under the run's scratch dir (repo-relative, confined to `state/scratch/`). It writes the `distill.curate_clusters` return whole and atomically, plus `contradictionClusterCount`. The way the saved return reaches `args.prepared.curated` is `distill_mechanical.py prepare --verdicts <that file>` (with the run's `--run-id`): it inlines the return at `prepared.curated` and derives `contradictionClusterCount` and `judgmentClusterCount` from the inlined lists, and the launch passes that `prepared.json` unedited; a bare verdict list or tag map sets no `curated`. Nothing hand-sets the field or a count. `args.curatedFile` is refused, halting `curated-file-retired`. Pass `curated_verdict_count` as `args.curatedVerdictCount`, and `contradiction_cluster_count` as `args.contradictionClusterCount`; no file is composed by hand and no agent reads a count. Inline `args.curatedTags` remains for a small run and takes a `{tag: verdict}` map or the op's `verdicts` list. Setting both halts `curated-input-ambiguous`. `contradictionClusters`, when the launcher has them, go in the curated file with `contradictionClusterCount`.
 
 **Verdict payload contract (confirmed, chunk C3c, commit `810ffe46d`).** One verdict entry per
 RAW input tag, always. `merge_target` is the destination slug a tag folds INTO — populated ONLY
@@ -135,14 +133,15 @@ drop set is a FILTER over the verdict list (`verdict === 'drop'`), never a separ
 `merge_target`; a tag absent from the map, a merge with no `merge_target`, a normalize with no
 `canonical_slug`, or an unknown verdict each stop the run rather than inventing a bucket.
 **Landed (chunk C3c-successor, commit `67b7061f6`) — code against it.** Per-verdict `drop_cause`,
-an enum of `placeholder` / `bare-no-sibling` / `below-threshold`, `null` on non-drops. Plus a
+an enum of `placeholder` / `below-threshold`, `null` on non-drops. Plus a
 `by_cause` count block nested under `drop_summary`, and top-level result fields `threshold_applied`,
 `threshold_auto`, and `nugget_drop_share`. Our drop logging keys on the enum now, not on parsing the
 `reason` prose string. The
 pinned verdict payload this contract is measured against is a committed test fixture under
 `coordinator/pipelines/artifact-distillation/tests/`, asserting the three contract properties
-above plus the flat-`bare-no-sibling`-at-25 invariant — the contract is test-enforced, not only
-described here.
+above — the contract is test-enforced, not only described here. That fixture predates the
+bare-tag keep and still carries `bare-no-sibling` drops, which the test treats as fixture residue
+until the fixture is regenerated.
 
 **Log line:** the Workflow emits a one-line summary at this step —
 `consolidation: <rawCount> raw -> <homedCount> homed + <newCount> new (no-misc: curation already

@@ -1,3 +1,11 @@
+---
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
+    omitted_reasons:
+      archived_spec: private-source
+---
+
 # `workweek-complete.md` — Section Provenance
 
 Holds the per-section spec-backlink history for `workweek-complete.md`, kept off the command surface so the ceremony reads evergreen.
@@ -12,3 +20,8 @@ Holds the per-section spec-backlink history for `workweek-complete.md`, kept off
 > not ship, so its absence from an installed or mirrored tree is expected, not a missing section.
 
 
+
+## Cadence split origin
+
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-1-063 -->
+The workday/workweek split (2026-05-04) lightened `/workday-complete` and added `/workweek-start` and `/workweek-complete`. The load-bearing rule: **handoffs are the atom, the changelog is the index.** Daily files are per machine, `tasks/week-changelog/YYYY-MM-DD-{hostname}.md`, which avoids concurrent-write conflicts.

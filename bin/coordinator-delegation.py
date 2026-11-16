@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from __future__ import annotations
 """coordinator-delegation — see the # comment block above for the RAG-bait
 purpose text (the polyglot shebang line above makes THIS triple-quoted

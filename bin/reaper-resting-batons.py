@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """reaper-resting-batons.py — read-only surfacing pass for `open`/`ready_to_fire`
 resting handoff batons.
 
@@ -142,11 +143,13 @@ def scan(repo_root: Path, read_meta) -> list[dict]:
     """Read-only scan of state/handoffs/*.md for status:open +
     deployment_state:ready_to_fire. No write of any kind — see module
     NEGATIVE-SPEC."""
-    handoffs_dir = repo_root / "state" / "handoffs"
+    lib_dir = str(Path(__file__).resolve().parents[1] / "lib")
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
+    import output_tree_layout
+
     surfaced: list[dict] = []
-    if not handoffs_dir.is_dir():
-        return surfaced
-    for path in sorted(handoffs_dir.glob("*.md")):
+    for path in output_tree_layout.iter_tree_entries(repo_root, "state/handoffs", "*.md"):
         fm = read_meta(str(path))
         if not fm:
             continue

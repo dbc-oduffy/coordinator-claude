@@ -1,3 +1,9 @@
+---
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
+---
+
 # Agent Install Contract
 
 <!-- Single-Entry-Point Doctrine canonical home: docs/wiki/install-playbook-rationale/doctor-probe-design.md § Single-Entry-Point Consolidation Must Stay Addressable (+ docs/wiki/doctrine-authoring/implementation-standards-by-domain.md § Cross-cutting standards, formerly coordinator/CLAUDE.md § Implementation Standards). Originated in archive/specs/2026-05-04-example-game-repo-umbrella-plugin.md §Single Entry-Point Doctrine (example-game-repo-side; not present in this repo) — canonicalized here 2026-05-27. -->
@@ -1738,3 +1744,9 @@ maintainer-only `validate-install-contract.py` gate fires its per-point complete
 clean** — it is not failing, it has simply not opted in yet. This keeps the "active compliance gate"
 directive at full strength for repos that have declared, without regressing any sibling that hasn't
 adopted the six points on its own clock yet.
+
+## Decision records
+
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-4-018, batch-5-028 -->
+- `coordinator-claude` as a canonical soft dependency with per-upstream override naming.
+- Curated direct `/pickup` of seeded leg batons as equally valid to `/workday-start`.

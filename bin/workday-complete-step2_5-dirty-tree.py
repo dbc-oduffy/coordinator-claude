@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """
 workday-complete-step2_5-dirty-tree.py — CLI trampoline over claude-klabauter
 coordinator_core.ops.workday_complete_step2_5_dirty_tree.

@@ -2,6 +2,9 @@
 title: prior-art-checker pre-review doctrine
 created: 2026-05-06
 type: doctrine
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
 ---
 
 # prior-art-checker Pre-Review Doctrine
@@ -40,6 +43,22 @@ validate" into a decisive, verified fact that hardens the whole design (e.g. con
 path is a projected subset of the file rather than something else). This is cheap and belongs
 before review, not after — treat an unread cited path surfaced during prior-art review as a
 mandatory live-read, not an acceptable gap to carry forward.
+
+## Decision records as prior art
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-11-022, batch-11-025 -->
+
+The ratified `docs/decisions/` DR corpus is first-class prior art, so a plan that reverses a ratified decision surfaces as a CONFLICT, not a clean COMPATIBLE.
+
+- **No blanket DR gate.** PM-decided 2026-07-11 (Option A): there is no DR-level BLOCKED verdict. Load-bearing DRs fold into the existing institutional-memory escalation clause (§ Verdict semantics).
+- **Currency comes from frontmatter.** Read a DR's `status:` field first (superseded means historical context); lineage references are secondary corroboration. Do not read DR bodies during inventory.
+
+## Corpus phrase and snippet sync
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-33-058, batch-33-059 -->
+
+The corpus is named by one durable phrase, "the coordinator's accumulated internal doctrine and decision corpus", never by an enumerated list. The guard keys on the phrase's presence at two named sites, not on the absence of the old seed. Do not glob the corpus.
+
+- A snippet edit and the `export-catering-resolution.py` regeneration land in one commit (a hash pin in `test_compose_review_wave.py` fails otherwise).
+- `verify-prior-art-sync.sh` no longer exists. The registry row has `consumers = []` and `delivery = inject`, which supersedes the sync-verifier wording in § Distribution below.
 
 ## Role in the review pipeline
 
@@ -207,6 +226,9 @@ Any sibling-spinoff handoff authored by a plan-writer MUST go through prior-art-
 
 *Canonical:* A plan-writer authored a spinoff for a sibling repo's addon-registration hookspec, dataclass, and boot-iteration block. All three already existed in that repo's substrate, documented in its own wiki. Prior-art-checker surfaced this from a handful of scout artifacts within minutes; the spinoff was revoked, and the deliverable collapsed into a ~10-line hook implementation.
 
+**Peer-repo selection is the EM's, and mechanical.** The EM picks peers (max 2) by matching the plan's claim topics to `stack_tags` in `~/.claude/tasks/repo-registry.md`. Agent-autonomous selection was rejected to keep recall mechanical.
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-1-061 -->
+
 **Operational trigger:** In `coordinator:plan` Branch C, when a chunk authors or commits a spinoff handoff, fire prior-art-checker with `peer_repos:` populated with the spinoff's target repo before the chunk is committed to disk.
 
 ## Roadmap Stub-Minting Must Reconcile Against Shipped and In-Flight Same-Repo Work
@@ -222,6 +244,11 @@ The Sibling-Spinoff gate above catches *peer-repo* substrate that already exists
 - **Reconcile-time, this cuts the other way too: verify a roadmap's real build-state, not the baton's "none executed" claim.** A reconcile baton reporting a target roadmap as "authored, none executed / 0 stubs built" can be flatly wrong — disk can show the roadmap substantially shipped, with stubs already laddered stub → plan → code and review-trail findings on file. "Stubs never picked up as stubs" reads as "nothing built" but is not the same claim. Before scoping additions to an existing roadmap, check `docs/plans/`, git log, and code-on-disk for the target stubs — the same git-and-disk-not-frontmatter discipline as the concurrent-plans bullet above, applied to a roadmap's own self-report.
 
 - **A late cluster/stub append to an already-final-approved roadmap needs its reverse edges backfilled, not just its forward ones.** *[universal]* A stub appended post-approval carrying only its own `blocked_by` is under-propagated: the reverse `blocks` arrays on every dependency stub, and the OVERVIEW's per-cluster "Feeds:" mirrors, both go stale — breaking the bidirectional-mirror invariant the roadmap advertises, so reverse-traversal schedulers under-schedule the new arrival. A late append can also widen a first-landing seam-owner's enumerated consumer surface (e.g. an adapter that freezes its contract before pickup) — omitting that widening forces exactly the late-ripple the seam exists to prevent. Sweep all three mirror sites on a late append, not just the new stub's own frontmatter.
+
+## Coverage failure: reading 2 of ~257 files
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-24-032 -->
+
+A run once read 2 of ~257 doctrine-wiki files, and its own does-NOT-count list excluded negative-existence claims, so those claims were never checked. Fixed at source. The ~57-file figure below predates this; treat the doctrine corpus as hundreds of files, and a run that read a handful is DEGRADED, not COMPATIBLE.
 
 ## Cost target
 

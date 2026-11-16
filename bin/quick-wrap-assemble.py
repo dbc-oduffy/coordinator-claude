@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # quick-wrap-assemble — CLI trampoline over claude-klabauter
 # coordinator_core.quick_wrap_assemble (the computed-skill assembler for
 # `/quick-wrap`'s four-condition entry test). Direct-import variant

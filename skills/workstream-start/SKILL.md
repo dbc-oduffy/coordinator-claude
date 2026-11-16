@@ -7,6 +7,9 @@ argument-hint: "[task-description]"
 
 # Workstream Start — Preflight and Orientation
 
+**Non-Claude EM:** this skill is the Claude-native path; a non-Claude EM takes the engine-op path at
+`coordinator/docs/wiki/non-claude-workers/non-claude-em-path.md`.
+
 Orients ONE agent among possibly many on the repo. Orientation is not research: a build ask is fired, not surveyed. Unlike `/pickup` (artifact-first), this is general orientation.
 
 ---

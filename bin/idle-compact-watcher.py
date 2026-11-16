@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """idle-compact-watcher — type /compact into idle, allowlisted EM sessions that fired engine asks.
 
 Default invocation detaches itself from the Claude Code session (outside its process tree and job)

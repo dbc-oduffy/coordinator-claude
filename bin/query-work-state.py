@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """query-work-state.py — native Python CLI entry routing session.work_state.
 
 No shebang line: unlike this directory's generator-owned two-leg entrypoints

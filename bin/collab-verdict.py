@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """collab-verdict — read or refresh the per-repo collaboration verdict cache.
 
 `read` prints the cached verdict; `refresh` derives `mode` from commit authorship (never `gh`),

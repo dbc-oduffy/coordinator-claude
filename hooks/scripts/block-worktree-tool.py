@@ -70,7 +70,7 @@ _HOOKS_DIR = os.path.dirname(os.path.abspath(__file__))
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 
-from _message_envelope import CHANNEL_DENY, compose, emit  # noqa: E402
+from _message_envelope import CHANNEL_DENY, Message, compose, emit  # noqa: E402
 from _win_portability import no_console_creationflags  # noqa: E402
 try:
     from _git_root_walk import git_root_walk as _git_root_walk  # noqa: E402
@@ -90,7 +90,7 @@ _DENY_PROSE = (
 )
 
 
-def _deny_message():
+def _deny_message() -> Message:
     return compose(_DENY_PROSE, anchor=_WIKI_ANCHOR)
 
 

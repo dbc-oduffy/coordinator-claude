@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """sweep-boot.py — GRAVESTONE for session.boot_sweep, plus boot-time forwarder self-heal.
 
 This entrypoint used to trampoline `session.boot_sweep`: ONE cold-start covering

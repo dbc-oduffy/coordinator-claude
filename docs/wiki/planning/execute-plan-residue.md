@@ -757,7 +757,8 @@ context you need" destroys that. An honest "partial" report does not earn the wr
 
 ## Relationship to other commands
 
-Review can stamp `execution_authorized_at` as supporting evidence and writes an execution handoff.
+Upstream entry is `/handoff` + `/pickup`; `coordinator:finishing-a-development-branch` is reached
+via `/merging-to-main`. Review can stamp `execution_authorized_at` as supporting evidence and writes an execution handoff.
 For L/XL plans enrichment happened upstream via the size-keyed lane dispatch of
 `coordinator:enricher` over the plan body; `/enrich-and-review` remains a separate
 chunk-directory/stub pipeline.
@@ -868,3 +869,9 @@ passes, through the normal dispatch path with every gate unchanged.
   hand-dispatch. A row partial only on a break outside its files is re-graded by `land_run`; any
   other is re-emitted with `--only-incomplete`, never reverified. Hand-committing its files refuses
   the stamp.
+
+## Refused dispatch — the named errors
+
+Refusals: `ScriptNotFoundError`, `PluginDirResolutionError`, `ConcurrencyCapExceededError`,
+`ChildSpawnFailedError`. Phase boundaries are not stop boundaries: ship Phase N green, dispatch N+1.
+Corroborate leg 1 (`chunk-commits`) against leg 2 or 3; `no_join_candidates` proves nothing.

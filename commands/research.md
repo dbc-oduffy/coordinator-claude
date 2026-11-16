@@ -1,6 +1,6 @@
 ---
 name: research
-description: "Research by value class: scouts, corpus, deep, or spike. EM-fired, never from a subagent."
+description: "Research by value class: scouts, corpus, unblock, or spike. EM-fired only."
 allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Glob", "Grep", "Workflow"]
 argument-hint: "--sizing <path> | --ask \"<question>\" [--target web|repo=PATH|local=PROBE] ... [--split|--combine]"
 ---
@@ -15,7 +15,7 @@ prints one `Workflow` line. Value classes and the tier-to-manifest map:
 |---|---|
 | `scouts` | one Sonnet scout per question (up to 8), optional Haiku probes for local targets, one grounding agent; a scratch digest. The default for a bare ask |
 | `corpus` | the named-source manifest pipeline (web, repo, structured, NotebookLM), with coverage audit |
-| `deep` | the unblock-us diagnostic team (diagnose, decompose, challenge, plus one specialist per source), for an EM stuck delivering something |
+| `unblock` | the unblock-us diagnostic team (diagnose, decompose, challenge, plus one specialist per source), for an EM stuck delivering something |
 | `spike` | a binary verdict on one unproven mechanism: both halves, throwaway probes, a verdict record. Procedure: `coordinator/skills/spike/SKILL.md`. Spike is the research door's verdict class |
 
 ## The research door
@@ -31,23 +31,26 @@ carries a `next_action` of kind `fire_research`, which the EM runs unedited. Onl
 sizing agents halt at sizing. Research need not end with code, and
 every class ends with a committed artifact and trail (Step 4).
 
-`deep` is the unblock team, not "more depth". A comprehension ask ("understand this repo", "survey
+`unblock` is the unblock team; `depth` sets how deep. A comprehension ask ("understand this repo", "survey
 this topic") is `corpus` however many targets (`A-SURVEY-IS-CORPUS-NEVER-DEEP`); shallowness is
-`--research-depth standard`, never a class change; more thoroughness on a corpus run is `--research-depth deeper|deepest`
+`--research-depth standard`, never a class change; more thoroughness on a corpus run is `--research-depth deep|deeper|deepest`
 or `--research-appetite large`. `research.appetite` moves the class one notch (`small` down,
-`large` up), so `deep` at `small` runs corpus and `corpus` at `large` runs deep. Read the emitted
+`large` up, clamped): `unblock` at `small` runs corpus, `corpus` at `small` runs scouts, `scouts` at `large` runs
+corpus; `corpus` never rises to `unblock`. Read the emitted
 script's meta before firing: a "The EM is stuck delivering something" meta on a comprehension ask
 means the class is wrong.
 
 ## Arguments
 
 `$ARGUMENTS`:
-- `--sizing <path>` — a sizing carrying a `research` block (`value_class`, `appetite`, `sources[]`, `depth`, `targets[]`); resolves to scouts, corpus or deep per the class and appetite
+- `--sizing <path>` — a sizing carrying a `research` block (`value_class`, `appetite`, `sources[]`, `depth`, `targets[]`); resolves to scouts, corpus or unblock per the class and appetite
 - `--ask "<question>"` — a bare ask; runs `scouts` with no sizing object. Repeatable: every `--ask` is one question
 - `--target web|repo=PATH|local=PROBE` — repeatable; binds to the `--ask` before it, and several on one question mix them. `web` is the default; `repo` takes a path (absolute for another checkout); `local` takes an allowlisted probe id
 - `--split | --combine` — one scout per question (default), or one scout over all questions
 
 Contract (cap, grammar, probe allowlist, close params): `coordinator/contract/scouts-ask-fragment.md`.
+
+Family binding (opt-in, Claude fallback): `coordinator/pipelines/stage-family-binding.yaml`; see `coordinator/pipelines/deep-research/PIPELINE.md`.
 
 ## Sizing the research
 
@@ -94,9 +97,9 @@ machine-local `research.local_root`, which must sit outside every checkout and m
 first (`machine-local set research.local_root <dir>`). `research.close` copies them there and commits
 no output content; the run's trail record is committed (Step 4).
 
-`research.depth` picks the scout tier: `standard` runs Haiku scouts, `deeper` runs Sonnet scouts
+`research.depth` picks the scout tier: `standard` runs Haiku scouts, `deep` and `deeper` run Sonnet scouts
 over chunks A–D, and `deepest` adds the relay pass. A large repo (about 1000+ files, or about 150+
-files or 1.5 MB per chunk) is sized at `deeper` or `deepest`; Haiku scouts fail silently on it.
+files or 1.5 MB per chunk) is sized at `deep` or above; Haiku scouts fail silently on it.
 
 ## Emit lists and context
 
@@ -154,8 +157,10 @@ engine emits the research run), or `emit-dispatch-workflow --research --ask "<qu
 for scouts; a multi-question, mixed-target ask is
 `emit-dispatch-workflow --research --ask "<q1>" --target web --target repo=coordinator/hooks --ask "<q2>" --target local=<probe-id> --split`.
 Fire the one printed `Workflow` line as a background Workflow (`run_in_background: true`).
+Before the fire, run `machine-local external-workspace <path>` for each `--research-target repo=<path>` naming a clone outside this checkout; exit 1 means unregistered: warn and print `machine-local set external_workspaces.<k>.path <path>`, `machine-local set external_workspaces.<k>.kind external-readonly`, `machine-local set external_workspaces.<k>.vcs <git|p4|none>` (`<k>` a short slug of the clone's name), then fire anyway (`AN-EXTERNAL-CLONE-OR-STORE-IS-REGISTERED-BEFORE-USE`).
+A repo-shaped target must be on disk at the pinned ref before any investigation stage: a sanctioned pre-stage owns a shallow blobless clone into the registered reference location (e.g. `unreal.engines.<ver>.source_root`); investigation stages never clone, and online API probing is a reported fallback only (`A-REPO-RESEARCH-TARGET-IS-ON-DISK-AT-THE-PINNED-REF-BEFORE-INVESTIGATION`).
 Never hand-fill a script. A brief carries the PM's quantifiers verbatim ('all', 'every', a 'top N' only when the PM said it) and adds no cap the PM did not state; a lever ask returns a full lever register (every lever, each with owner, evidence, status). Worker briefs (scout, specialist, synth) are composed from the sizing's
-frozen intent only; never put baton or `pm_turns` mid-turn instructions into one. On a corpus or deep fire, run `em_watch` (the module `-m coordinator_core.workflow_watch.mailbox_line <box>`, under the interpreter resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` § Portability) in the background the same turn; it returns on an escalation: act, then `em_rewatch`. When `sources[]` holds `notebooklm`, the engine prepends the preflight
+frozen intent only; never put baton or `pm_turns` mid-turn instructions into one. On a corpus or unblock fire, run `em_watch` (the module `-m coordinator_core.workflow_watch.mailbox_line <box>`, under the interpreter resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` § Portability) in the background the same turn; it returns on an escalation: act, then `em_rewatch`. When `sources[]` holds `notebooklm`, the engine prepends the preflight
 stage and halts before spend if the NotebookLM MCP is unregistered; its remedy strings are the
 exact commands to relay.
 
@@ -167,7 +172,7 @@ Every class closes on a committed artifact and trail
 repo-relative paths only.
 
 - **Scouts:** the Workflow returns `{results, next_action}`; run `next_action` (`research.close`,
-  `require_grounding`) unedited, as corpus and deep do; the close commits the trail record in the
+  `require_grounding`) unedited, as corpus and unblock do; the close commits the trail record in the
   same step. The close refuses a run whose grounding
   report grades a claim ungrounded or contradicted or rules a contradiction invented; the refusal
   names the claims to fix or drop before re-closing. Clear a refusal in order: fix or drop the
@@ -175,7 +180,7 @@ repo-relative paths only.
   close re-reads `grounding.md`, so a fix alone leaves the stale grade in place, and a resume
   replays grounding from cache on an unchanged prompt; never hand-edit `grounding.md`. The
   re-ground mechanism is in `coordinator/contract/scouts-ask-fragment.md` `## Close`.
-- **Corpus and deep:** the Workflow returns `{results, next_action}`; run `next_action`
+- **Corpus and unblock:** the Workflow returns `{results, next_action}`; run `next_action`
   (`research.close` with its params) unedited: it archives and commits the outputs together with
   the trail record.
 - **Halted run (any class):** a return carrying `halted`, or `segment_halts` with no `next_action`

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """coordinator/bin/atlas-citation-check.py — mechanical citation/coverage check
 over the architecture atlas (`docs/architecture/`).
 
@@ -22,6 +23,12 @@ sessions and a write here would be a shared-substrate defect, not a local one.
 
 Spec backlink: docs/plans/2026-08-20-make-the-atlas-mechanical.md chunk C4.
 
+Historical exemption: a dead-path citation (unresolved-file / misrooted-file) is
+not a finding, but counted in `Report.exempted` and printed, when (a) the page's
+leading banner — a `>` blockquote line within the first 12 non-blank body lines —
+contains the upper-case word HISTORICAL or RETIRED, or (b) its own line carries
+the inline marker `<!-- atlas:historical -->`.
+
 Negative-spec
 -------------
 - Does NOT judge whether a resolved citation is the *correct* target for its
@@ -31,7 +38,11 @@ Negative-spec
   a-lens-checks-the-citation-resolves-not-that-the-file-does-the-thing.md).
 - Does NOT dispatch an agent or call a model under any code path.
 - Does NOT write to any project-rag database. Read-only connections only.
-- Does NOT shell out to git/subprocess for any check in this file.
+- Does NOT shell out beyond one `git ls-files` spawn per run (`tracked_files`),
+  shared by the file-index coverage check and partial-path resolution; no git
+  repo means a disk-walk fallback, never a second spawn.
+- Does NOT flag an external cite (`~/`, `$VAR/`, absolute, `../`, `repo:path`,
+  a sibling-repo-rooted path) as a dead path: this checker sees one repo.
 - Does NOT resolve a bare filename (`settings.json`, no separator) or a
   symbol-shaped identifier (`real_symbol`) as a citation. Only a backtick
   span with both a path separator and a real extension is unambiguous
@@ -52,6 +63,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -88,6 +100,17 @@ SCOPED_SUBDIRS = [
     "snippets", "pipelines", "schemas", "whoami", "docs/wiki",
 ]
 EXCLUDED_DIR_NAMES = {"tests", "test", "__pycache__", "node_modules", "dist"}
+# Atlas pages under these directories are point-in-time records: their cites
+# name files as they were, so a dead path there is history, not drift.
+_HISTORICAL_PAGE_DIRS = ("audit-records",)
+# First path segment naming another repo; a cite rooted there is not this repo's.
+_SIBLING_REPO_NAMES = {"coordinator-content-repo", "project-rag", "klabauter"}
+# Bare-rooted cites (`snippets/registry.toml`) into trees the coordinator content repo owns.
+_FOREIGN_BARE_TREES = {
+    "hooks", "cockpit", "skills", "commands", "agents", "snippets", "pipelines", "schemas", "whoami",
+    "setup", "cockpit-contract",
+}
+_EXTERNAL_ROOT_RE = re.compile(r"^(?:~|\$|/|\.\./|[A-Za-z]:[\\/]|[A-Za-z][\w-]*:(?!\d))")
 
 _BACKTICK_RE = re.compile(r"`([^`\n]+)`")
 _QUOTED_SPAN_RE = re.compile(r'"([^"]{8,})"')
@@ -101,7 +124,11 @@ _FILE_EXT_RE = re.compile(r"\.[A-Za-z0-9]{1,6}$")
 # while the resolver carried unreachable code to handle exactly that shape.
 _LOCATOR_SUFFIX_RE = re.compile(r":\d+(-\d+)?$")
 _ELIDED_TOKENS = {"...", "…"}
-_GLOB_MARKERS = ("*", "?")
+HISTORICAL_MARKER = "<!-- atlas:historical -->"
+_BANNER_WORD_RE = re.compile(r"\b(?:HISTORICAL|RETIRED)\b")
+_BANNER_WINDOW = 12
+# Pattern or placeholder shapes (`bin/*.py`, `bin/<name>.py`, `s/{a,b}.py`): not one file.
+_GLOB_MARKERS = ("*", "?", "<", ">", "{", "}")
 # missing-file-index-row emits one Finding for the whole gap, carrying a
 # capped sample rather than one row per file (see Finding 4, rebuild notes).
 _FILE_INDEX_SAMPLE_CAP = 20
@@ -131,6 +158,9 @@ class Report:
     # Spans classified as non-citation shapes and deliberately not resolved —
     # every one counted here so "skipped" never means "silently dropped".
     skip_counts: dict[str, int] = field(default_factory=dict)
+    # Dead-path citations on a HISTORICAL/RETIRED-bannered page or an inline-marked
+    # line: not findings, but counted so the exemption is never silent.
+    exempted: int = 0
 
     def add(self, kind: str, page: str, line: int | None, detail: str) -> None:
         self.findings.append(Finding(kind, page, line, detail))
@@ -183,6 +213,75 @@ def resolve_repo_path(repo_root: Path, raw: str) -> Path | None:
     return candidate if candidate.exists() else None
 
 
+class _FileList(list):
+    """Repo-relative paths plus a basename index, built once on first suffix lookup."""
+
+    _by_name: dict[str, list[str]] | None = None
+
+    def by_name(self) -> dict[str, list[str]]:
+        if self._by_name is None:
+            index: dict[str, list[str]] = {}
+            for f in self:
+                index.setdefault(f.rpartition("/")[2], []).append(f)
+            self._by_name = index
+        return self._by_name
+
+
+def tracked_files(repo_root: Path) -> list[str]:
+    """POSIX repo-relative paths of the repo's files: one `git ls-files` spawn,
+    so untracked junk (`.mypy_cache`, `__pycache__`) is never an atlas subject.
+    Outside a git repo (or on a git failure) falls back to a disk walk that skips
+    dot-directories and `node_modules`."""
+    if (repo_root / ".git").exists():
+        try:
+            proc = subprocess.run(
+                ["git", "-C", str(repo_root), "ls-files", "-z"],
+                capture_output=True, timeout=10, check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except (OSError, subprocess.SubprocessError):
+            proc = None
+        if proc is not None and proc.returncode == 0:
+            return _FileList(p for p in proc.stdout.decode("utf-8", "replace").split("\0") if p)
+    files = _FileList()
+    for f in repo_root.rglob("*"):
+        rel_parts = f.relative_to(repo_root).parts
+        if any(p.startswith(".") or p == "node_modules" for p in rel_parts):
+            continue
+        if f.is_file():
+            files.append("/".join(rel_parts))
+    return files
+
+
+def resolves_by_suffix(files: list[str], raw: str) -> bool:
+    """True when a partial path (`ops/doctor.py`, `handoff/SKILL.md:324`) names
+    the tail of some repo file, or a `module.attr` cite (`search/answer.answer`)
+    names a `.py` module. A partial path that exists is not a dead path."""
+    path = strip_locator(raw.strip())
+    if not path:
+        return False
+    tails = ["/" + path]
+    stem = path.rpartition(".")[0]
+    if stem and "/" in stem:
+        tails.append("/" + stem + ".py")
+    index = (files if isinstance(files, _FileList) else _FileList(files)).by_name()
+    return any(f.endswith(tail) for tail in tails for f in index.get(tail.rpartition("/")[2], ()))
+
+
+def names_foreign_tree(repo_root: Path, raw: str) -> bool:
+    """True when a cite is rooted in a `coordinator/` subtree this repo does not
+    carry (`coordinator/hooks/…`, `commands/…`, `skills/…`): the coordinator
+    content repo's tree, not a dead path here. Own subtrees are read off the
+    disk, so a subtree this repo gains stops being foreign without an edit."""
+    parts = strip_locator(raw.strip()).split("/")
+    if parts[-1] == "SKILL.md":
+        return True
+    coordinator = repo_root / "coordinator"
+    if parts[0] == "coordinator":
+        return len(parts) > 2 and not (coordinator / parts[1]).is_dir()
+    return parts[0] in _FOREIGN_BARE_TREES and not (coordinator / parts[0]).is_dir()
+
+
 def classify_backtick_token(token: str) -> str:
     """Classify a backtick-quoted span against the atlas's declared citation
     shape.
@@ -200,8 +299,10 @@ def classify_backtick_token(token: str) -> str:
 
     Returns one of:
       "elided" — "..."/"…", never a citation.
-      "glob"   — contains "*"/"?" or a trailing "/" (a pattern or a bare
-                 subtree, not a single resolvable file).
+      "external" — home/env/absolute/`../`/`repo:path`/sibling-repo-rooted:
+                 another repo's or box's path, never resolvable here.
+      "glob"   — contains a pattern/placeholder marker or a trailing "/" (a
+                 pattern or a bare subtree, not a single resolvable file).
       "file"   — has a path separator AND a real trailing extension: the
                  only shape resolved as a citation.
       "skip"   — anything else (a bare filename, a symbol-shaped identifier,
@@ -211,6 +312,8 @@ def classify_backtick_token(token: str) -> str:
     """
     if token in _ELIDED_TOKENS:
         return "elided"
+    if _EXTERNAL_ROOT_RE.match(token) or token.split("/", 1)[0].casefold() in _SIBLING_REPO_NAMES:
+        return "external"
     if any(ch in token for ch in _GLOB_MARKERS) or token.endswith("/"):
         return "glob"
     path_part = strip_locator(token)
@@ -221,8 +324,36 @@ def classify_backtick_token(token: str) -> str:
     return "skip"
 
 
-def check_page_citations(rel_page: str, text: str, repo_root: Path, report: Report) -> None:
+def page_is_historical(text: str) -> bool:
+    """True when the page's leading banner declares HISTORICAL or RETIRED: a
+    blockquote line (`> ...`) holding the upper-case word within the first
+    `_BANNER_WINDOW` non-blank lines after the frontmatter."""
+    m = _FRONTMATTER_RE.match(text)
+    body = text[m.end():] if m else text
+    seen = 0
+    for line in body.splitlines():
+        if not line.strip():
+            continue
+        seen += 1
+        if seen > _BANNER_WINDOW:
+            break
+        if line.lstrip().startswith(">") and _BANNER_WORD_RE.search(line):
+            return True
+    return False
+
+
+def check_page_citations(
+    rel_page: str, text: str, repo_root: Path, report: Report,
+    files: list[str] | None = None,
+) -> None:
+    if files is None:
+        files = tracked_files(repo_root)
+    historical_page = (
+        page_is_historical(text)
+        or any(f"/{d}/" in f"/{rel_page}" for d in _HISTORICAL_PAGE_DIRS)
+    )
     for lineno, line in enumerate(text.splitlines(), start=1):
+        exempt = historical_page or HISTORICAL_MARKER in line
         for match in _BACKTICK_RE.finditer(line):
             token = match.group(1)
             if not token or token.startswith("http://") or token.startswith("https://"):
@@ -234,6 +365,9 @@ def check_page_citations(rel_page: str, text: str, repo_root: Path, report: Repo
             if resolve_repo_path(repo_root, token) is not None:
                 report.resolved_ok += 1
                 continue
+            if exempt:
+                report.exempted += 1
+                continue
             if resolve_repo_path(repo_root / "coordinator", token) is not None:
                 report.add(
                     "misrooted-file",
@@ -242,6 +376,12 @@ def check_page_citations(rel_page: str, text: str, repo_root: Path, report: Repo
                     f"cited path resolves only under `coordinator/`, not from the "
                     f"repo root as written: `{token}`",
                 )
+                continue
+            if resolves_by_suffix(files, token):
+                report.resolved_ok += 1
+                continue
+            if names_foreign_tree(repo_root, token):
+                report.bump_skip("external")
                 continue
             report.add(
                 "unresolved-file", rel_page, lineno,
@@ -323,7 +463,10 @@ def check_systems_index_coverage(atlas_root: Path, repo_root: Path, report: Repo
             )
 
 
-def check_file_index_coverage(atlas_root: Path, repo_root: Path, report: Report) -> None:
+def check_file_index_coverage(
+    atlas_root: Path, repo_root: Path, report: Report,
+    files: list[str] | None = None,
+) -> None:
     file_index_path = atlas_root / "file-index.md"
     rel = str(file_index_path.relative_to(repo_root)).replace("\\", "/")
     if not file_index_path.exists():
@@ -338,22 +481,17 @@ def check_file_index_coverage(atlas_root: Path, repo_root: Path, report: Report)
         if path:
             indexed.add(path)
 
-    scope_root = repo_root / "coordinator"
+    if files is None:
+        files = tracked_files(repo_root)
+    scoped_prefixes = tuple(f"coordinator/{sub}/" for sub in SCOPED_SUBDIRS)
     missing: list[str] = []
-    for sub in SCOPED_SUBDIRS:
-        base = scope_root / sub
-        if not base.is_dir():
+    for rel_path in files:
+        if not rel_path.startswith(scoped_prefixes) or rel_path in indexed:
             continue
-        for f in base.rglob("*"):
-            if not f.is_file():
-                continue
-            if any(part in EXCLUDED_DIR_NAMES for part in f.relative_to(scope_root).parts):
-                continue
-            if f.name.startswith("."):
-                continue
-            rel_path = str(f.relative_to(repo_root)).replace("\\", "/")
-            if rel_path not in indexed:
-                missing.append(rel_path)
+        parts = rel_path.split("/")[1:]
+        if any(p in EXCLUDED_DIR_NAMES or p.startswith(".") for p in parts):
+            continue
+        missing.append(rel_path)
 
     # One Finding for the whole gap, not one row per file (Finding 4): a
     # 1,020-row file-index gap is a single fact — "file-index.md is this
@@ -430,15 +568,16 @@ def run(repo_root: Path, atlas_root: Path) -> Report:
         report.degraded.append(f"atlas root absent: {atlas_root}")
         return report
 
+    files = tracked_files(repo_root)
     page_paths = sorted(atlas_root.rglob("*.md"))
     for page_path in page_paths:
         rel_page = str(page_path.relative_to(repo_root)).replace("\\", "/")
         text = page_path.read_text(encoding="utf-8")
-        check_page_citations(rel_page, text, repo_root, report)
+        check_page_citations(rel_page, text, repo_root, report, files)
         check_rationale_spans(rel_page, text, repo_root, report)
 
     check_systems_index_coverage(atlas_root, repo_root, report)
-    check_file_index_coverage(atlas_root, repo_root, report)
+    check_file_index_coverage(atlas_root, repo_root, report, files)
     check_cross_system_reciprocity(atlas_root, repo_root, report)
     return report
 
@@ -476,12 +615,16 @@ def main(argv: list[str] | None = None) -> int:
 
     glob_skipped = report.skip_counts.get("glob", 0)
     elided_skipped = report.skip_counts.get("elided", 0)
+    external_skipped = report.skip_counts.get("external", 0)
     non_citation_skipped = report.skip_counts.get("skip", 0)
-    total_skipped = glob_skipped + elided_skipped + non_citation_skipped
+    total_skipped = glob_skipped + elided_skipped + external_skipped + non_citation_skipped
     print(
-        f"\n{report.resolved_ok} span(s) resolved as a file citation; "
+        f"\n{report.exempted} dead-path citation(s) exempted (historical banner or "
+        f"inline marker); "
+        f"{report.resolved_ok} span(s) resolved as a file citation; "
         f"{total_skipped} span(s) not treated as a repo-relative file citation: "
         f"glob/subtree={glob_skipped}, elided={elided_skipped}, "
+        f"external={external_skipped}, "
         f"non-citation-shape={non_citation_skipped} (bare filenames, symbol-shaped "
         "identifiers, and prose words — see classify_backtick_token's docstring)"
     )

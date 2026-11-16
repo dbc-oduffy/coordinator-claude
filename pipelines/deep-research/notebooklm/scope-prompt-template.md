@@ -36,7 +36,9 @@ The frontmatter carries the team-protocol Data Contract fields (`worker_count`, 
 - `cleanup_notebooks`: `true` or `false` (default `false`)
 - `scout_ceiling_minutes`: default 5
 
-The body carries one `## Notebook {letter}` section per notebook, letters A, B, C as many as `worker_count`, each with Focus, Custom instructions, Questions, Source strategy (`scout-provided` or `research_start`), Search guidance for scout, and Estimated ceiling. Notebooks fed by PM-supplied URLs list those URLs in the section and use `scout-provided`.
+The body carries one `## Notebook {letter}` section per notebook, letters A, B, C as many as `worker_count`, each with Focus, Custom instructions, Questions, Source strategy, Search guidance for scout, and Estimated ceiling. Write the label as plain `Source strategy: <value>` (no markdown bold or other decoration). The default value is `scout-provided` (scout-vetted YouTube/podcast sources); `research_start` is opt-in, only when the brief asks for it, and never a notebook's only source. Notebooks fed by PM-supplied URLs list those URLs in the section and use `scout-provided`. Engine documentation is not a source: it comes from project-rag.
+
+The sized notebook roster is binding: one notebook per `research.targets` entry whose `source` is `notebooklm`, letters and count as sized. Never fold, merge or drop a notebook because its question looks answerable elsewhere; record a disagreement as one advisory line under `## Scope notes`.
 
 ## Return
 

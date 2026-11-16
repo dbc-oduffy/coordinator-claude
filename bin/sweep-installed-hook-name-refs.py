@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # coordinator/bin/sweep-installed-hook-name-refs.py
 #
 # Answers "which coordinator/bin entrypoint names do the git hooks installed on

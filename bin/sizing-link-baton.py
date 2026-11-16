@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """sizing-link-baton.py -- link batons to their existing sizing objects.
 
 Usage:

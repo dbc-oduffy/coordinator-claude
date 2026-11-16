@@ -95,7 +95,7 @@ def load_basename_rename(source: Path) -> dict[str, str]:
 
     doc = yaml.safe_load((source / RENAME_TABLE_RELPATH).read_text(encoding="utf-8"))
 
-    def find(node):
+    def find(node) -> object:
         if isinstance(node, dict):
             if "basename_rename" in node:
                 return node["basename_rename"]
@@ -221,7 +221,7 @@ def check_plugin_mirror(
     case `publish_mirror` is tried; neither distinct from the source is could-not-check.
     """
 
-    def resolve(value, default):
+    def resolve(value, default) -> Path | None:
         got = value() if callable(value) else value
         if value is None:
             got = default()

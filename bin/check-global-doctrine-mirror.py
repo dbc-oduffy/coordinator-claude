@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """check-global-doctrine-mirror.py -- drift probe for the coordinator doctrine repo's in-repo
 mirror of the operator's global doctrine (`~/.claude/CLAUDE.md` and
 `~/.claude/CLAUDE.local.md`), tracked at repo-root `global-doctrine/`.

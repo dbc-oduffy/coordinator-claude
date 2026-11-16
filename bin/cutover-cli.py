@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """cutover-cli — operator forwarder for the cutover state machine primitive
 (coordinator_core.ops.cutover_gate / cutover_advance).
 

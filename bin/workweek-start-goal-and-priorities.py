@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """workweek-start-goal-and-priorities.py — imperative logic ported OUT of
 Coordinator-content-repo's coordinator/commands/workweek-start.md Step 5/6/6.5 bash fences
 (M3 chunk C-WWS, 2026-07 bash-kill campaign).

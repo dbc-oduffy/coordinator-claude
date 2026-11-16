@@ -138,7 +138,7 @@ except Exception:
 _STASH_CREATE_RE = re.compile(
     r"(?:^|[;&|(`\s])git"
     r"(?:\s+(?:-[Cc]\s+\S+|--[\w-]+(?:=\S+)?|-\w+))*"
-    r"\s+stash(?=\s*(?:$|[;&|)<>`]|\d*>|-|(?:push|save)\b))",
+    r"\s+stash(?=\s*(?:$|[;&|)<>`]|\d*>|-|(?:push|save|create|apply)\b))",
     re.MULTILINE,
 )
 
@@ -146,9 +146,9 @@ _STASH_DEGRADED_DENY_REASON = (
     "Did you mean one of these instead? Neither touches the shared worktree:\n"
     "  - Whole-tree baseline:  git archive <sha> | tar -x -C <tmpdir>\n"
     "  - Single file:          git show <sha>:<path>\n\n"
-    "BLOCKED: `git stash` creates a stash entry, and on a shared working tree a "
-    "stash is GLOBAL -- it sweeps every concurrent session's uncommitted work, not "
-    "just yours. This refusal is enforced even though the engine-backed guards are "
+    "BLOCKED: on a shared working tree a stash is GLOBAL -- creating one sweeps, and "
+    "applying one rewrites, every concurrent session's uncommitted work, not just "
+    "yours. This refusal is enforced even though the engine-backed guards are "
     "unreachable on this machine.\n\n"
     "  Command:  %s\n"
 )

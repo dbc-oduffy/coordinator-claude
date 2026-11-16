@@ -256,11 +256,11 @@ except Exception:
     # Defensive fallback -- a deploy missing its sibling _forwarder_resolve.py must
     # degrade to the pre-existing extensionless-only behaviour (which the caller
     # already treats as a fail-open transport failure), never crash on import.
-    def _resolve_forwarder(bin_dir, name):  # type: ignore[misc]
+    def _resolve_forwarder(bin_dir, name) -> Path | None:  # type: ignore[misc]
         candidate = bin_dir / name
         return candidate if candidate.is_file() else None
 
-    def _forwarder_argv(script_path, tail=()):  # type: ignore[misc]
+    def _forwarder_argv(script_path, tail=()) -> list[str]:  # type: ignore[misc]
         # See _forwarder_resolve's
         # "Import-fallback contract" docstring section for the rationale.
         raise OSError("forwarder resolution unavailable -- import fallback declined to guess a launch decision")

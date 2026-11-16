@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """klabauter-reconcile.py — contain a diverged `main` back inside `candidate`
 so `klabauter-promote.py`'s fast-forward predicate can hold again, doing the
 merge in a THROWAWAY CLONE this module owns and always removes.

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # coordinator-initiative — mint, attach, and list unattached initiatives.
 #
 # Spec backlink: docs/plans/2026-07-04-initiative-govern-sweep-prioritize-doe-d.md § C2 (AC3)

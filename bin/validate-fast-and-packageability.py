@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """validate-fast-and-packageability.py -- naked-Python port of the two bash
 fences embedded in coordinator-content-repo's coordinator/skills/validate/SKILL.md ("How to
 Run" and "Packageability-contract check").

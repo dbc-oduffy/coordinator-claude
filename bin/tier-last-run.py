@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """tier-last-run — record and read the durable last-run sentinel for a declared ceremony tier.
 
 WHY THIS EXISTS. `coordinator.local.md`'s `ceremony_test_cmds` entries have no recorded last-run

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Print JSON spend report for one session transcript: EM share, product-edit share, strict-dispatch mode.
 
 Usage: session-spend-report.py <session>.jsonl   (subagents read from <session>/subagents/)

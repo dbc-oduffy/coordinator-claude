@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Scan project CLAUDE.md files for fleet rules they state instead of pointing at.
 
 Two finding classes, matched per line (CRLF-normalised, case-insensitive, regex only):

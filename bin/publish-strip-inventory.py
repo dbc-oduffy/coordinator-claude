@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """coordinator/bin/publish-strip-inventory.py — print the per-publish-row
 content-strip inventory.
 

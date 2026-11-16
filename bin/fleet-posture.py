@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """fleet-posture: sanctioned writer and reader for the fleet-scoped posture artifact.
 
 NOT PROTECTED from agent invocation: an agent can run this through Bash. A written

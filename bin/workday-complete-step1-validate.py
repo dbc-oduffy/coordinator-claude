@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """workday-complete-step1-validate.py — /workday-complete Step 1 gate (fast-test).
 
 Encapsulates the fast-test blocking gate from commands/workday-complete.md

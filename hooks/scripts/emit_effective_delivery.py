@@ -64,13 +64,13 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import shlex
 import subprocess
 import sys
 from collections import namedtuple
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path, PureWindowsPath
+from types import ModuleType
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import _engine_root as _er  # noqa: E402 -- sibling module, resolved off this script's own directory
@@ -172,10 +172,6 @@ _DEDICATED_BUILDER_FANIN_FILENAMES = frozenset(
 #: merely commented) and the other three are comment-only mentions with no
 #: live `args` entry. Each `reason` is C1's own finding for that retiree.
 _RETIRED = (
-    (
-        "nudge-foreground-agent-dispatch.py",
-        "Deregistered from hooks.json; folded into a pure-Python port inside enforce-agent-dispatch-mode.py that makes no engine-plane call at all.",
-    ),
     (
         "runtime-tripwire-stop-watcher.py",
         "Stood down 2026-07-31 per PM ruling; reversible, comment-only mention remains in hooks.json.",
@@ -370,7 +366,7 @@ def _walk_registrations(
     return raw_token_by_tail, matchers_by_tail
 
 
-def _import_engine_module(module_path: str):
+def _import_engine_module(module_path: str) -> ModuleType:
     """Cross-plane read via `_engine_root.resolve_claude_klabauter_root()` -- the
     same fail-closed-here / fail-open-there seam `postuse-advisory-
     dispatch.py` and `preuse-bash-dispatch.py` already use to locate
@@ -507,7 +503,7 @@ _ADVISORY_OPS_DECLARED: Tuple[str, ...] = (
 )
 
 #: The advisory carrier's registered transport: the native door, running
-#: `<settings-bin>/hook-run --advisory hooks.postuse_advisory_dispatch`.
+#: `door_launch.py --advisory hooks.postuse_advisory_dispatch`.
 _ADVISORY_CARRIER_DOOR_OP = "hooks.postuse_advisory_dispatch"
 
 
@@ -606,9 +602,9 @@ def build_carrier_stop_family(matchers_by_tail: Dict[str, Set[str]]) -> Dict[str
 
 
 #: The bash carrier's registered transport: the native door, running
-#: `<settings-bin>/hook-run hooks.preuse_bash_dispatch`. `_walk_registrations`
-#: partitions `args` arrays, and a door registration is shell form with no `args` --
-#: so the carrier that actually delivers the bash guards is structurally invisible to
+#: `hooks.preuse_bash_dispatch` through `door_launch.py`. `_walk_registrations`
+#: keys on the target script at `args[2]`, and a door's `args[2]` is the launcher --
+#: so the carrier that actually delivers the bash guards is invisible to
 #: that walk. Resolving it needs its own reader, keyed on the op the door names.
 _BASH_CARRIER_DOOR_OP = "hooks.preuse_bash_dispatch"
 
@@ -616,11 +612,11 @@ _BASH_CARRIER_DOOR_OP = "hooks.preuse_bash_dispatch"
 def _door_matchers_for_op(doc: Dict[str, Any], op: str) -> Set[str]:
     """Every hook-block matcher registered as a native door naming `op`.
 
-    The shell-form sibling of `_walk_registrations`, and deliberately narrow: it keys on
+    The door sibling of `_walk_registrations`, and deliberately narrow: it keys on
     the op rather than promoting every door registration into the manifest, because only
-    one of them is a guard CARRIER. Door recognition itself is
-    `fail_open_launcher.is_native_door` -- the same predicate the carrier's own
-    fail-open runtime uses -- narrowed to this op by an additional token check.
+    one of them is a guard CARRIER. Door recognition and the op read are
+    `fail_open_launcher.native_door_op`, the same reader the carrier's own
+    fail-open runtime uses.
     """
     out: Set[str] = set()
     hooks = doc.get("hooks")
@@ -641,13 +637,7 @@ def _door_matchers_for_op(doc: Dict[str, Any], op: str) -> Set[str]:
             for hook in hook_list:
                 if not isinstance(hook, dict):
                     continue
-                if not _fol.is_native_door(hook):
-                    continue
-                command = hook.get("command") or ""
-                # shlex.split for quote-aware
-                # tokenization, matching hook_latency_harness.py's equivalent check
-                # rather than a bare whitespace .split().
-                if op in shlex.split(command):
+                if _fol.native_door_op(hook) == op:
                     out.add(matcher)
     return out
 

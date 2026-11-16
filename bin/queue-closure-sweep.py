@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Re-verify the open side of the structured queues against what the entries themselves record.
 
 Filing a queue entry has ceremony; retiring one has none. The consequence is measurable and this

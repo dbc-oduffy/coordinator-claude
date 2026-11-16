@@ -1,55 +1,26 @@
 """_foreground_dispatch_strip.py -- shared library, NOT a registered hook.
 
-Single-emitter fold-in (2026-07-31, re-land of the 2026-07-30-reverted
-background-by-default reroute): `nudge-foreground-agent-dispatch.py` used to
-be independently registered on the `Agent` PreToolUse matcher, relaying
-the engine's `coordinator_core.hooks.nudge_foreground_agent_dispatch`
-foreground-dispatch reroute op's REROUTE-gate result (a
-`hookSpecificOutput.updatedInput` rewriting a foreground
-`run_in_background: false` dispatch to `true`). That reroute was reverted
-2026-07-30 on the conclusion that `updatedInput` does not bind
-`run_in_background` for the `Agent` tool -- a fresh live probe (harness
-2.1.220, single emitter, no competitor) disproved that: the EM regained
-control 32.3s before the subagent finished, genuinely backgrounded. The real
-root cause was that this shim's own `updatedInput` was racing
-`enforce-agent-dispatch-mode.py`'s own `updatedInput` on the SAME `Agent`
-matcher -- Claude Code runs same-event PreToolUse hooks in parallel with
-undefined completion order, and `updatedInput` is last-writer-wins, so
-whichever hook finished second silently clobbered the other's rewrite. This
-is the identical clobber class `_worktree_isolation_strip.py` (Concern E) and
-`_named_dispatch_strip.py` (Concern F) already closed for the worktree-strip
-and named-dispatch-strip pairs; this module closes it for the foreground
-reroute too, using those fixes as precedent shape.
-
-Fix shape: the foreground-reroute DECISION (this module) is a pure,
-side-effect-limited computation -- no stdout, no sys.exit -- that
+Foreground-dispatch reroute: an explicit `run_in_background: false` `Agent`
+dispatch is rewritten to `true`, never blocked. The DECISION (this module) is
+a pure, side-effect-limited computation -- no stdout, no sys.exit -- that
 `enforce-agent-dispatch-mode.py` folds into its own single merged
 `updatedInput` (mode elevation + sidecar + contract-blocks + role-framing +
 worktree-strip + named-dispatch-strip + foreground-reroute, all layered onto
-ONE `merged` dict, ONE emission site, as "Concern G"). `nudge-foreground-
-agent-dispatch.py` is DEREGISTERED from `hooks.json`'s `Agent` matcher
-entirely -- Agent was its only matcher, so once its decision is folded into
-`enforce-agent-dispatch-mode.py`'s single-emitter path there is no live
-matcher left where it is a legitimate standalone emitter (same reasoning
-Concern F applies to the named-dispatch strip). The script
-and the engine's own `coordinator_core.hooks.nudge_foreground_agent_dispatch`
-op stay on disk as the reference implementation of this exact algorithm and
-keep their own dedicated test suites exercising it via direct
-invocation/subprocess -- this module is a BYTE-FAITHFUL PORT of that op's
-three-state discrimination + calibration + escape-hatch logic, not a
-reinterpretation of it. Deliberate duplication, not an oversight: calling
-into the engine in-process (as the old shim did, via
-`coordinator_core.ipc.dispatch_message`) would drag the whole
+ONE `merged` dict, ONE emission site, as "Concern G"). It must be the single
+emitter: Claude Code runs same-event PreToolUse hooks in parallel with
+undefined completion order and `updatedInput` is last-writer-wins, so a
+second emitter on the `Agent` matcher silently clobbers the rewrite.
+
+This module is a BYTE-FAITHFUL PORT of the engine's
+`coordinator_core.hooks.nudge_foreground_agent_dispatch` three-state
+discrimination + calibration + escape-hatch logic, not a reinterpretation of
+it. Deliberate duplication: calling into the engine in-process
+(`coordinator_core.ipc.dispatch_message`) would drag the whole
 `coordinator_core.hooks` package (~18ms, see `_hook_envelope.py`'s own
-measurement) into a hot path this hook already pays a role-framing pass on
-for EVERY Agent dispatch (Concern D is unconditional); a subprocess call (as
-Concern B's sidecar provisioning uses) would cost a fresh process spawn on
-that same every-dispatch path. A pure-Python computation costs neither, at
-the price of one duplicate algorithm between two repos on this one seam --
-the SAME tradeoff `nudge-foreground-agent-dispatch.py`'s own engine-down
-fallback already accepted (it independently re-implements the calibration-
-marker read for its OWN fail-closed leg; see that module's `_resolve_git_dir`
-/ `_bg_capable_marker_path`).
+measurement) into a hot path every Agent dispatch already pays; a subprocess
+call would cost a fresh process spawn on that same path. A pure-Python
+computation costs neither, at the price of one duplicate algorithm between
+two repos on this one seam.
 
 Three-state run_in_background logic (preserved exactly from the engine's
 reference op):
@@ -66,7 +37,7 @@ reference op):
                            on that would gate every Agent call on the
                            machine).
 
-Calibration marker: `<git-common-dir>/coordinator-sessions/<session_id>/
+Calibration marker: `<session hub>/<session_id>/
 .harness-bg-capable`, written (touch, idempotent) whenever the key arrives
 PRESENT with either value. Escape hatch: `<git-common-dir>/coordinator-
 sessions/<session_id>/.foreground-ok` -- when present, an otherwise-
@@ -84,15 +55,11 @@ because that is what every hook/session sharing this repo (main clone or any
 linked worktree) resolves to the same path -- the private per-worktree dir
 would silently fragment one session's markers across worktrees.
 
-NOTICE ON EVERY REROUTE -- load-bearing, not a style choice: the pre-revert
-version of this logic (the engine's own commit history, 2026-07-29)
-suppressed the reroute advisory after the first one per session (`.foreground-reroute-
-noticed`, "bark-once"). That suppression is why the non-binding race went a
-whole session undetected: the ONLY feedback channels a broken reroute has are
-its own notice and the tool result, and a silenced notice took the one
-channel that could have surfaced the mechanism silently failing. This module
-carries NO notice-once state and never will -- `compute_foreground_reroute`
-returns a fresh notice string on every single reroute it computes, full stop.
+NOTICE ON EVERY REROUTE -- load-bearing: the ONLY feedback channels a broken
+reroute has are its own notice and the tool result, so a once-per-session
+notice would hide the mechanism silently failing. This module carries NO
+notice-once state -- `compute_foreground_reroute` returns a fresh notice
+string on every single reroute it computes.
 
 Fail-open on every detection-failure leg, mirroring `_worktree_isolation_
 strip.compute_strip`: an unresolvable `cwd`/git-dir, an unreadable marker, or
@@ -101,7 +68,10 @@ raising -- except the one case that is DELIBERATELY fail-closed: a
 provably-foreground dispatch (present-and-false, or calibrated-absent) that
 cannot be safely rewritten (`tool_input` absent, not a dict, or missing the
 load-bearing `prompt` key the Agent tool schema requires) returns a "deny"
-result rather than silently letting the foreground dispatch through. Never
+result rather than silently letting the foreground dispatch through. That deny
+is the only one that stays: `updatedInput` carries the FULL tool_input, so a
+payload with no tool_input/prompt has no original to rewrite and no
+rewrite can bind. Never
 raises -- this runs inside a PreToolUse gate and must not brick an Agent
 dispatch.
 
@@ -145,6 +115,7 @@ from typing import Any, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _message_envelope import resolve_wiki_citation  # noqa: E402
+from _session_hub_path import hub_for_common  # noqa: E402
 try:
     from _git_common_dir import resolve_git_common_dir as _resolve_git_common_dir  # noqa: E402
 except Exception:
@@ -257,11 +228,11 @@ def _resolve_git_dir(cwd: Any) -> Optional[str]:
 
 
 def _bg_capable_path(git_dir: str, session_id: str) -> Path:
-    return Path(git_dir) / "coordinator-sessions" / session_id / _BG_CAPABLE_MARKER_NAME
+    return hub_for_common(Path(git_dir)) / session_id / _BG_CAPABLE_MARKER_NAME
 
 
 def _foreground_ok_path(git_dir: str, session_id: str) -> Path:
-    return Path(git_dir) / "coordinator-sessions" / session_id / _FOREGROUND_OK_MARKER_NAME
+    return hub_for_common(Path(git_dir)) / session_id / _FOREGROUND_OK_MARKER_NAME
 
 
 def _mark_bg_capable(git_dir: Optional[str], session_id: str) -> None:

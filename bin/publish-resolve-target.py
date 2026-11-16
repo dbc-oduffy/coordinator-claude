@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """coordinator/bin/publish-resolve-target.py — thin CLI over
 lib/percolate/resolve_target.resolve_publish_row.
 

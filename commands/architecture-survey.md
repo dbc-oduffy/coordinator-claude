@@ -14,6 +14,10 @@ Builds/refreshes the architecture atlas in `docs/architecture/`. Not for weekly 
 fan out (`A-SKILL-PHASE-NAMES-ITS-ACTOR`). Purpose, layout, rationale, retired mechanics:
 `coordinator/docs/wiki/skills-corpus/architecture-survey-residue.md`.
 
+**Script first**: a
+deterministic query decides what changed; a model reads at most a ~10k-character preview per
+plan; never a fan-out over the whole corpus.
+
 ## Arguments
 
 `--refresh` → refresh mode. No atlas + no flag → bootstrap. Atlas exists, no flag → ask the PM.
@@ -30,7 +34,11 @@ Announce the resolved mode before starting.
 2. Discriminate scope from PM phrasing — targeted single-system / atlas-wide refresh /
    bootstrap. Classification rules: `coordinator/docs/wiki/skills-corpus/architecture-survey-residue.md` § Scope-calibration detail.
 3. Derive system boundaries and the Workflow's `censusBuckets`. Chunking rules: `coordinator/docs/wiki/skills-corpus/architecture-survey-residue.md` § Chunking rules.
-4. Refresh: mark churned/stable systems from `systems-index.md`'s `Last mapped` dates.
+4. Refresh: after step 6, run
+   `python3 ${CLAUDE_PLUGIN_ROOT}/pipelines/deep-architecture-survey/survey_select_step.py --repo-root . --run-id {run-id}`
+   (`--since` defaults to `systems-index.md`'s `last_mapped`). Its JSON (changed systems, their
+   plans, ~10k-character previews by path, stable systems) goes into `survey-input.json` as
+   `selection`; no hand churn-marking. Only changed systems are analysed, synthesised and reviewed.
 5. Select scale tier from `counts.bucketed_total`. Threshold table: `coordinator/docs/wiki/skills-corpus/architecture-survey-residue.md` § Scale-tier threshold rationale.
 6. Generate run ID, create the scratch dir.
 7. Run the consume-gate script through its settings-home launcher (`snippets/resolve-coordinator-bin.md`):
@@ -38,13 +46,14 @@ Announce the resolved mode before starting.
    (`repo_root`, `claude_klabauter_root`, `run_id`, `census_buckets`, `mode`, `since`, `system_dirs`,
    `excluded_dirs`, which is required and has no default: pass `["state/", "cross-repo/"]`) on stdin. Capture its stdout verbatim and pass it straight into the
    Workflow's `INPUT.consumeGate` — a pure pass-through, do not branch on `ok`/
-   `declined_reason` here. When the gate declines (or its output is absent/malformed), the
-   Workflow falls back to the agentic census wave at a known higher cost — a designed path, not
-   a break, when it shows up in a fallback log.
+   `declined_reason`. Under rag-present the gate yields the tree census
+   (`chunk_table.source: "tree"`) and the census wave is skipped. The agentic census wave is
+   reached only when the gate declines or its output is absent/malformed — a designed, costlier path.
 8. Run `survey_symbols_step.py` (same directory as the Workflow) over the consume-gate output;
    it performs the symbols extraction EM-side and writes the receipt. Write `survey-input.json`
-   under the scratch dir — the consume-gate output, the receipt as `symbolsReceipt`, and
-   `existingAtlas` — and hand the Workflow that file as `inputPath`. A receipt `halt` stops the
+   under the scratch dir — the consume-gate output verbatim (its `structure_path`, or null plus
+   `structure_unavailable_reason`, reaches the synthesis agents from there), the receipt as
+   `symbolsReceipt`, and `existingAtlas` — and hand the Workflow that file as `inputPath`. A receipt `halt` stops the
    run under that label.
 
 Emergent-set/chunk-K detection is engine-owned. An escalation flag in the Workflow's returned
@@ -77,17 +86,21 @@ neither stage can run inside it. Why: `coordinator/docs/wiki/em-operating-model/
    Record exit status and every listed unresolvable/ambiguous citation for Phase 5's report — a
    non-zero exit means the run does not report clean.
 
-   **This covers path resolution only.** The atlas-specific half — symbol and record citations
-   resolved by lookup, the verbatim quoted span asserted present in the cited record, and the
-   atlas-global coverage bookkeeping — is `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/atlas-citation-check"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\atlas-citation-check.exe"`, same arguments)
-   Run it and record its counts. It
-   currently reports thousands of findings against a stale atlas, so a non-zero exit is not yet a
-   stop condition — the number itself is the signal, and it must shrink run over run.
+   **This covers path resolution only.** The atlas-specific half (symbol and record citations,
+   verbatim quoted spans, coverage bookkeeping) is `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/atlas-citation-check"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\atlas-citation-check.exe"`, same arguments)
+   Run it and record its counts; a non-zero exit is not a stop condition, but the number must
+   shrink run over run.
 2. Run `python3 ${CLAUDE_PLUGIN_ROOT}/pipelines/deep-architecture-survey/atlas_anchor_reciprocity.py --repo-root .`;
    a non-zero exit (one-sided anchor pair or non-repo-root-relative path) means the run does not
    report clean — fix the listed pairs, or record them in the Phase 5 report.
-3. Dispatch `atlas-clarity-reviewer` once per page (parallel, never batched). Collect verdicts to
-   the sidecar.
+3. Citation and drift, script first, over the CHANGED pages (all pages on bootstrap), by CLI
+   (no import, no daemon; contract: project-rag `cli-daemonless-access.md` § Doc-ceremony verbs):
+   `project-rag verify-citations --json <pages>` and `project-rag doc-drift --json <pages>`.
+   Only a page with a moved/dead citation or a drifted span goes to a model. Exit 1/2 is a
+   procedure bug: report it. Exit 3 means the index is missing: report it in Phase 5, never fall
+   back to a corpus fan-out.
+4. Dispatch `atlas-clarity-reviewer` once per CHANGED page, from step 3's flagged set; stable
+   pages are not reviewed (bootstrap reviews every page). Collect verdicts to the sidecar.
 
 ## Phase 5: Integration and Report (YOU)
 
@@ -104,13 +117,9 @@ Out of scope for every agent here: `gh pr create/merge`, `git push origin main`,
    `git add -- docs/architecture/ state/health-ledger.md`
    A survey write is not attestation (`coordinator/docs/wiki/coordinator-tripwires/a-survey-write-is-not-an-attestation.md`):
    `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-survey-attestation" --repo-root .` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\check-survey-attestation.exe"`, same arguments) must exit 0
-   (exit 1 lists pages; exit 2 is could-not-check). It diffs the worktree against `HEAD`, not the
-   index, so a late edit made after the `git add` above still counts: the pathspec `git commit`
-   below commits worktree contents. It lists only added, modified, and renamed pages, so a deleted
-   page, or a renamed page carrying an unchanged `last_attested` value forward, is never listed.
-   Any listed page means this run wrote or bumped the audit clock: for a modified page, restore
-   its `last_attested` line to its `HEAD` value; for a new page, remove the line; re-stage and
-   re-run the check before committing.
+   (exit 1 lists pages; exit 2 is could-not-check). It diffs the worktree against `HEAD`. A listed
+   page means this run wrote or bumped the audit clock: restore a modified page's `last_attested`
+   line to its `HEAD` value, remove it from a new page, re-stage and re-run before committing.
    `git commit -m "deep-architecture-survey: [first run|refresh] — [N] systems mapped; Last full audit bumped" -- docs/architecture/ state/health-ledger.md`
 6. Rotation target (Shape W, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`):
    `& "$env:COORDINATOR_SETTINGS_HOME\bin\query-completions.exe" --since "30d" --where "nature=roadmap" --format json`
@@ -130,6 +139,8 @@ Out of scope for every agent here: `gh pr create/merge`, `git push origin main`,
    **oversized_signal:** [unavailable — REQUIRED when cartography_used is true / N/A on fallback]
    **Atlas citation check:** [exit 0 clean / exit N — unresolvable citations listed]
    **Clarity review:** [N pages reviewed; flagged verdicts / none]
+   **Changed / stable systems:** [N / M]
+   **Measured token cost:** [N tokens — `session-spend-report <session>.jsonl`, subagents included, via its settings-home launcher; unavailable transcript → `unmeasured: <reason>`, never a guess]
    ```
 8. Clean scratch — only after commit succeeds:
    `rm -rf state/scratch/deep-architecture-survey/{run-id}/`.

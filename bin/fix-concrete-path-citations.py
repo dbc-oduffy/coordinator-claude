@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 coordinator/bin/fix-concrete-path-citations.py — thin CLI wrapper over
 coordinator_core.ops.session.fix_concrete_path_citations.

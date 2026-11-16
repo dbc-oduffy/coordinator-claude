@@ -23,7 +23,7 @@ def resolve_script_path(command: str, plugin_dir: pathlib.Path) -> list[pathlib.
     return resolved
 
 
-def check_hooks_file(hooks_json_path: pathlib.Path, plugin_dir: pathlib.Path, errors: list):
+def check_hooks_file(hooks_json_path: pathlib.Path, plugin_dir: pathlib.Path, errors: list) -> None:
     try:
         data = json.loads(hooks_json_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
@@ -61,7 +61,7 @@ def check_hooks_file(hooks_json_path: pathlib.Path, plugin_dir: pathlib.Path, er
                         )
 
 
-def main():
+def main() -> int:
     errors = []
 
     if not PLUGINS_ROOT.is_dir():

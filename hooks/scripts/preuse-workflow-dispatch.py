@@ -15,6 +15,14 @@ carries no `updatedInput.scriptPath`. The last carries the engine's own
 `additionalContext`/`systemMessage` words, so a refusal reads as the engine's. The stub never
 runs as if it were the run; its own halt covers the hook not firing.
 
+ARGS-INLINE STAGE (after the submission stage, before REGISTRY; never denies). A Workflow call
+whose `args` is exactly `{argsFile, argsSha256}` is handed to `hooks.preuse_workflow_args_inline`
+through the same `hook-run` door. Its rewrite replaces `tool_input` for every leg below and is
+the first `updatedInput` of the final envelope; its advisory rides as `additionalContext`. Any
+other call skips the stage without a spawn. No launcher, spawn failure, timeout, non-zero exit,
+unparseable or empty answer (including an unregistered op) passes the call unchanged; a decision
+field in the answer is ignored.
+
 Folds, in this order: `block-workflow-foreign-emission.py`,
 `block-dispatch-suite-invocation.py`, `block-workflow-unmodeled-agent.py`,
 `block-unharvested-canvas-dispatch.py`, `strip-worktree-isolation.py`, `nudge-workflow-authoring-trampoline.py`,
@@ -24,9 +32,12 @@ HOSTING ONLY, NEVER A POLICY CHANGE: each guard keeps its own deny text,
 override hatches, sentinels and fail-open contract.
 
 WORKFLOW-FAN-IN-PRECEDENCE (the aggregation contract):
-  - Every leg sees the same payload: the stdin payload, or the submission
-    stage's rewrite of it. No rewrite threading between legs;
-    `strip-worktree-isolation.py` is the sole `updatedInput` emitter among them.
+  - Every leg sees the same payload: the stdin payload, as rewritten by the
+    pre-stages (the submission stage, then the args-inline stage). No rewrite
+    threading between legs. Two `updatedInput` emitters exist and merge field-wise
+    in the final envelope: the args-inline stage (field `args`, applied first, so
+    every leg judges the inlined payload) and `strip-worktree-isolation.py` (field
+    `script`); a later emitter's fields win.
   - Deny: the FIRST deny in REGISTRY order wins, is emitted verbatim, and later
     legs are neither imported nor run. Context from earlier non-deny legs is
     dropped. Intended delta from separate registrations: a later leg's side
@@ -34,7 +45,7 @@ WORKFLOW-FAN-IN-PRECEDENCE (the aggregation contract):
     denied call.
   - No deny: ONE envelope. `permissionDecision` is `allow` when any leg that ran
     allowed, else absent; `permissionDecisionReason` joins the allow-giving legs'
-    reasons in REGISTRY order; `updatedInput` is the sole rewriter's; every
+    reasons in REGISTRY order; `updatedInput` merges the args-inline `args` with the rewriter's `script`; every
     `additionalContext` and `systemMessage` joins in REGISTRY order with a blank
     line. Nothing to say means no stdout.
   - `SystemExit` from a leg is a return, not a crash: its captured stdout is
@@ -127,7 +138,8 @@ _DENY_TAILS: Mapping[str, str] = {
         "and file this failure to the engine EM."
     ),
 }
-#: Under the registration's own 15s: a warm emit measures ~0.4s.
+#: Well under the registration's own 60s: a warm emit measures ~0.4s, but a loaded box has
+#: measured 24s for the whole hook, and a harness kill passes the call through silently.
 _SUBMIT_TIMEOUT_S = 12
 
 
@@ -226,28 +238,84 @@ def _engine_submission(op: str, raw: str, payload: dict) -> Tuple[Optional[dict]
         return None, (
             "skipped: no hook-run launcher; nothing was emitted"
         )
-    cwd = payload.get("cwd")
     try:
-        proc = subprocess.run(
-            [str(launcher), op],
-            input=raw.encode("utf-8"),
-            capture_output=True,
-            timeout=_SUBMIT_TIMEOUT_S,
-            env={**os.environ, "COORDINATOR_DOOR_STDIN_MODE": "hook"},
-            cwd=cwd if isinstance(cwd, str) and os.path.isdir(cwd) else None,
-            **no_console_creationflags(),
-        )
+        proc = _spawn_op(launcher, op, raw, payload)
     except (OSError, subprocess.SubprocessError) as exc:
         return None, (
             f"engine submission failed: {type(exc).__name__}; a run may have been emitted"
         )
+    env = _parse_envelope(proc)
+    if env is None:
+        return None, "engine submission answered no envelope; a run may have been emitted"
+    return env, ""
+
+
+def _spawn_op(launcher: Path, op: str, raw: str, payload: dict) -> "subprocess.CompletedProcess[bytes]":
+    """Run engine `op` through the hook-run door on the raw payload; spawn errors propagate."""
+    cwd = payload.get("cwd")
+    return subprocess.run(
+        [str(launcher), op],
+        input=raw.encode("utf-8"),
+        capture_output=True,
+        timeout=_SUBMIT_TIMEOUT_S,
+        env={**os.environ, "COORDINATOR_DOOR_STDIN_MODE": "hook"},
+        cwd=cwd if isinstance(cwd, str) and os.path.isdir(cwd) else None,
+        **no_console_creationflags(),
+    )
+
+
+def _parse_envelope(proc: "subprocess.CompletedProcess[bytes]") -> Optional[dict]:
+    """The JSON-object envelope on the op's stdout, else None."""
     try:
         env = json.loads(proc.stdout.decode("utf-8", errors="replace") or "null")
     except ValueError:
-        env = None
-    if not isinstance(env, dict):
-        return None, "engine submission answered no envelope; a run may have been emitted"
-    return env, ""
+        return None
+    return env if isinstance(env, dict) else None
+
+
+ARGS_INLINE_OP = "hooks.preuse_workflow_args_inline"
+_STUB_ARGS_KEYS = frozenset({"argsFile", "argsSha256"})
+
+
+def _is_stub_args_call(payload: dict) -> bool:
+    """True for a Workflow call whose `args` is exactly {argsFile, argsSha256}."""
+    tool_input = payload.get("tool_input")
+    if payload.get("tool_name") != "Workflow" or not isinstance(tool_input, dict):
+        return False
+    args = tool_input.get("args")
+    return isinstance(args, dict) and set(args) == _STUB_ARGS_KEYS
+
+
+def _args_inline(raw: str, payload: dict) -> Optional[dict]:
+    """The engine's args-inline envelope, reduced to its rewrite and advisory words; None
+    passes the call unchanged. Never raises, never carries a permission decision."""
+    if not _is_stub_args_call(payload):
+        return None
+    try:
+        launcher = _hook_run()
+        if launcher is None:
+            return None
+        env = _parse_envelope(_spawn_op(launcher, ARGS_INLINE_OP, raw, payload))
+    except Exception:
+        return None
+    if env is None:
+        return None
+    hso = _hso(env)
+    out_hso: Dict[str, Any] = {}
+    rewrite = hso.get("updatedInput")
+    if isinstance(rewrite, dict):
+        out_hso["updatedInput"] = rewrite
+    ctx = hso.get("additionalContext")
+    if isinstance(ctx, str) and ctx.strip():
+        out_hso["additionalContext"] = ctx
+    out: Dict[str, Any] = {}
+    if out_hso:
+        out_hso["hookEventName"] = "PreToolUse"
+        out["hookSpecificOutput"] = out_hso
+    msg = env.get("systemMessage")
+    if isinstance(msg, str) and msg.strip():
+        out["systemMessage"] = msg
+    return out or None
 
 
 def _deny(reason: str) -> dict:
@@ -316,8 +384,13 @@ def _outcome() -> str:
     return "allowed"
 
 
-def _log_call(raw: str) -> None:
-    """One line per call to the friction log: the call id and the outcome. Never raises."""
+def _log_call(raw: str, outcome: Optional[str] = None) -> None:
+    """One line per call to the friction log: the call id and the outcome. Never raises.
+
+    Trap: the harness kills a hook past its timeout and lets the call through with no output,
+    so the submission stage logs `submitting` before the engine spawn and `submitted script=`
+    once the engine answers; a call whose last line is one of those died there, and a
+    `submitted` script is an emitted run to fire by its scriptPath."""
     try:
         try:
             payload = json.loads(raw)
@@ -326,7 +399,7 @@ def _log_call(raw: str) -> None:
         call_id = payload.get("tool_use_id") if isinstance(payload, dict) else None
         _call_record(
             _CALL_LOG_GUARD_ID,
-            f"call_id={call_id or '-'} outcome={_outcome()}",
+            f"call_id={call_id or '-'} outcome={outcome or _outcome()}",
             "PreToolUse",
         )
     except Exception:
@@ -369,7 +442,7 @@ def _compose(envs: List[dict]) -> Optional[dict]:
                 reasons.append(reason)
         new_input = hso.get("updatedInput")
         if isinstance(new_input, dict):
-            rewrite = new_input
+            rewrite = {**(rewrite or {}), **new_input}
         ctx = hso.get("additionalContext")
         if isinstance(ctx, str) and ctx.strip():
             contexts.append(ctx)
@@ -468,6 +541,7 @@ def _dispatch(raw: str) -> int:
         return 0
     if op is not None:
         deny_tail = _DENY_TAILS[op]
+        _log_call(raw, f"submitting op={op}")
         submitted, crumb = _engine_submission(op, raw, payload)
         if submitted is None:
             submitted = _unreached(crumb, deny_tail)
@@ -480,9 +554,19 @@ def _dispatch(raw: str) -> int:
         if not (isinstance(fired, dict) and fired.get("scriptPath")):
             _write_bytes(sys.stdout, json.dumps(_refused(submitted, deny_tail)) + "\n")
             return 0
+        _log_call(raw, f"submitted script={fired['scriptPath']}")
         payload["tool_input"] = fired
         raw = json.dumps(payload)
         envs.append(submitted)
+
+    if isinstance(payload, dict):
+        inlined = _args_inline(raw, payload)
+        if inlined is not None:
+            new_input = _hso(inlined).get("updatedInput")
+            if isinstance(new_input, dict):
+                payload["tool_input"] = new_input
+                raw = json.dumps(payload)
+            envs.append(inlined)
 
     for guard in REGISTRY:
         try:

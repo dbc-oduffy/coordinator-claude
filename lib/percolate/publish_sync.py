@@ -48,7 +48,9 @@ import argparse
 import filecmp
 import json
 import os
+import re
 import shutil
+import stat
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -104,6 +106,91 @@ _STRUCTURAL_BUILD_ARTIFACT_SUFFIXES = (".pyc", ".pyo")
 # an override) had to keep it only because this module lacked it. That
 # override drops it on its next re-derivation from this file.
 _NO_CONSOLE = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
+
+def _preserve_ordinary_ancestry(path: Path) -> None:
+    for candidate in (path, *path.parents):
+        try:
+            info = candidate.lstat()
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+            raise ValueError(f"preserve path crosses symlink/reparse point: {candidate}")
+        if not stat.S_ISDIR(info.st_mode):
+            raise ValueError(f"preserve parent is not a directory: {candidate}")
+
+
+def normalize_preserve_paths(dst_root: Path, paths: Iterable[str] = ()) -> frozenset[str]:
+    """Validate exact root-relative FILE holds, including absent files.
+
+    No globs, directory holds, wire authority or source-policy exclusions.
+    Reading metadata never touches bytes. Empty input returns an empty set.
+    """
+    if isinstance(paths, (str, bytes)):
+        raise ValueError("preserve_paths must be a collection of exact file paths")
+    paths = tuple(paths)
+    if not paths:
+        return frozenset()
+    root = Path(os.path.abspath(dst_root))
+    _preserve_ordinary_ancestry(root)
+    result = set()
+    for value in paths:
+        if not isinstance(value, str) or not value or any(c in value for c in "\\:*?[]") or value.startswith("/"):
+            raise ValueError("preserve path must be an exact relative POSIX file path")
+        parts = value.split("/")
+        if any(not part or part in (".", "..") or part[-1] in " ." or
+               re.match(r"^(CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³])(?:\.|$)", part, re.I) or
+               any(ord(c) < 32 or c in '<>"|' for c in part) for part in parts):
+            raise ValueError("invalid preserve file component")
+        target = root.joinpath(*parts)
+        _preserve_ordinary_ancestry(target.parent)
+        try:
+            info = target.lstat()
+        except FileNotFoundError:
+            pass
+        else:
+            if not stat.S_ISREG(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+                raise ValueError("preserve target must be an ordinary file or absent")
+            if info.st_nlink > 1:
+                raise ValueError("preserve target has hardlinked aliases; untouched bytes cannot be guaranteed")
+        result.add(value)
+    return frozenset(result)
+
+
+def project_preserve_paths(row_dst_dir: Path, dst_repo_root: Path,
+                           paths: Iterable[str] = ()) -> frozenset[str]:
+    """Project public-repo-root holds onto the row-local destination."""
+    holds = normalize_preserve_paths(dst_repo_root, paths)
+    if not holds:
+        return frozenset()
+    root = Path(os.path.abspath(dst_repo_root))
+    row = Path(os.path.abspath(row_dst_dir))
+    _preserve_ordinary_ancestry(row)
+    try:
+        row_rel = row.relative_to(root).as_posix()
+    except ValueError as exc:
+        raise ValueError("row destination is outside preserved destination repository") from exc
+    prefix = "" if row_rel == "." else row_rel + "/"
+    projected = [path[len(prefix):] for path in holds if _preserve_key(path).startswith(_preserve_key(prefix))]
+    return normalize_preserve_paths(row, projected)
+
+
+def _preserve_key(path: str) -> str:
+    return os.path.normcase(path)
+
+
+def _held_file(path: str, holds: frozenset[str]) -> bool:
+    return _preserve_key(path) in {_preserve_key(p) for p in holds}
+
+
+def _held_descendant(path: str, holds: frozenset[str]) -> bool:
+    prefix = _preserve_key(path.rstrip("/") + "/")
+    return any(_preserve_key(p).startswith(prefix) for p in holds)
+
+
+def _report_preserved(holds: frozenset[str]) -> None:
+    for path in sorted(holds):
+        print(f"    HELD UNVERIFIED: {path} (destination preserved; not synchronized)")
 
 
 def _is_structural_build_artifact(rel_path: str) -> bool:
@@ -460,6 +547,7 @@ def _sync_mirror_top_level_files(
     copier: CopyFileFn,
     *,
     changed_paths: "set[str] | None" = None,
+    preserve_paths: "frozenset[str]" = frozenset(),
 ) -> int:
     """Copy the regular files sitting directly under `src_dir`, returning how
     many were synced.
@@ -496,6 +584,8 @@ def _sync_mirror_top_level_files(
     synced = 0
     for src_file in sorted(p for p in src_dir.iterdir() if p.is_file()):
         rel_path = src_file.name
+        if _held_file(rel_path, preserve_paths) or _held_descendant(rel_path, preserve_paths):
+            continue
         if rel_path.startswith("."):
             continue
         if _archived_or_orphan(rel_path):
@@ -527,6 +617,7 @@ def _sweep_mirror_top_level_orphans(
     dry_run: bool,
     renamed_file_names: "frozenset[str]",
     removed_sink: "set[str] | None" = None,
+    preserve_paths: "frozenset[str]" = frozenset(),
 ) -> int:
     """Delete the destination's top-level FILES that the source no longer has,
     returning how many were removed. Opt-in per row — see `sync_mirror`'s
@@ -596,6 +687,8 @@ def _sweep_mirror_top_level_orphans(
     removed = 0
     for dst_file in sorted(p for p in dst_dir.iterdir() if p.is_file()):
         rel_path = dst_file.name
+        if _held_file(rel_path, preserve_paths):
+            continue
         if rel_path.startswith("."):
             continue
         if _archived_or_orphan(rel_path):
@@ -629,6 +722,7 @@ def _sync_only_paths(
     renamed_dir_names: "frozenset[str]",
     renamed_file_names: "frozenset[str]",
     injected_paths: "frozenset[str]",
+    preserve_paths: "frozenset[str]" = frozenset(),
     after_copy: "Callable[[Path, str], None] | None" = None,
 ) -> "tuple[int, int]":
     """Visit exactly `only_paths` (src-relative posix) and nothing else: no
@@ -640,6 +734,8 @@ def _sync_only_paths(
     synced = 0
     removed = 0
     for rel in sorted(set(only_paths)):
+        if _held_file(rel, preserve_paths) or _held_descendant(rel, preserve_paths):
+            continue
         parts = rel.split("/")
         if flat and len(parts) != 1:
             continue
@@ -780,6 +876,7 @@ def sync_mirror(
     only_paths: "Iterable[str] | None" = None,
     removed_sink: "set[str] | None" = None,
     enforce_guards: bool = False,
+    preserve_paths: Iterable[str] = (),
 ) -> tuple[int, int]:
     """`enforce_guards` (default `False`): under `dry_run`, the abort guards
     (empty-source mass delete, top-level presence check, >50% orphan sweep)
@@ -898,6 +995,10 @@ def sync_mirror(
     because it never reaches the resolved row set, not because something filtered it out
     of that set.
     """
+    # Internal API paths are row-destination-relative; CLI callers MUST project
+    # repository-root holds with project_preserve_paths before entering here.
+    preserve_paths = normalize_preserve_paths(dst_dir, preserve_paths)
+    _report_preserved(preserve_paths)
     synced = 0
     removed = 0
     copier = copy_file or _default_copy_file
@@ -930,6 +1031,7 @@ def sync_mirror(
         return _sync_only_paths(
             src_dir, dst_dir, ignore, dry_run, copier, only_paths,
             flat=False,
+            preserve_paths=preserve_paths,
             changed_paths=changed_paths,
             removed_sink=removed_sink,
             renamed_dir_names=renamed_dir_names,
@@ -938,16 +1040,19 @@ def sync_mirror(
         )
 
     synced += _sync_mirror_top_level_files(
-        src_dir, dst_dir, ignore, dry_run, copier, changed_paths=changed_paths
+        src_dir, dst_dir, ignore, dry_run, copier, changed_paths=changed_paths, preserve_paths=preserve_paths
     )
     if sweep_top_level_orphans:
         removed += _sweep_mirror_top_level_orphans(
             src_dir, dst_dir, ignore, dry_run, renamed_file_names,
             removed_sink=removed_sink,
+            preserve_paths=preserve_paths,
         )
 
     for src_plugin in sorted(p for p in src_dir.iterdir() if p.is_dir()):
         plugin_name = src_plugin.name
+        if _held_file(plugin_name, preserve_paths):
+            continue
         dst_plugin = dst_dir / plugin_name
         print(f"  --- {plugin_name} ---")
 
@@ -974,6 +1079,8 @@ def sync_mirror(
         # Phase 1: copy new/changed
         for src_file in _walk_files(src_plugin):
             rel_path = src_file.relative_to(src_plugin).as_posix()
+            if _held_file(f"{plugin_name}/{rel_path}", preserve_paths) or _held_descendant(f"{plugin_name}/{rel_path}", preserve_paths):
+                continue
             if _archived_or_orphan(rel_path):
                 continue
             # .percolate-ignore patterns are SOURCE_DIR-relative (plugin-qualified):
@@ -1002,6 +1109,8 @@ def sync_mirror(
         if dst_plugin.is_dir():
             for dst_file in _walk_files(dst_plugin):
                 rel_path = dst_file.relative_to(dst_plugin).as_posix()
+                if _held_file(f"{plugin_name}/{rel_path}", preserve_paths):
+                    continue
                 if _archived_or_orphan(rel_path):
                     continue
                 # Plugin-qualify before matching — see the Phase-1 copy-loop
@@ -1044,7 +1153,10 @@ def sync_mirror(
                 per_plugin_removed += 1
 
         if per_plugin_synced == 0 and per_plugin_removed == 0:
-            print("    (up to date)")
+            if _held_file(plugin_name, preserve_paths) or _held_descendant(plugin_name, preserve_paths):
+                print("    HELD UNVERIFIED: preserved destination files are not synchronized")
+            else:
+                print("    (up to date)")
 
         synced += per_plugin_synced
         removed += per_plugin_removed
@@ -1064,6 +1176,11 @@ def sync_mirror(
             and p.name not in renamed_dir_names
             and p.name not in foreign_dir_names
         ]
+
+        held_orphans = [p for p in orphans if _held_descendant(p.name, preserve_paths)]
+        for held_dir in held_orphans:
+            print(f"    HELD UNVERIFIED: {held_dir.name}/ (contains preserved descendant; orphan subtree retained)")
+        orphans = [p for p in orphans if p not in held_orphans]
 
         # Top-level presence preflight (2026-07-26): the mass-deletion guard below
         # only fires above a >50%-of-dst-top-level-dirs threshold, so a SINGLE
@@ -1360,6 +1477,7 @@ def sync_flat_mirror(
     only_paths: "Iterable[str] | None" = None,
     removed_sink: "set[str] | None" = None,
     enforce_guards: bool = False,
+    preserve_paths: Iterable[str] = (),
 ) -> tuple[int, int]:
     """`only_paths` / `removed_sink` / `enforce_guards` — see `sync_mirror`; here
     only top-level names are meaningful.
@@ -1385,6 +1503,10 @@ def sync_flat_mirror(
     Flat-mirror has no plugin prefix, so `renamed_file_names` matches on the
     top-level basename exactly as `sync_mirror`'s does, and `injected_paths`
     matches on the bare rel_path rather than a plugin-qualified one."""
+    # Internal API paths are row-destination-relative; CLI callers MUST project
+    # repository-root holds with project_preserve_paths before entering here.
+    preserve_paths = normalize_preserve_paths(dst_dir, preserve_paths)
+    _report_preserved(preserve_paths)
     synced = 0
     removed = 0
     copier = copy_file or _default_copy_file
@@ -1404,6 +1526,7 @@ def sync_flat_mirror(
         return _sync_only_paths(
             src_dir, dst_dir, ignore, dry_run, copier, only_paths,
             flat=True,
+            preserve_paths=preserve_paths,
             changed_paths=changed_paths,
             removed_sink=removed_sink,
             renamed_dir_names=frozenset(),
@@ -1427,6 +1550,8 @@ def sync_flat_mirror(
         if not src_file.is_file():
             continue
         rel_path = src_file.name
+        if _held_file(rel_path, preserve_paths) or _held_descendant(rel_path, preserve_paths):
+            continue
         if _archived_or_orphan(rel_path):
             continue
         if ignore.matches(rel_path):
@@ -1465,6 +1590,8 @@ def sync_flat_mirror(
             if not dst_file.is_file():
                 continue
             rel_path = dst_file.name
+            if _held_file(rel_path, preserve_paths):
+                continue
             if _archived_or_orphan(rel_path):
                 continue
             if ignore.matches(rel_path):

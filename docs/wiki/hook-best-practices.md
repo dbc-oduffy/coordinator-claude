@@ -13,7 +13,7 @@ Working notes on Claude Code hook mechanics — the platform behaviors that are 
 
 ## Editing a live Bash-matcher hook: stage, don't multi-`Edit` the live path
 
-The harness `exec`s each hook fresh from disk on every matching tool call, so a multi-`Edit` sequence against a hook currently registered under a Bash-inclusive PreToolUse matcher briefly exposes every intermediate state as the live enforcement code for every concurrent agent's Bash tool. Use the engine repo `coordinator/bin/edit-live-hook.py stage`/`commit` (stage → edit scratch copy → `bash -n` validate → atomic swap) instead of editing the live path directly. → `docs/wiki/concurrent-em-git-operations/concurrent-em-hazards.md § H33`, `docs/wiki/coordinator-tripwires.md § LIVE-HOOK-EDIT`.
+The harness `exec`s each hook fresh from disk on every matching tool call, so a multi-`Edit` sequence against a hook currently registered under a Bash-inclusive PreToolUse matcher briefly exposes every intermediate state as the live enforcement code for every concurrent agent's Bash tool. Use the engine repo `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/edit-live-hook" stage` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\edit-live-hook.exe"`, same arguments)/`commit` (stage → edit scratch copy → `bash -n` validate → atomic swap) instead of editing the live path directly. → `docs/wiki/concurrent-em-git-operations/concurrent-em-hazards.md § H33`, `docs/wiki/coordinator-tripwires.md § LIVE-HOOK-EDIT`.
 
 ## PreToolUse deny: JSON output, not exit 2
 
@@ -193,7 +193,7 @@ Retirement protocol: (1) read the spec backlink to confirm the invariant is genu
 
 A PreToolUse gate that reads a `tool_input` field with a `// default` fallback (e.g. `.tool_input.run_in_background // false`) collapses two distinct states into one: **key-absent** (the harness build does not expose the param at all) and **key-present-but-false** (the caller deliberately set it false). When a newer harness drops the param, the gate reads absent-as-false and hard-denies with **no satisfiable escape** — the agent cannot set a param the build doesn't expose.
 
-This is exactly how `hooks/scripts/nudge-foreground-agent-dispatch.py` bricked EVERY `Agent` dispatch on Claude Code 2.1.176+ (the Agent tool there is async-by-default and exposes no `run_in_background`). Fixed; the background-by-default doctrine across CLAUDE.md / `dispatching-parallel-agents.md` / `runtime-tripwire.md` was reconciled.
+This is exactly how a foreground-dispatch nudge hook (since deleted; auto-backgrounding is now Concern G of `enforce-agent-dispatch-mode.py`) bricked EVERY `Agent` dispatch on Claude Code 2.1.176+ (the Agent tool there is async-by-default and exposes no `run_in_background`). Fixed; the background-by-default doctrine across CLAUDE.md / `dispatching-parallel-agents.md` / `runtime-tripwire.md` was reconciled.
 
 ### …but key-presence ALONE is insufficient when the param can re-appear
 

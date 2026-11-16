@@ -74,6 +74,10 @@ _MANIFEST_PATH_DEFAULT = os.path.join(
 # so a single test-isolation set covers all callers (MACHINE_LOCAL_IMPL). Defined
 _REGISTRY_MACHINE_LOCAL_IMPL_ENV = "MACHINE_LOCAL_IMPL"
 
+#: Kill ceiling for every machine-local spawn here (== coordinator_core.machine_local_spawn
+#: .ML_SPAWN_TIMEOUT_S); subprocess.run kills and reaps the direct child on expiry.
+_ML_SPAWN_TIMEOUT_S = 2.0
+
 
 def _registry_machine_local_impl() -> str:
     """Return the path to _machine_local.py, settings-home first, honoring
@@ -130,7 +134,7 @@ def _registry_machine_local_get(key: str) -> str | None:
             cmd,
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=_ML_SPAWN_TIMEOUT_S,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.TimeoutExpired):
@@ -336,7 +340,7 @@ def _load_manifest() -> dict:
                         [_ml_cand, "get", "repos.content_root"],
                         capture_output=True,
                         text=True,
-                        timeout=10,
+                        timeout=_ML_SPAWN_TIMEOUT_S,
                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                     )
                     if _mlres.returncode == 0:

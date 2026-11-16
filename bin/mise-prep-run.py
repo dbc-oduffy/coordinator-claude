@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """mise-prep-run — gate and stamp a set of plans, and name each one's state.
 
 WHY THIS EXISTS. mise-prep's two halves both shipped and neither drives the ceremony.

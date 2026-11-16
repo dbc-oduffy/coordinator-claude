@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # staff-session-assemble — CLI trampoline over claude-klabauter
 # coordinator_core.staff_session_assemble (the computed-skill assembler for
 # `/staff-session`'s persona-roster tables). Direct-import variant

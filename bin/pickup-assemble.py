@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Trampoline for coordinator_core.pickup_brief, routed by
 # entry_point_shim.run_target("pickup-assemble", ...).
 #

@@ -28,7 +28,7 @@ inside the subagent). Together they give both parties awareness; the agent
 owns the wrap judgment, the EM holds authority (trust-but-verify).
 
 Discriminator: if HOOK_INPUT.session_id IS found under any
-  .git/coordinator-sessions/.agents/*/em-session-id.txt -> this is a subagent
+  <session hub>/.agents/*/em-session-id.txt -> this is a subagent
   session; exit 0 and let the agent-side hook handle it. If NOT found -> this
   is the EM session; proceed.
 
@@ -125,13 +125,19 @@ fire -- with the engine-repo round-trip (no `coordinator_core` import, no
 `dispatch_message` call) gated on that comparison's result: only if the
 stat shows growth past this session's own surfaced-cursor does anything
 past the two cheap local reads run. This matters because the registered timeout
-on all three of this script's events is 5 seconds, not the UserPromptSubmit
-harness default of 30s (`hooks.json:12,38,79,302` confirm "timeout": 5
-identically across this script's entries), and python cold start alone is
-~642ms on the reference Windows machine -- an unconditional engine
-round-trip on every prompt in every session, most of which dispatch no
-subagents at all, would eat into that budget for no reason on the
-overwhelmingly common nothing-to-report path.
+is 15 seconds on UserPromptSubmit and 5 seconds on Stop and PostToolUse (see
+hooks.json), and python cold start alone is ~642ms on the reference Windows
+machine -- an unconditional engine round-trip on every prompt in every
+session, most of which dispatch no subagents at all, would eat into that
+budget for no reason on the overwhelmingly common nothing-to-report path.
+
+Deadline and ordering: `main()` runs the baton mint, the PM-turn log and then
+the three optional advisories, in that order, on one daemon worker under a
+shared deadline (`_ADVISORY_DEADLINE_SECONDS` on UserPromptSubmit,
+`_ADVISORY_DEADLINE_SECONDS_SHORT` otherwise), emitting whatever finished plus
+one cut-off notice line naming any leg that did not. A fire
+over `_SLOW_FIRE_THRESHOLD_SECONDS` appends one per-step timing line to
+`hook-timings.log` in the session's existing hub dir.
 
 Integration fix, this pass (landed engine contract diverged from the
 pass-3 draft in three ways -- see the three inline `INTEGRATION FIX` marks
@@ -171,15 +177,38 @@ session-baton-mint advisories.
 """
 
 from __future__ import annotations
+from typing import Any
 
-import asyncio
-import inspect
 import json
 import os
 import re
 import sys
 import threading
+import time
 from pathlib import Path
+
+# asyncio (with ssl and socket) and inspect are imported inside the one leg
+# that needs each, never at module top: the steady path pays for neither.
+
+# UserPromptSubmit registers this hook at 15 s; Stop and PostToolUse stay at 5 s.
+# The advisory deadline is measured from main()'s first line; the optional
+# advisories past it are skipped or abandoned. `_HARD_DEADLINE_SECONDS` is
+# measured from `_run_as_script`'s first line (interpreter start and module
+# import precede it) and ends the process (exit 0, no output) when
+# anything -- stdin, a git subprocess, an engine import -- outlives it; it sits
+# above both advisory deadlines and under the 5 s registrations. One hard
+# deadline is armed before the event is known, so the UserPromptSubmit advisory
+# deadline (3.0 s, PM turn logged first) sits under it too rather than at that
+# event's 15 s. The PostToolUse/Stop advisory deadline stays 3.5 s: the
+# fail-toward-firing push-failure alarm outranks a shorter cut there.
+# Ordering: UserPromptSubmit advisory < short advisory < hard < 5 s.
+_ADVISORY_DEADLINE_SECONDS = 3.0
+_ADVISORY_DEADLINE_SECONDS_SHORT = 3.5
+_HARD_DEADLINE_SECONDS = 4.25
+# A fire slower than this appends one per-step timing line (see
+# `_write_slow_fire_timing`); typical is ~0.2 s.
+_SLOW_FIRE_THRESHOLD_SECONDS = 2.0
+_TIMING_LOG_NAME = "hook-timings.log"
 
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
@@ -202,6 +231,18 @@ except Exception:
         except OSError:
             return False
         return True
+try:
+    # Fail-open: a deploy missing its sibling _session_hub_path.py falls back to the
+    # legacy `<common>/coordinator-sessions` join rather than crash on import.
+    from _session_hub_path import hub_for_common as _hub_for_common  # noqa: E402
+except Exception:
+    def _hub_for_common(common) -> Path:
+        return Path(common) / "coordinator-sessions"
+
+
+def _hub_dir(common_dir: str) -> str:
+    """Session hub directory for a git common dir, via the engine-parity resolver."""
+    return str(_hub_for_common(Path(common_dir)))
 
 # ---------------------------------------------------------------------------
 # Charset guard -- mirrors the bash oracle's path-traversal rejection.
@@ -214,8 +255,8 @@ _ID_CHARSET_RE = re.compile(r"^[A-Za-z0-9_@-]+$")
 # Session-hub creation gate. `_ID_CHARSET_RE` above is a path-traversal guard
 # and nothing more -- it admits `hookperf-3ee8b3f4a1d1`, `probe`, `test-sid`
 # and every other synthetic id a benchmark or probe hands a hook. This hook's
-# two per-session cursors used to create `<git common dir>/
-# coordinator-sessions/<id>/` unconditionally, so any invocation driven with a
+# two per-session cursors used to create `<session hub>/<id>/`
+# (`_session_hub_path.hub_for_common`) unconditionally, so any invocation driven with a
 # made-up session id materialised a hub directory that no registrar ever
 # claimed and no reaper will ever collect. 176 such directories accumulated in
 # this repo's hub, none carrying `meta.json` -- the creator here is not the
@@ -336,7 +377,7 @@ except Exception:
 _arm_lazy_ops()
 
 
-def _fail_open(fn, *args, default=None):
+def _fail_open(fn, *args, default=None) -> Any:
     """Run one detector, yielding `default` on any exception. Every advisory
     leg in `main()` is independently wrapped so a bug in one can never take
     down another. Catches `Exception`, NOT `BaseException` -- a
@@ -361,7 +402,7 @@ def _resolve_zero_tool_use_sessions_dir(git_root: str) -> str:
         common_dir = _resolve_git_common_dir(git_root)
         if not common_dir:
             return ""
-        return os.path.join(common_dir, "coordinator-sessions")
+        return _hub_dir(common_dir)
     except Exception:
         return ""
 
@@ -568,7 +609,7 @@ def _push_failure_verdict(git_root: str) -> tuple[dict | None, str | None]:
     `dispatch_from_hook(...)` -- DR-118's named hook-dispatch seam, above the
     `dispatch_message` telemetry wrapper) -- NOT the `python3 -m
     coordinator_core.invoke` CLI form the origin memo documents, which is the
-    human-facing shape, not the right call site for a 5s-timeout hook. Do not
+    human-facing shape, not the right call site for a short-timeout hook. Do not
     "restore" the CLI form here without first confirming the op is
     registered AND exercising this script end-to-end on a real
     Stop/UserPromptSubmit/PostToolUse payload.
@@ -755,7 +796,7 @@ def _render_push_failure_verdict(
 #
 # Idiom deliberately mirrors `_check_push_failures` above rather than
 # inventing a second one: a per-session cursor file at
-# `<git COMMON dir>/coordinator-sessions/<session_id>/hooks-json-boot-hash.txt`
+# `<session hub>/<session_id>/hooks-json-boot-hash.txt` (hub via `_session_hub_path.hub_for_common`)
 # (rooted via `_resolve_git_common_dir`, worktree-safe -- see that helper's
 # docstring). First check this session records the current on-disk content
 # hash as baseline and never alarms (this session's OWN boot snapshot is,
@@ -833,7 +874,7 @@ def _check_hooks_json_staleness(git_root: str, session_id: str, common_dir: str)
     if current_hash is None:
         return None
 
-    cursor_dir = os.path.join(common_dir, "coordinator-sessions", session_id)
+    cursor_dir = os.path.join(_hub_dir(common_dir), session_id)
     cursor_path = os.path.join(cursor_dir, "hooks-json-boot-hash.txt")
 
     baseline = None
@@ -900,7 +941,7 @@ def _branch_has_no_upstream_and_no_commits(git_root: str, branch: str) -> bool:
         return False
 
 
-def _check_push_failures(git_root: str, session_id: str):
+def _check_push_failures(git_root: str, session_id: str) -> tuple[str | None, Any]:
     """AUTO-PUSH-MID-SESSION-DETECT -- mid-session surfacing of a *newly
     growing* `.git/push-failures.log`, closing the gap left by the ceremony-
     only `## Auto-push health` section of `state/orientation_cache.md`
@@ -934,8 +975,8 @@ def _check_push_failures(git_root: str, session_id: str):
     append-only and carries weeks-old historic failures, so "any line present"
     would fire on every future session forever. The signal here is GROWTH
     SINCE THIS SESSION'S FIRST CHECK -- a per-session byte-offset cursor at
-    `<git COMMON dir>/coordinator-sessions/<session_id>/
-    push-failures-cursor.txt` (resolved via `_resolve_git_common_dir` --
+    `<session hub>/<session_id>/
+    push-failures-cursor.txt` (hub via `_session_hub_path.hub_for_common`) (resolved via `_resolve_git_common_dir` --
     portability fix, see that helper's docstring). The
     first call in a session only records the current size as baseline (never
     alarms on pre-session backlog); a later call fires only if the log grew
@@ -1024,7 +1065,7 @@ def _check_push_failures(git_root: str, session_id: str):
     if not session_id or not _ID_CHARSET_RE.match(session_id):
         return None, None
 
-    cursor_dir = os.path.join(common_dir, "coordinator-sessions", session_id)
+    cursor_dir = os.path.join(_hub_dir(common_dir), session_id)
     cursor_path = os.path.join(cursor_dir, "push-failures-cursor.txt")
 
     baseline = None
@@ -1285,7 +1326,7 @@ def _format_zero_tool_use_records(records: list) -> str:
 
 def _check_zero_tool_use_surface(
     git_root: str, session_id: str, zt_sessions_dir: str, hook_event: str
-):
+) -> tuple[str | None, Any]:
     if hook_event != "UserPromptSubmit":
         return None, None
 
@@ -1329,6 +1370,8 @@ def _check_zero_tool_use_surface(
         }
         if git_root:
             msg["_origin_worktree"] = git_root
+
+        import asyncio
 
         response = asyncio.run(dispatch_message(msg))
     except Exception:
@@ -1451,9 +1494,10 @@ def _baton_advisory_text(baton_path: str, git_root: str) -> str:
     except Exception:
         display_path = baton_path
     display_path = display_path.replace(os.sep, "/")
-    prefix = ".git/coordinator-sessions/"
-    if display_path.startswith(prefix):
-        display_path = "…/" + display_path[len(prefix):]
+    for prefix in (".coordinator-local/coordinator-sessions/", ".git/coordinator-sessions/"):
+        if display_path.startswith(prefix):
+            display_path = "…/" + display_path[len(prefix):]
+            break
     return f"WORK JOURNAL — {display_path} — your durable work journal, script-managed"
 
 
@@ -1520,6 +1564,8 @@ def _accepts_referent(fn) -> bool:
     # An engine older than the referent kwarg raises TypeError on it. Probe the
     # signature, never retry on TypeError, which could double-append a turn the
     # first call already wrote.
+    import inspect
+
     try:
         params = inspect.signature(fn).parameters.values()
     except (TypeError, ValueError):
@@ -1542,7 +1588,7 @@ def _append_pm_turn(
     git_root: str, session_id: str, sessions_dir: str, hook_event: str, prompt,
     baton_msg,
     transcript_path=None,
-):
+) -> Any:
     """Appends a human PM prompt to the engine's per-session turn log (after
     the mint, so turn 0 is the first prompt) and returns `baton_msg`, with the
     work-journal line extended to name the log only when the append succeeded.
@@ -1598,7 +1644,7 @@ def _minted_advisory_text(artifact_path: str, git_root: str) -> str:
     )
 
 
-def _handoff_mint_advisory(minted_artifacts, baton_path: str, git_root: str):
+def _handoff_mint_advisory(minted_artifacts, baton_path: str, git_root: str) -> tuple[str | None, Any]:
     """Returns `(text, commit_fn)` for every path in `minted_artifacts` not
     yet announced, or `(None, None)` if there is nothing new. `commit_fn`
     records the announcement and must run only after a successful emit; a
@@ -1662,7 +1708,7 @@ def _combine_baton_advisories(baton_line, mint_block) -> str | None:
 
 def _mint_session_baton(
     git_root: str, session_id: str, sessions_dir: str, hook_event: str, prompt
-):
+) -> tuple[Any, Any]:
     """Returns `(text, advance_fn)` on every path. `advance_fn` runs the
     announced-marker writes (minted, adopted) and must be called only after
     a successful emit."""
@@ -1902,6 +1948,51 @@ def _fd_matches_lstat(fd: int, path: str) -> bool:
     return (link_stat.st_dev, link_stat.st_ino) == (fd_stat.st_dev, fd_stat.st_ino)
 
 
+_FRESHNESS_DUE_MARKER = "freshness-due.json"
+_FRESHNESS_EVIDENCE = os.path.join(".coordinator-local", "freshness-autofire", "fired.jsonl")
+_FRESHNESS_SKILLS = {
+    "update-docs": "Skill(coordinator:update-docs)",
+    "distill": "Skill(coordinator:distill)",
+}
+
+
+def _check_freshness_due(git_root: str, session_id: str, sessions_dir: str, hook_event: str) -> tuple[str | None, Any]:
+    """Returns `(text, advance_fn)` for the due-marker `stop-freshness-autofire.py` wrote for
+    this session, else `(None, None)`. UserPromptSubmit only. `advance_fn` consumes the marker and
+    appends the injected evidence row, and runs only after a successful emit, so the directive
+    fires once and a failed emit leaves the marker for the next prompt."""
+    if hook_event != "UserPromptSubmit" or not sessions_dir or not session_id:
+        return None, None
+    marker = os.path.join(sessions_dir, session_id, _FRESHNESS_DUE_MARKER)
+    try:
+        if os.path.islink(marker) or not os.path.isfile(marker):
+            return None, None
+        with open(marker, "r", encoding="utf-8") as fh:
+            due = json.load(fh).get("due")
+    except Exception:
+        return None, None
+    skills = [_FRESHNESS_SKILLS[d] for d in (due if isinstance(due, list) else []) if d in _FRESHNESS_SKILLS]
+    if not skills:
+        return None, None
+    text = (
+        "FRESHNESS DUE (A-FRESHNESS-THE-OPERATOR-MUST-REMEMBER-IS-NOT-MAINTAINED): the idle "
+        "probes report doc drift or the distill threshold met. Invoke "
+        + " then ".join(skills)
+        + " as its own step once the PM's current ask is handled; do not wait to be asked."
+    )
+
+    def _consume() -> None:
+        os.unlink(marker)
+        evidence = os.path.join(git_root, _FRESHNESS_EVIDENCE)
+        os.makedirs(os.path.dirname(evidence), exist_ok=True)
+        with open(evidence, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"ts": time.time(), "session_id": session_id,
+                                 "event": "injected", "reason": "directive-emitted",
+                                 "due": due}) + "\n")
+
+    return text, _consume
+
+
 def _emit_advisory(
     parts,
     event="PostToolUse",
@@ -1945,8 +2036,136 @@ def _emit_advisory(
     return 0
 
 
+# Held while the envelope is written and the cursors advance, so the hard
+# deadline can never cut stdout mid-write or between a write and its cursor.
+_emit_gate = threading.Lock()
+_hard_exit = os._exit
+
+
+def _arm_hard_deadline(seconds: float) -> threading.Timer:
+    """Start a daemon timer that ends the process with exit 0 and no further
+    output after `seconds` -- the fail-open backstop for any step a worker
+    thread cannot interrupt. Cancel the returned timer on a normal finish."""
+
+    def _fire() -> None:
+        with _emit_gate:
+            try:
+                sys.stdout.flush()
+            except Exception:
+                pass
+            _hard_exit(0)
+
+    timer = threading.Timer(seconds, _fire)
+    timer.daemon = True
+    timer.start()
+    return timer
+
+
+def _run_as_script() -> None:
+    """Script entry: arm the hard deadline, run `main()`, then leave through
+    `os._exit` so a stuck daemon thread or an interpreter-shutdown import lock
+    cannot hold the prompt after the answer is already written."""
+    _arm_hard_deadline(_HARD_DEADLINE_SECONDS)
+    rc = 0
+    try:
+        rc = main()
+    except Exception:
+        rc = 0
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except Exception:
+            pass
+    _hard_exit(rc)
+
+
+def _run_advisories_bounded(advisories, deadline: float) -> tuple[Any, ...]:
+    """Run `advisories` -- `(name, fn, args, default)` tuples -- one after
+    another on a single daemon worker, abandoning it at `deadline` (a
+    `time.monotonic()` value). Returns `(results, timings, started, unfinished)`:
+    `results` holds only advisories that finished before the deadline;
+    `timings` is `[(name, seconds)]` for those; `started` is every name the
+    worker began; `unfinished` is every name with no result (started and
+    abandoned, or never started because the deadline had passed).
+
+    A worker thread, not a clock check between steps, so a step already
+    blocked cannot hold the hook past the deadline; daemon and never joined
+    past the deadline, so it cannot hold interpreter exit. A step that
+    completes after the deadline stores nothing, so an abandoned advisory
+    never reaches stdout and its cursor-advance callback is never invoked.
+    One worker, in order, so the engine imports the advisories share never
+    race each other."""
+    lock = threading.Lock()
+    results: dict = {}
+    timings: list = []
+    started: list = []
+    closed = [False]
+
+    def _work() -> None:
+        for name, fn, args, default in advisories:
+            if time.monotonic() >= deadline:
+                return
+            with lock:
+                if closed[0]:
+                    return
+                started.append(name)
+            t0 = time.monotonic()
+            value = _fail_open(fn, *args, default=default)
+            elapsed = time.monotonic() - t0
+            with lock:
+                if closed[0]:
+                    return
+                results[name] = value
+                timings.append((name, elapsed))
+
+    worker = threading.Thread(target=_work, name="em-check-advisories", daemon=True)
+    worker.start()
+    worker.join(max(0.0, deadline - time.monotonic()))
+    with lock:
+        closed[0] = True
+        done = dict(results)
+        done_timings = list(timings)
+        began = list(started)
+    unfinished = [name for name, _fn, _args, _default in advisories if name not in done]
+    return done, done_timings, began, unfinished
+
+
+def _write_slow_fire_timing(
+    sessions_dir: str,
+    session_id: str,
+    hook_event: str,
+    total: float,
+    steps,
+    started,
+    unfinished,
+) -> None:
+    """Append one line of per-step timings to `hook-timings.log` inside this
+    session's EXISTING hub directory; no directory is ever created here, so a
+    probe driving the hook with a made-up id leaves nothing behind."""
+    if not sessions_dir or not session_id:
+        return
+    session_dir = os.path.join(sessions_dir, session_id)
+    if not os.path.isdir(session_dir):
+        return
+    parts = ["%s=%.3f" % (name, secs) for name, secs in steps]
+    for name in unfinished:
+        parts.append("%s=%s" % (name, "abandoned" if name in started else "skipped"))
+    line = "%s event=%s total=%.3f %s\n" % (
+        time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        hook_event,
+        total,
+        " ".join(parts),
+    )
+    with open(os.path.join(session_dir, _TIMING_LOG_NAME), "a", encoding="utf-8") as fh:
+        fh.write(line)
+
+
 def main() -> int:
+    t_start = time.monotonic()
+    steps: list = []
     raw = _read_stdin(2.0)
+    t_mark = time.monotonic()
+    steps.append(("stdin", t_mark - t_start))
 
     try:
         payload = json.loads(raw) if raw else {}
@@ -1979,7 +2198,7 @@ def main() -> int:
         return 0
 
     common_dir = _resolve_git_common_dir(git_root)
-    sessions_dir = os.path.join(common_dir, "coordinator-sessions") if common_dir else ""
+    sessions_dir = _hub_dir(common_dir) if common_dir else ""
     agents_dir = os.path.join(sessions_dir, ".agents") if sessions_dir else ""
 
     # --- Subagent-detect inverse: primary path (SESSION_ID as an agent dir) ---
@@ -1997,94 +2216,103 @@ def main() -> int:
 
     # Zero-tool-use-specific session dir, rooted at the git COMMON dir
     # (worktree-safe) -- a SEPARATE resolution from `sessions_dir` above,
-    # never a repoint of that shared variable (which the pre-existing
-    # dispatch-tracking loop, `_check_push_failures`, and the `.agents`
-    # lookups above all still use byte-identically). See
-    # `_resolve_zero_tool_use_sessions_dir`'s docstring.
-    #
-    # Resolved here, below the two
-    # subagent-detect early returns above, not before them -- this
-    # git-common-dir walk is wasted work on every Stop fire from inside a
-    # subagent's own session, the common case those early returns exist to
-    # short-circuit.
+    # never a repoint of that shared variable. See
+    # `_resolve_zero_tool_use_sessions_dir`'s docstring. Resolved below the two
+    # subagent-detect early returns: wasted work inside a subagent's session.
     zero_tool_use_sessions_dir = _fail_open(
         _resolve_zero_tool_use_sessions_dir, git_root, default=""
     )
+    steps.append(("setup", time.monotonic() - t_mark))
 
-    # --- AUTO-PUSH-MID-SESSION-DETECT (see _check_push_failures docstring) ---
-    # Computed here, once EM-session-ness is confirmed, independently of the
-    # runtime-tripwire dispatch-tracking logic below (this repo may have zero
-    # dispatched agents this session and still have a mid-session push-failure
-    # flood to surface). Wrapped so a bug here can never take down the
-    # existing runtime-tripwire advisory -- fail-open per module contract.
-    push_failure_msg, _push_failure_advance = _fail_open(
-        _check_push_failures, git_root, session_id, default=(None, None)
+    # --- The two writes that must always happen run first: the
+    # SESSION-BATON-MINT (see the block above _mint_session_baton) and the
+    # PM-TURN-LOG after it, so turn 0 is the first prompt. A slow advisory
+    # below can then cost its own output but never the turn log. ---
+    # Both legs ride the same bounded worker as the advisories, first and in
+    # order: a hung engine import in the mint can no longer hold the hook past
+    # the host timeout, which discards all output and the timing line.
+    baton_state: dict = {"msg": None, "advance": None}
+
+    def _mint_leg() -> tuple[Any, Any]:
+        msg, advance = _mint_session_baton(
+            git_root, session_id, sessions_dir, hook_event, payload.get("prompt")
+        )
+        baton_state["msg"], baton_state["advance"] = msg, advance
+        return msg, advance
+
+    def _turn_leg() -> Any:
+        baton_state["msg"] = _append_pm_turn(
+            git_root,
+            session_id,
+            sessions_dir,
+            hook_event,
+            payload.get("prompt"),
+            baton_state["msg"],
+            payload.get("transcript_path"),
+        )
+        return baton_state["msg"]
+
+    # --- Optional advisories (AUTO-PUSH-MID-SESSION-DETECT,
+    # PLUGIN-HOOKS-JSON-RESTART-GATED, ZERO-TOOL-USE-DETECT-SURFACE; each
+    # detector's docstring holds its design), bounded by one shared deadline.
+    # Subagent-overrun tripwire: REMOVED, see the module docstring's
+    # SUBAGENT-ARRIVAL-CHECK note. ---
+    deadline = t_start + (
+        _ADVISORY_DEADLINE_SECONDS
+        if hook_event == "UserPromptSubmit"
+        else _ADVISORY_DEADLINE_SECONDS_SHORT
+    )
+    advisories, advisory_steps, started, unfinished = _run_advisories_bounded(
+        [
+            ("mint", _mint_leg, (), None),
+            ("pm_turn", _turn_leg, (), None),
+            ("push_failures", _check_push_failures, (git_root, session_id), (None, None)),
+            (
+                "hooks_json",
+                _check_hooks_json_staleness,
+                (git_root, session_id, common_dir),
+                None,
+            ),
+            (
+                "zero_tool_use",
+                _check_zero_tool_use_surface,
+                (git_root, session_id, zero_tool_use_sessions_dir, hook_event),
+                (None, None),
+            ),
+            (
+                "freshness_due",
+                _check_freshness_due,
+                (git_root, session_id, sessions_dir, hook_event),
+                (None, None),
+            ),
+        ],
+        deadline,
+    )
+    steps.extend(advisory_steps)
+    baton_msg, _baton_advance = advisories.get("mint") or (None, None)
+    if "pm_turn" in advisories:
+        baton_msg = advisories["pm_turn"] or baton_msg
+    cutoff_notice = None
+    if unfinished:
+        cutoff_notice = (
+            "runtime-tripwire-em-check: cut off at its %.0f s deadline; "
+            "not finished: %s (per-step timings in %s)"
+            % (deadline - t_start, ", ".join(unfinished), _TIMING_LOG_NAME)
+        )
+    push_failure_msg, _push_failure_advance = advisories.get("push_failures", (None, None))
+    hooks_json_stale_msg = advisories.get("hooks_json")
+    zero_tool_use_msg, _zero_tool_use_advance = advisories.get(
+        "zero_tool_use", (None, None)
     )
 
-    # --- PLUGIN-HOOKS-JSON-RESTART-GATED (see _check_hooks_json_staleness
-    # docstring + the module-level comment block above that function).
-    # Independently wrapped, same as the push-failure block above -- a bug
-    # here must never take down any other advisory. Not gated to a single
-    # hook_event: this session's registrations can be stale relative to a
-    # matcher edit regardless of which of Stop/UserPromptSubmit/PostToolUse
-    # fired, and the read is cheap (one file hash, no subprocess). ---
-    hooks_json_stale_msg = _fail_open(
-        _check_hooks_json_staleness, git_root, session_id, common_dir
-    )
+    freshness_msg, _freshness_advance = advisories.get("freshness_due", (None, None))
 
-    # --- ZERO-TOOL-USE-DETECT-SURFACE (see module docstring + the section
-    # immediately above _emit_advisory). Independently wrapped, same as the
-    # push-failure block above -- a bug here must never take down either
-    # pre-existing advisory. Gated to UserPromptSubmit inside the function
-    # itself (checked first, before any stat call), so this costs nothing
-    # extra on Stop/PostToolUse:Agent fires. ---
-    zero_tool_use_msg, _zero_tool_use_advance = _fail_open(
-        _check_zero_tool_use_surface,
-        git_root,
-        session_id,
-        zero_tool_use_sessions_dir,
-        hook_event,
-        default=(None, None),
-    )
-
-    # --- SESSION-BATON-MINT (see module comment block above
-    # _mint_session_baton). Independently wrapped, same as the checks above --
-    # a bug here must never take down any other advisory, and must never
-    # reject the prompt. Steady-state cost is exactly one os.path.isfile stat
-    # (AC7); only this session's first UserPromptSubmit pays the mint cost.
-    # Contributes at most one line to _emit_advisory, and only on the call
-    # where the baton newly demonstrably exists (confirmed mint, or observed
-    # adoption) -- see `_mint_session_baton`'s docstring. ---
-    # --- REPLY-CAP-ESCAPE-FOLD-IN (C3, see block above _check_reply_cap_
-    # escape). Independently wrapped, same as the checks above -- a bug here
-    baton_msg, _baton_advance = _fail_open(
-        _mint_session_baton,
-        git_root,
-        session_id,
-        sessions_dir,
-        hook_event,
-        payload.get("prompt"),
-        default=(None, None),
-    )
-
-    # --- PM-TURN-LOG: every human prompt, after the mint so turn 0 exists. ---
-    baton_msg = _fail_open(
-        _append_pm_turn,
-        git_root,
-        session_id,
-        sessions_dir,
-        hook_event,
-        payload.get("prompt"),
-        baton_msg,
-        payload.get("transcript_path"),
-        default=baton_msg,
-    )
-
-    # --- Subagent-overrun tripwire: REMOVED (PM ruling 2026-07-31 stood it
-    # down; excised on the finding the gate had been False since -- see the
-    # module docstring's SUBAGENT-ARRIVAL-CHECK note for the restore
-    # pointer). Only the surviving advisories emit now. ---
     def _on_success() -> None:
+        if _freshness_advance is not None:
+            try:
+                _freshness_advance()
+            except Exception:
+                pass
         if _push_failure_advance is not None:
             try:
                 _push_failure_advance()
@@ -2101,15 +2329,36 @@ def main() -> int:
             except Exception:
                 pass
 
-    return _emit_advisory(
-        [baton_msg, push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg],
-        hook_event,
-        on_success=_on_success,
-    )
+    t_mark = time.monotonic()
+    with _emit_gate:
+        rc = _emit_advisory(
+            [
+                baton_msg,
+                push_failure_msg,
+                hooks_json_stale_msg,
+                zero_tool_use_msg,
+                freshness_msg,
+                cutoff_notice,
+            ],
+            hook_event,
+            on_success=_on_success,
+        )
+    steps.append(("emit", time.monotonic() - t_mark))
+
+    total = time.monotonic() - t_start
+    if total > _SLOW_FIRE_THRESHOLD_SECONDS:
+        _fail_open(
+            _write_slow_fire_timing,
+            sessions_dir,
+            session_id,
+            hook_event,
+            total,
+            steps,
+            started,
+            unfinished,
+        )
+    return rc
 
 
 if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except Exception:
-        sys.exit(0)
+    _run_as_script()

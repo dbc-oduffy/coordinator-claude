@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # session-claim-cli — CLI trampoline over claude-klabauter
 # coordinator_core.session.claims (the claim-lock primitives: claim_artifact /
 # release_artifact / clear_claim_if_dead / claim_plan). Direct-import variant,

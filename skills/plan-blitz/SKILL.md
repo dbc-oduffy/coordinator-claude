@@ -1,6 +1,6 @@
 ---
 name: plan-blitz
-description: "PM-GATED. Plan every baton lacking an approved plan, in scout/EM/planner waves. Or named batons."
+description: "PM-GATED. Plan every baton lacking an approved plan: scout/EM/planner waves, or named batons."
 description-budget: 320
 version: 1.0.0
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "Skill", "Workflow", "AskUserQuestion", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList"]
@@ -154,6 +154,10 @@ routes, never halts — a replan baton, the other N-1 plans finish, co-reviewer 
 phase (APM for scope; staff-eng or a domain reviewer for code); only `pm_only` stays in `surfacedToPm`.
 
 **`approved` is not `mise-prepped`, and a wave never stamps one.** Body edits invalidate a stamp; frontmatter writes do not. Never read `mise_prepped_by` for presence (`A-PRESENT-MISE-PREPPED-STAMP-IS-NOT-A-CERTIFICATION`; contract: `coordinator/docs/wiki/lesson-triage/mise-prepped-attest.md`).
+
+## Grinder defaults
+
+Contract: `coordinator/docs/wiki/grinder-efficiency-defaults.md`; a baton is the row. **script-first triage**: the frozen gate report and `recycle-check.py` settle recycled, resurrected, held and unschedulable batons before any planner sees one. **default budget**: the EM sets `--waves <n>` on every sweep, never an open-ended loop; a token cap is an engine ask. **25/50/75% checkpoints**: the EM reads the landing ledger against those marks of the budget. **scoped commit per green row**: `land-wave.py` commits each baton's landing on its own pathspec.
 
 ## Anti-scope
 

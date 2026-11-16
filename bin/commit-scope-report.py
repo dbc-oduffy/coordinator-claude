@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 commit-scope-report.py — READ-ONLY aggregator over the per-commit-attempt
 records written by ``coordinator_core.session.commit_scope_events``.
@@ -75,8 +76,14 @@ def _git_common_dir(repo: Path) -> Path | None:
 
 
 def _session_dirs(git_dir: Path) -> List[Path]:
-    roots = [git_dir / "coordinator-sessions"]
-    roots.append(git_dir / "coordinator-sessions" / ".archive")
+    # Inline twin of session_hub_path.hub_for_common, built here on purpose: this stdlib-only reader
+    # imports no engine. The else branch is the bare-repo hub, identical to the resolver.
+    hub = (
+        git_dir.parent / ".coordinator-local" / "coordinator-sessions"
+        if git_dir.name == ".git"
+        else git_dir / "coordinator-sessions"
+    )
+    roots = [hub, hub / ".archive"]
     out: List[Path] = []
     for root in roots:
         if not root.is_dir():

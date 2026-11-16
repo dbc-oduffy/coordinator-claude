@@ -1,3 +1,9 @@
+---
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
+---
+
 # Test Design Discipline
 
 
@@ -1268,6 +1274,8 @@ That result holds only as long as the practice below is the default, not a one-t
 - **Git *state* for a fixture is built as plain files**, via `coordinator/tests/_fake_git.py` — no `git init`/`add`/`commit` subprocess per test case. It also writes real committed history when a test genuinely needs one (`commit_files`), and that history is verified against `git fsck` so the shortcut is never mistaken for a source of undetected corruption.
 - **Git *history* is read via `coordinator/tests/_git_history.py`** — a read-only, allowlisted (`log`, `rev-parse`, `show`) wrapper. Reading history is not fixture construction and does not need the plain-files treatment; it needs the allowlist so a read-only call site can never widen into a state-mutating one by accident.
 - **Tracked-file enumeration parses `.git/index` directly** via `coordinator/tests/fixtures/hook-message-sweeps/population_scan.py`, rather than shelling `git ls-files` — verified equal to `git ls-files` output at 90/90 before it replaced the subprocess call sites that used it.
+- **In-process by default.** Hook and git fixture tests run in-process unless the test's subject is the process boundary.
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-24-091 -->
 - **A subprocess inside a test needs a physics justification: the process boundary IS the thing under test.** Never convenience, never "it's simpler to shell out here." Volume is never physics either — spawning once per parametrized case where one spawn per *behaviour* would do is exactly the pattern that produced the incident this section documents.
 
 Composes with §44 (bound every test run; never run a surface containing a known-hang "to verify") and §30 (slow tests masquerading as unit tests blow up default suites) — an unbounded subprocess count is a slow-suite defect with a machine-wide blast radius, not just a per-test one.
@@ -1893,3 +1901,4 @@ may feed a unit test of the stage (see § 1, § 20); it never stands in for the 
 - **A zero-latency test double cannot express an intermediate-state guarantee.** Delay the double and assert the in-between.
 - **Guard and hook suites cover the wire path,** not only `check()` directly; at least one test goes through the dispatcher.
 - **Show an assertion can still fail before reading green as behaviour-preserving.** Print the comparison set's cardinality — zero is a defect report — and probe the primitive directly.
+- **A test of timeout or slice-cap logic must make the real read path wait longer than the cap.** A fake server that always answers within the per-line slice never exercises the cap, so the test goes green while the cap is broken; keep one fake silent past the slice and assert the cap fires.

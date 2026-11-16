@@ -1,6 +1,6 @@
 ---
 name: consolidate-git
-description: "Absorb every branch into the current one by true merge, then prune."
+description: "Absorb every branch by true merge, then prune."
 version: 1.0.0
 allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
 ---

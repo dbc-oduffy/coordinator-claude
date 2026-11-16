@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """handoff-archive-transition.py — CLI trampoline over claude-klabauter's
 `handoff.archive_transition` op, covering the two dispatch shapes coordinator-content-repo's
 `coordinator/skills/handoff/SKILL.md` (predecessor chain-archival on write, and
@@ -14,14 +14,8 @@ Subcommands:
 
     chain <predecessor-path> [--exclude <path>]... [--sha <SHA>] [--force]
         Chain-archival on write (SKILL.md "Chain archival — presume the sweep
-        wins"). Runs the predecessor live-children guard (co-located
-        handoff-has-live-children.py, spawned as a subprocess — SAME
-        engine/contract the skill's bash already called, not re-derived here)
-        as a CALLER PRECONDITION, then dispatches handoff.archive_transition
-        with the mode the guard result selects:
-          - guard says childless (exit 1)              -> mode 'stamp_shipped'
-          - guard says has-children or indeterminate    -> mode 'stamp_only'
-            (exit 0 / exit 2)
+        wins"). Dispatches handoff.archive_transition with mode
+        'stamp_shipped'; the op owns any live-children retention.
         Fails loud (exit 1, one stderr line) when <predecessor-path> is
         already gone from disk — the async boot sweep beating this call to
         the archival is the common case on a sweep-active fleet, but an
@@ -29,16 +23,13 @@ Subcommands:
         produces, and this call cannot tell those apart from disk alone; it
         does not claim success on the sweep's behalf (plan chunk C1, AC1/
         AC2). An op-level refusal from handoff.archive_transition (a
-        RouteMutationError) is likewise surfaced to stderr AND now fails this
+        _TransitionRefused) is likewise surfaced to stderr AND now fails this
         subcommand (exit 1) — a refusal is not a confirmed landing, and this
         call must never claim a mutation happened when it didn't. A genuine
-        transport/engine failure (a bare RuntimeError, not a RouteMutationError)
+        transport/engine failure (any exception other than _TransitionRefused)
         also returns 1 for the same reason: silently swallowing it would be
         indistinguishable from success to the caller (see Exit codes below).
-        The one remaining legitimate 0 besides a confirmed archive is
-        guard-retention (live children -> mode falls back to stamp_only) —
-        that branch's promised outcome IS the stamp-only landing, and stays
-        0. The other asymmetry worth noting: a "stamp_shipped" run whose op
+        The asymmetry worth noting: a "stamp_shipped" run whose op
         envelope reports no landing is genuinely ambiguous from the envelope
         alone (deliberate deferral vs a failed move attempt) — `cmd_chain`
         now resolves that ambiguity with an on-disk re-read (mirroring
@@ -84,7 +75,7 @@ Subcommands:
 
 Both subcommands resolve the repo root from the target handoff's own
 directory (`git -C <dirname(handoff_path)> rev-parse --show-toplevel`) — same
-technique as handoff-has-live-children.py's `_resolve_repo_root` — rather
+technique as the other handoff CLIs' `_resolve_repo_root` — rather
 than from the process cwd. This is a deliberate improvement over the ported
 skill's `git -C "$PWD" ...` (falling back to `$PWD` on failure): resolving
 from the handoff's own directory has no cwd dependence at all, matching this
@@ -94,11 +85,8 @@ Exit codes:
     chain:     0 on a confirmed archive (via the envelope's `moved` flag, or
                an on-disk re-read confirming `deployment_state: shipped`
                with `shipped_in` populated when the envelope's own flag is
-               falsy — see `cmd_chain`'s docstring), or on a guard-retained
-               stamp-only landing (the promised outcome on that branch, see
-               above); 1 on a missing predecessor file, a guard subprocess
-               spawn failure (OSError) that leaves the mode undecidable, an
-               op-level refusal (RouteMutationError), a genuine transport/
+               falsy — see `cmd_chain`'s docstring); 1 on a missing
+               predecessor file, an op-level refusal (_TransitionRefused), a genuine transport/
                engine failure (a bare RuntimeError), or a falsy envelope
                landing signal whose on-disk re-read also fails to confirm
                the transition landed — none of these is a confirmed
@@ -110,19 +98,17 @@ Exit codes:
                `docs/plans/2026-07-28-handoff-close-path-fail-loud.md`
                chunk C13 — see `cmd_supersede`'s docstring); 2 on a usage
                error (missing --continued-into or missing handoff-path).
-    abandon:   0 when the close-then-chain composition lands (including a
-               guard-retained stamp-only landing from the `chain` half —
-               that is `chain`'s own retention contract, unchanged here);
+    abandon:   0 when the close-then-chain composition lands;
                1 on a bad/missing --reason, a worked (non-placeholder)
                body, a non-empty `carried_items`, a path outside
                `state/handoffs/`, or a non-zero `cs_close_handoff`/`chain`
                result.
 
 Negative-spec:
-    - Does NOT open any UDS socket or read an auth token — routes through
-      cc_invoke.route()/route_mutation(), which are command-type transports
-      (fresh coordinator_core.invoke subprocess per call), same as every
-      other bin/ CLI in this house style.
+    - Does NOT route through cc_invoke.route_mutation: the `handoff.archive_
+      transition` op key is killed over its bar, so chain/supersede call the
+      op's compute in-process via `archive_stamp._call_handoff_archive_
+      transition` (`_call_transition` below).
     - Does NOT write the `<!-- consumed: YYYY-MM-DD -->` marker — that stays
       `/pickup`'s exclusive responsibility, unaffected by this port.
     - Does NOT stamp `handoff_phase` — that is a separate concern
@@ -138,34 +124,10 @@ from __future__ import annotations
 import argparse
 import os
 import re
-import subprocess
 import sys
 from pathlib import Path
 
-_BIN_DIR = os.path.dirname(os.path.abspath(__file__))
-
 PROG = "handoff-archive-transition.py"
-
-
-def _no_console_kw() -> dict:
-    """Lazily resolve the engine root onto sys.path (self-location-first via
-    cc_invoke.ensure_engine_on_path — see that function's docstring), then
-    splat the canonical no-console-window kwarg. ``{}`` on any resolution/
-    import failure (fail-open)."""
-    try:
-        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-        import cc_invoke
-
-        if cc_invoke.ensure_engine_on_path(__file__) is None:
-            return {}
-        from coordinator_core.win_portability import no_console_creationflags
-
-        return no_console_creationflags()
-    except Exception:
-        return {}
-
-
-_HAS_LIVE_CHILDREN_SCRIPT = os.path.join(_BIN_DIR, "handoff-has-live-children.py")
 
 
 _BOOTSTRAP_DONE = False
@@ -224,19 +186,31 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-def _no_fallback():
-    raise RuntimeError(
-        f"{PROG}: handoff.archive_transition requires the native seam (no bash "
-        "fallback -- big-bang cutover); re-run coordinator:install or verify "
-        "CLAUDE_KLABAUTER_ROOT"
-    )
+class _TransitionRefused(Exception):
+    """The transition compute returned a non-zero `exit_code`."""
+
+
+def _call_transition(params: dict) -> dict:
+    """In-process call of the archive-transition compute (the op's key is
+    killed; its library door is live). Raises `_TransitionRefused` on a
+    non-zero `exit_code`; any other exception is a transport/engine failure."""
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+
+    cc_invoke.require_engine_on_path(__file__)
+    from coordinator_core.archive_stamp import _call_handoff_archive_transition
+
+    rest = {k: v for k, v in params.items() if k != "handoff_path"}
+    result = _call_handoff_archive_transition(params["handoff_path"], rest)
+    if int(result.get("exit_code", 1)) != 0:
+        raise _TransitionRefused(result.get("error") or "unknown error")
+    return result
 
 
 def _resolve_repo_root(handoff_path: str) -> str | None:
     """Resolve repo root from the handoff's own directory, not the process cwd.
 
-    Mirrors handoff-has-live-children.py's `_resolve_repo_root` technique —
-    candidate-dir discovery always resolves the correct per-repo git root
+    Candidate-dir discovery always resolves the correct per-repo git root
     regardless of where this CLI happens to be invoked from.
     """
     handoff_abs = os.path.abspath(handoff_path)
@@ -252,33 +226,10 @@ def _resolve_repo_root(handoff_path: str) -> str | None:
     return show_toplevel(os.path.dirname(handoff_abs))
 
 
-def _guard_exit_code(handoff_path: str, exclude: list[str]) -> int:
-    """Spawn the co-located handoff-has-live-children.py guard as a caller
-    precondition. Returns its exit code verbatim: 0 has-children, 1 childless
-    (safe to archive), 2 indeterminate/error (fail-closed, treat as has-children).
-
-    A guard subprocess-spawn failure (OSError — script missing, no
-    interpreter) is NOT the same as the guard's own fail-closed exit 2: it
-    means the mode decision itself is undecidable, so it is surfaced distinctly
-    by the caller rather than silently coerced to 2.
-    """
-    cmd = [sys.executable, _HAS_LIVE_CHILDREN_SCRIPT]
-    for path in exclude:
-        cmd += ["--exclude", path]
-    cmd.append(handoff_path)
-    proc = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        **_no_console_kw(),
-    )
-    return proc.returncode
-
-
 def _locate_after_archive_move(handoff_path: str, repo_root: str | None) -> str:
     """Where to re-read frontmatter from after a transition that may have
     git-mv'd the handoff into archive/: `handoff_path` itself when the move
-    did not happen (guard-retained, the move genuinely failed, or no move
+    did not happen (op-retained, the move genuinely failed, or no move
     was attempted for this mode/branch), or the derived
     archive/handoffs/YYYY-MM/ destination when it did. Falls back to
     `handoff_path` verbatim when `repo_root` is falsy — the re-read then
@@ -338,14 +289,11 @@ def cmd_chain(
     force: bool = False,
 ) -> int:
     """Chain-archival dispatch. Every return is a promise about the mutation:
-    0 means the call's promised outcome (archive, or a guard-retained
-    stamp-only) is CONFIRMED landed; non-zero means it did not, whatever the
-    stderr tone. The discriminator is "did the mutation this call promised
-    actually land", never "did we archive" — guard-retention (live children
-    -> mode falls back to stamp_only) is itself the promised outcome on that
-    branch and stays 0 (plan docs/plans/2026-07-28-handoff-close-path-fail-
-    loud.md chunk C1, AC1/AC2; see § S5 for the pre-fix smoking gun this
-    replaces).
+    0 means the call's promised outcome (archive) is CONFIRMED landed;
+    non-zero means it did not, whatever the stderr tone. The discriminator
+    is "did the mutation this call promised actually land" (plan
+    docs/plans/2026-07-28-handoff-close-path-fail-loud.md chunk C1,
+    AC1/AC2; see § S5 for the pre-fix smoking gun this replaces).
 
     `sha`/`force` (plan chunk C3, AC5): CLI-surface passthrough onto the
     `sha`/`force` params `handoff.archive_transition` has already accepted
@@ -395,16 +343,6 @@ def cmd_chain(
         )
         return 1
 
-    try:
-        guard_rc = _guard_exit_code(handoff_path, exclude)
-    except OSError as exc:
-        print(
-            f"chain-archival: live-children guard could not be spawned for "
-            f"{handoff_path!r} ({exc}) — mode undecidable",
-            file=sys.stderr,
-        )
-        return 1
-
     repo_root = _resolve_repo_root(handoff_path)
     if not repo_root:
         print(
@@ -414,17 +352,7 @@ def cmd_chain(
         )
         return 1
 
-    if guard_rc == 1:
-        mode = "stamp_shipped"
-    else:
-        mode = "stamp_only"
-        print(
-            f"chain-archival: {handoff_path!r} has live children (guard rc="
-            f"{guard_rc}) — stamping shipped in place, not archiving",
-            file=sys.stderr,
-        )
-
-    params: dict = {"handoff_path": handoff_path, "mode": mode}
+    params: dict = {"handoff_path": handoff_path, "mode": "stamp_shipped"}
     if exclude:
         params["exclude"] = list(exclude)
     if sha and sha.strip():
@@ -433,37 +361,37 @@ def cmd_chain(
         params["force"] = True
 
     try:
-        result = cc_invoke.route_mutation(
-            "handoff.archive_transition", params, repo_root, _no_fallback
-        )
-    except cc_invoke.RouteMutationError as exc:
+        result = _call_transition(params)
+    except _TransitionRefused as exc:
         print(
-            f"chain-archival: handoff.archive_transition (mode={mode}) refused "
+            f"chain-archival: handoff.archive_transition (mode=stamp_shipped) refused "
             f"for {handoff_path!r} — {exc}",
             file=sys.stderr,
         )
         return 1
     except RuntimeError as exc:
         print(
-            f"chain-archival: handoff.archive_transition (mode={mode}) failed "
+            f"chain-archival: handoff.archive_transition (mode=stamp_shipped) failed "
             f"for {handoff_path!r} — transport/engine failure: {exc}",
             file=sys.stderr,
         )
         return 1
 
-    if mode == "stamp_only":
-        # Guard-retention: the promised outcome on this branch IS the
-        # stamp-only landing, already confirmed by op's non-raising return.
-        # This is the one legitimate zero this function has (see docstring).
-        return 0
-
-    # mode == "stamp_shipped" from here. `moved` is the envelope's own
+    # `moved` is the envelope's own
     # landing signal for this mode (handoff.archive_transition's return dict
     # has never carried an `archived` key — see the fix note below).
     moved = isinstance(result, dict) and bool(result.get("moved"))
     if moved:
         print(
             f"chain-archival: predecessor {handoff_path!r} archived",
+            file=sys.stderr,
+        )
+        return 0
+
+    if isinstance(result, dict) and result.get("retained"):
+        print(
+            f"chain-archival: archival deferred for {handoff_path!r} — "
+            f"{result.get('retain_reason')}",
             file=sys.stderr,
         )
         return 0
@@ -584,10 +512,8 @@ def cmd_supersede(handoff_path: str, continued_into: str | None, exclude: list[s
         params["exclude"] = list(exclude)
 
     try:
-        result = cc_invoke.route_mutation(
-            "handoff.archive_transition", params, repo_root, _no_fallback
-        )
-    except cc_invoke.RouteMutationError as exc:
+        result = _call_transition(params)
+    except _TransitionRefused as exc:
         print(
             f"ERROR: handoff.archive_transition (mode=supersede) failed: {exc}",
             file=sys.stderr,
@@ -597,7 +523,7 @@ def cmd_supersede(handoff_path: str, continued_into: str | None, exclude: list[s
         print(f"ERROR: handoff.archive_transition (mode=supersede) failed: {exc}", file=sys.stderr)
         return 1
 
-    # Never silently succeed with no trace: route_mutation only raises on a
+    # Never silently succeed with no trace: _call_transition only raises on a
     # non-zero op-level exit_code, and this op deliberately returns
     # exit_code:0 even when the live-children guard retains the archival
     # move (retention is never an error — see handoff_archive_transition.py's
@@ -616,7 +542,7 @@ def cmd_supersede(handoff_path: str, continued_into: str | None, exclude: list[s
     superseded = bool(result.get("superseded"))
     if not superseded:
         # Defensive: as of the 2026-07-27 fix the status flip is unconditional
-        # and any failure to apply it already raises RouteMutationError above
+        # and any failure to apply it already raises _TransitionRefused above
         # (op-level exit_code!=0) — reaching exit_code:0 with superseded:False
         # should not happen, but this is exactly the shape the bug we're
         # fixing had, so refuse to report success if it ever does.
@@ -699,8 +625,7 @@ def cmd_abandon(handoff_path: str, reason: str) -> int:
     `coordinator_core.archive_stamp.cs_close_handoff` (the DR-084 session-
     only close door) and then this module's own `cmd_chain`, whose
     terminal-state precondition now passes because `closed` is terminal.
-    `cmd_chain`'s live-holder retention contract applies unchanged on the
-    second half — a retained landing there stays this function's own 0.
+    `cmd_chain`'s own exit contract applies unchanged on the second half.
 
     Refuses (rc 1, no write) in each of these cases, checked in this order:
     `reason` outside {cancelled, displaced, stale}; the resolved path is not
@@ -790,7 +715,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     chain = sub.add_parser(
         "chain",
-        help="predecessor live-children guard + archive-transition dispatch on handoff write",
+        help="archive-transition dispatch on handoff write",
     )
     chain.add_argument("handoff_path")
     chain.add_argument("--exclude", action="append", default=[], dest="exclude")

@@ -66,7 +66,7 @@ except Exception:
     # Defensive fallback -- a deploy missing its sibling _forwarder_resolve.py
     # must still emit the remediation prose (minus a resolved path) rather than
     # crash this fail-open hook on import.
-    def resolve_forwarder(bin_dir, name):  # type: ignore[misc]
+    def resolve_forwarder(bin_dir, name) -> Path | None:  # type: ignore[misc]
         return None
 
 

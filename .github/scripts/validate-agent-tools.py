@@ -14,7 +14,7 @@ PLUGINS_ROOT = pathlib.Path(".")
 
 WRITE_TOOLS = {"Write", "Edit", "Bash"}
 
-def validate_agent(path: pathlib.Path, errors: list):
+def validate_agent(path: pathlib.Path, errors: list) -> None:
     text = path.read_text(encoding="utf-8")
     if not text.startswith("---"):
         return  # No frontmatter — not our concern here (validate-frontmatter handles it)
@@ -67,7 +67,7 @@ def validate_agent(path: pathlib.Path, errors: list):
         )
 
 
-def main():
+def main() -> int:
     errors = []
 
     if not PLUGINS_ROOT.is_dir():

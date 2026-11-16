@@ -61,7 +61,7 @@ except Exception:
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
-    def _place_engine_root_on_path(root):
+    def _place_engine_root_on_path(root) -> Optional[str]:
         # Never index 0 when the hooks dir holds it; never the tail where site-packages outranks us.
         if root and root not in sys.path[:2]:
             sys.path.insert(1 if sys.path else 0, root)
@@ -86,11 +86,11 @@ except Exception:
         Message = _FallbackMessage
 
         @staticmethod
-        def compose(prose, alternative=None, anchor=None):
+        def compose(prose, alternative=None, anchor=None) -> _FallbackMessage:
             return _FallbackMessage(prose=prose.strip(), alternative=alternative, anchor=anchor)
 
         @staticmethod
-        def emit(message, channel):  # noqa: ARG004 -- single-channel fallback
+        def emit(message, channel) -> int:  # noqa: ARG004 -- single-channel fallback
             parts = [message.prose]
             if message.alternative:
                 parts.append("")

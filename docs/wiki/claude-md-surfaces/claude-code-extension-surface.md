@@ -229,15 +229,11 @@ unless nothing else claims the bare name).
   output style is the one documented mechanism purpose-built to fix exactly that failure mode. Not
   yet built; would need to verify it doesn't fight `keep-coding-instructions: true` semantics and
   survives across `/clear`/new-session boundaries (the doc says it applies only after those).
-- **`subagentStatusLine`** (`statusline.md § Subagent status lines`, v2.1.205+/v2.1.214+-gated
-  fields, both below our installed 2.1.220): a custom row per visible subagent fed `id`, `name`,
-  `status`, `model`, `effort`, `contextWindowSize`, `tokenCount`. Shipped as a plugin default in
-  `coordinator/settings.json`, rendering `who · what · model · effort · elapsed · tokens(pct) ·
-  status` per row from `coordinator/bin/subagent-statusline.py`, so fan-out wave progress is live
-  rather than post-hoc through `agent-completion-log.py` / `track-dispatched-agents.py`. The
-  command cannot resolve `${CLAUDE_PLUGIN_ROOT}` (anthropics/claude-code#81320), so it reads the
-  plugin root from the `$HOME/.claude/.coordinator-plugin-root` breadcrumb a SessionStart hook
-  writes; with hooks disabled there is no breadcrumb and rows fall back to the harness default.
+- **Subagent rows**: the harness renders them with its default look; the `subagentStatusLine`
+  setting has no effect (the installed 2.1.323 settings schema marks it deprecated) and the
+  vendored statusline docs omit it. Per-worker progress is post-hoc through
+  `agent-completion-log.py` / `track-dispatched-agents.py`, and `/tasks` names each subagent's
+  model and configured effort (`sub-agents.md`).
 - **Model config** (`model-config.md`): `fallbackModel` / `--fallback-model` (up to 3, tried in
   order on overload) — zero adoption, reliability lever not a doctrine one; a PM infra-preference
   call (accept a cheaper/faster silent substitute on overload), not proposed here.

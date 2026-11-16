@@ -42,13 +42,13 @@ except Exception:
     _RegisteredGuard = None  # type: ignore[assignment]
     _REAL_GUARD_REGISTRY = ()  # type: ignore[assignment]
 
-    def _verdict_to_envelope(result):  # type: ignore[no-redef]
+    def _verdict_to_envelope(result) -> None:  # type: ignore[no-redef]
         return None
 
-    def _run_guards(guards, payload, skipped_out=None):  # type: ignore[no-redef]
+    def _run_guards(guards, payload, skipped_out=None) -> dict:  # type: ignore[no-redef]
         return {}
 
-    def _build_registry_entries(registry, raw_payload_text, payload):  # type: ignore[no-redef]
+    def _build_registry_entries(registry, raw_payload_text, payload) -> list:  # type: ignore[no-redef]
         return []
 
 

@@ -93,7 +93,7 @@ except Exception:
     # Defensive fallback — see session-start-register-coordinator-content-repo-root.py's
     # identical precedent for why an import failure must degrade quietly
     # rather than crash a SessionStart hook.
-    def _resolve_claude_klabauter_root():  # type: ignore[no-redef]
+    def _resolve_claude_klabauter_root() -> None:  # type: ignore[no-redef]
         return None
 
 try:

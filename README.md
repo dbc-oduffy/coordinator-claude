@@ -236,7 +236,7 @@ The plugin ships **45** commands. Listed below are the 44 that are useful in a c
 | `/plan` | Decision-weight planning: multi-file, abstraction, cross-system, agent scaffold, reversed prior |
 | `/staff-session` | PM-gated: Agent Teams review for architecture calls (plan or review mode) |
 | `/roadmap-planning` | PM-gated: shape research into a ratified, graphed roadmap of batons |
-| `/research` | Research by value class: scouts, corpus (web, repo, structured, NotebookLM), or deep |
+| `/research` | Research by value class: scouts, corpus (web, repo, structured, NotebookLM), or unblock |
 
 **Execution**
 

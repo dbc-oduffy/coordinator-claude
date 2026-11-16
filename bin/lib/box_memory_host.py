@@ -12,6 +12,7 @@ Family exit codes: 0 ok, 1 operational failure, 2 usage, 3 not elevated, 4 admis
 from __future__ import annotations
 
 import contextlib
+import importlib
 import importlib.util
 import struct
 import sys
@@ -164,7 +165,7 @@ def proc_cmdline(pid: int) -> str:
 
     try:
         return " ".join(psutil.Process(pid).cmdline())
-    except psutil.Error:
+    except (psutil.Error, OSError):
         return ""
 
 
@@ -178,6 +179,26 @@ class MemoryStatus:
     commit_limit: int
 
 
+def _host_sampler(repo_root: Path | None = None) -> types.ModuleType:
+    """Import `coordinator_core.telemetry.host_sampler`, falling back to this checkout's root.
+
+    A bare system interpreter has no installed coordinator_core; the checkout root (resolved from
+    this file) is tried before giving up. Raises OSError naming the missing module.
+    """
+    name = "coordinator_core.telemetry.host_sampler"
+    try:
+        return importlib.import_module(name)
+    except ModuleNotFoundError:
+        pass
+    root = repo_root if repo_root is not None else Path(__file__).resolve().parents[3]
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    try:
+        return importlib.import_module(name)
+    except ModuleNotFoundError as exc:
+        raise OSError(f"cannot import {name} (missing module {exc.name!r}; looked in {root})") from exc
+
+
 def memory_status_darwin(avail_mb_fn=None, vm_fn=None, swap_fn=None) -> MemoryStatus:
     """macOS memory status; raises OSError when available memory is unreadable.
 
@@ -189,9 +210,7 @@ def memory_status_darwin(avail_mb_fn=None, vm_fn=None, swap_fn=None) -> MemorySt
     process by design.
     """
     if avail_mb_fn is None:
-        from coordinator_core.telemetry import host_sampler
-
-        avail_mb_fn = host_sampler.avail_mb
+        avail_mb_fn = _host_sampler().avail_mb
     if vm_fn is None or swap_fn is None:
         import psutil
 
@@ -234,9 +253,7 @@ def read_memory_status() -> MemoryStatus:
     stat.dwLength = ctypes.sizeof(_MEMORYSTATUSEX)
     if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
         raise ctypes.WinError()
-    from coordinator_core.telemetry import host_sampler
-
-    avail_mb, _total_mb = host_sampler.avail_mb()
+    avail_mb, _total_mb = _host_sampler().avail_mb()
     if avail_mb is None:
         raise OSError("available physical memory unreadable")
     return MemoryStatus(
@@ -245,6 +262,33 @@ def read_memory_status() -> MemoryStatus:
         commit_used=int(stat.ullTotalPageFile - stat.ullAvailPageFile),
         commit_limit=int(stat.ullTotalPageFile),
     )
+
+
+def _group_em_live() -> bool:
+    """True when a live box-wide group-em holder exists; any failure reads as not live."""
+    try:
+        _host_sampler()  # puts this checkout's root on sys.path when coordinator_core is not installed
+        from coordinator_core.group_em import gem_home
+
+        return gem_home.gem_holder() is not None
+    except Exception:
+        return False
+
+
+def trim_file_cache() -> str | None:
+    """Fire the PM-installed BoxCacheTrim task once (Windows only), gated on a live group-em as the
+    governor's trims are; this run's result line, or None when nothing was fired. Bounded by
+    `file_cache_trim.GOVERNOR_WAIT_SECONDS`. Callers fire it only on a breach, never per admit."""
+    if sys.platform != "win32":
+        return None
+    lib = str(Path(__file__).resolve().parent)
+    if lib not in sys.path:
+        sys.path.insert(0, lib)
+    try:
+        from file_cache_trim import fire_box_cache_trim
+    except ImportError:
+        return None
+    return fire_box_cache_trim(live_fn=_group_em_live)
 
 
 def nonpaged_pool_bytes() -> int:
@@ -279,7 +323,7 @@ def nonpaged_pool_bytes() -> int:
 
 
 def empty_working_set(pid: int) -> None:
-    """Trim one process's working set. Raises OSError(winerror). Windows only."""
+    """Trim one process's working set; a no-op when the handle is denied or the trim fails. Windows only."""
     import ctypes
     from ctypes import wintypes
 
@@ -291,11 +335,10 @@ def empty_working_set(pid: int) -> None:
         _PROCESS_QUERY_LIMITED_INFORMATION | _PROCESS_SET_QUOTA, False, pid
     )
     if not handle:
-        raise ctypes.WinError(ctypes.get_last_error())
+        return
     try:
         kernel32.K32EmptyWorkingSet.argtypes = [wintypes.HANDLE]
-        if not kernel32.K32EmptyWorkingSet(handle):
-            raise ctypes.WinError(ctypes.get_last_error())
+        kernel32.K32EmptyWorkingSet(handle)
     finally:
         kernel32.CloseHandle(handle)
 
@@ -455,16 +498,14 @@ def _grant_holdings(grants_dir, covered: set, now: float) -> list[dict]:
             continue
         out.append({
             "session_id": key[0], "run": key[1], "pid": None, "image": None,
+            "grant_issuer_session_id": file.parent.name,
             "bytes": int(peak * 1024 * 1024),
         })
     return out
 
 
-def _holdings(path, rss_fn, alive_fn, create_time_fn, image_fn, now_fn) -> list[dict]:
-    """One entry per holding (START, pid): session, run, pid, image, bytes. Reads the last 1 MiB.
-
-    Plus one pid-less entry per live slot grant not covered by a START or END (see ``_grant_holdings``).
-    """
+def _ledger_starts(path) -> tuple[dict, set]:
+    """Last START per (session, run), closed by END; read only the bounded ledger tail."""
     import json
 
     try:
@@ -491,8 +532,50 @@ def _holdings(path, rss_fn, alive_fn, create_time_fn, image_fn, now_fn) -> list[
         elif line.get("phase") == "START":
             starts[key] = line
             covered.add(key)
+    return starts, covered
+
+
+def _verified_pool_line(line, alive_fn, create_time_fn, image_fn, now_fn) -> bool:
+    """Selected pools need an explicit reliable birth stamp, not only a surviving PID."""
+    import math
+
+    stamp = _num(line.get("create_time"))
+    pids = line.get("pids")
+    return (stamp is not None and math.isfinite(stamp) and stamp > 0 and isinstance(pids, list)
+            and len(pids) == 1 and _safe_holds(line, pids[0], alive_fn, create_time_fn, image_fn, now_fn))
+
+
+def _holdings(path, rss_fn, alive_fn, create_time_fn, image_fn, now_fn) -> list[dict]:
+    """Live process/grant holdings; valid linked allocations share their active parent's pool."""
+    starts, covered = _ledger_starts(path)
+    # Pool links are allocation accounting within one registered budget. Without
+    # a live birth-verified parent or with malformed/oversized allocations, keep
+    # the old additive reservation instead (strict failure direction).
+    pooled = set()
+    by_pool = {}
+    for key, line in starts.items():
+        pool = (line.get("pool_session_id"), line.get("pool_run"))
+        if all(isinstance(value, str) and value for value in pool):
+            by_pool.setdefault(pool, []).append((key, line))
+    for parent_key, parent in starts.items():
+        if parent_key not in by_pool:
+            continue
+        if parent.get("pool_session_id") or parent.get("pool_run"):
+            continue  # Nested/cyclic pool declarations remain additively reserved.
+        if not _verified_pool_line(parent, alive_fn, create_time_fn, image_fn, now_fn):
+            continue
+        peak = _num(parent.get("declared_peak_mb"))
+        if peak is None or not 0 < peak <= 1048576:
+            continue
+        children = [(key, line) for key, line in by_pool.get(parent_key, []) if key != parent_key
+                    and _verified_pool_line(line, alive_fn, create_time_fn, image_fn, now_fn)]
+        allocations = [_num(line.get("declared_peak_mb")) for _, line in children]
+        if all(value is not None and 0 < value <= peak for value in allocations) and sum(allocations) <= peak:
+            pooled.update(key for key, _ in children)
     out = _grant_holdings(slot_grants_dir(path), covered, now_fn())
-    for line in starts.values():
+    for key, line in starts.items():
+        if key in pooled:
+            continue
         peak = line.get("declared_peak_mb")
         if isinstance(peak, bool) or not isinstance(peak, (int, float)) or peak <= 0:
             continue
@@ -531,6 +614,70 @@ def reserved_bytes(
 
     rows = _holdings(path, rss_fn, alive_fn, create_time_fn, image_fn, now_fn or time.time)
     return sum(r["bytes"] for r in rows)
+
+
+CONTROL_PLANE_CORE_RESERVE = 2
+_CORE_RESERVE_ENV = "COORDINATOR_ADMISSION_CORE_RESERVE"
+
+
+def _line_cores(line: dict) -> int:
+    """Declared cores of a START row; a missing, non-integer or sub-1 value counts as 1."""
+    value = line.get("declared_cores")
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 1 else 1
+
+
+def physical_cores() -> int:
+    """Physical core count (psutil), falling back to the logical count, then 1."""
+    try:
+        import psutil
+
+        cores = psutil.cpu_count(logical=False)
+        if cores:
+            return int(cores)
+    except ImportError:
+        pass
+    import os
+
+    return os.cpu_count() or 1
+
+
+def default_cpu_budget() -> int:
+    """Box CPU budget in cores: physical cores minus the control-plane reserve, at least 1.
+
+    The reserve is ``CONTROL_PLANE_CORE_RESERVE`` unless ``COORDINATOR_ADMISSION_CORE_RESERVE``
+    holds a non-negative integer.
+    """
+    import os
+
+    raw = os.environ.get(_CORE_RESERVE_ENV, "")
+    reserve = int(raw) if raw.isascii() and raw.isdigit() else CONTROL_PLANE_CORE_RESERVE
+    return max(1, physical_cores() - reserve)
+
+
+def reserved_cores(
+    path, alive_fn=pid_alive, create_time_fn=pid_create_time, image_fn=pid_image, now_fn=None,
+    *, exclude_key=None,
+) -> int:
+    """Sum of declared cores (absent = 1) over START rows with no END that still hold a pid.
+
+    A row counts on the same terms as ``reserved_bytes`` (positive ``declared_peak_mb``, a holding
+    pid); one row counts once however many pids it names. ``exclude_key`` is a (session_id, run) to
+    leave out, for a caller re-checking its own row. Slot grants name no cores and count 0.
+    """
+    import time
+
+    now_fn = now_fn or time.time
+    starts, _ = _ledger_starts(path)
+    total = 0
+    for key, line in starts.items():
+        if key == exclude_key:
+            continue
+        peak = line.get("declared_peak_mb")
+        if isinstance(peak, bool) or not isinstance(peak, (int, float)) or peak <= 0:
+            continue
+        if any(_safe_holds(line, pid, alive_fn, create_time_fn, image_fn, now_fn) for pid in line.get("pids") or []):
+            total += _line_cores(line)
+    return total
 
 
 def top_holders(
@@ -645,29 +792,38 @@ def record_peak(admission_path, key: str, peak_gib: float) -> float:
 
 
 def register_command(
-    admission_path, key: str, pid: int, peak_gib: float, create_time_fn=pid_create_time
+    admission_path, key: str, pid: int, peak_gib: float, create_time_fn=pid_create_time,
+    *, reservation_session_id=None, reservation_run=None, pool_session_id=None, pool_run=None,
+    cores: int = 1,
 ) -> None:
     """Append a START line stamped with ``ts`` and the pid's ``create_time`` (omitted when unreadable).
 
-    The headroom is reserved until END, pid death, or the pid's create_time changing.
+    The headroom is reserved until END, pid death, or the pid's create_time changing. ``cores`` is
+    the declared core count the CPU axis sums (``reserved_cores``).
     """
     import time
 
     line = {
         "phase": "START", "session_id": "box-memory-snapshot", "run": f"{key}:{pid}",
-        "pids": [pid], "declared_peak_mb": peak_gib * 1024, "ts": time.time(),
+        "pids": [pid], "declared_peak_mb": peak_gib * 1024, "declared_cores": max(1, int(cores)),
+        "ts": time.time(),
     }
     created = create_time_fn(pid)
     if created is not None:
         line["create_time"] = created
+    if reservation_session_id is not None and reservation_run is not None:
+        line.update(session_id=reservation_session_id, run=reservation_run, command_key=key)
+    if pool_session_id is not None and pool_run is not None:
+        line.update(pool_session_id=pool_session_id, pool_run=pool_run)
     _append_admission(admission_path, line)
 
 
-def release_command(admission_path, key: str, pid: int) -> None:
+def release_command(admission_path, key: str, pid: int, *, reservation_session_id=None, reservation_run=None) -> None:
     """Append the END line that frees a registered command's reservation (under ``admission_lock``, so a concurrent compaction cannot drop it)."""
     with admission_lock(admission_path):
         _append_admission(admission_path, {
-            "phase": "END", "session_id": "box-memory-snapshot", "run": f"{key}:{pid}", "pids": [],
+            "phase": "END", "session_id": reservation_session_id if reservation_session_id is not None else "box-memory-snapshot",
+            "run": reservation_run if reservation_run is not None else f"{key}:{pid}", "pids": [],
         })
 
 
@@ -682,12 +838,53 @@ def _append_admission(admission_path, line: dict) -> None:
 
 @dataclass(frozen=True)
 class AdmitVerdict:
-    """Admission decision with both clauses exposed."""
+    """Admission decision with the memory clauses and the CPU axis exposed.
+
+    ``admit`` is false when any axis fails; ``cpu_ok`` is true for a pure memory check.
+    """
 
     admit: bool
     need_avail: float
     avail_ok: bool
     commit_ok: bool
+    cpu_ok: bool = True
+    declared_cores: int = 1
+    reserved_cores: int = 0
+    cpu_budget: int | None = None
+
+    @property
+    def hold_reason(self) -> str:
+        """Empty when admitted; otherwise one clause per failed axis, the CPU axis starting ``cpu:``."""
+        if self.admit:
+            return ""
+        parts = []
+        if not self.avail_ok:
+            parts.append("memory: available below need")
+        if not self.commit_ok:
+            parts.append("commit: over limit")
+        if not self.cpu_ok:
+            parts.append(
+                f"cpu: declared {self.declared_cores} + reserved {self.reserved_cores} cores"
+                f" > budget {self.cpu_budget}"
+            )
+        return "HOLD " + "; ".join(parts)
+
+
+def _with_cpu_axis(verdict: AdmitVerdict, declared: int, reserved: int, budget: int | None) -> AdmitVerdict:
+    """Fold the CPU axis into a memory verdict.
+
+    Answers "do these legs' summed cores fit the box?". A leg alone on the box (nothing else
+    reserved) always fits, so an over-wide declaration never refuses legitimate work forever.
+    """
+    import dataclasses
+
+    declared = max(1, int(declared))
+    budget = default_cpu_budget() if budget is None else budget
+    cpu_ok = reserved == 0 or declared + reserved <= budget
+    return dataclasses.replace(
+        verdict, admit=verdict.admit and cpu_ok, cpu_ok=cpu_ok,
+        declared_cores=declared, reserved_cores=reserved, cpu_budget=budget,
+    )
 
 
 @contextlib.contextmanager
@@ -730,11 +927,15 @@ def admit_and_register(
     *,
     cushion_pct: float = 25.0,
     commit_limit: int | None = None,
+    cores: int = 1,
+    cpu_budget: int | None = None,
     **reserved_kwargs,
 ) -> tuple[AdmitVerdict, int]:
     """Read reservations, decide and write the START line under one lock; returns (verdict, reserved bytes).
 
-    Two concurrent callers serialize, so the second sees the first's reservation.
+    Two concurrent callers serialize, so the second sees the first's reservation. ``cores`` is the
+    leg's declared cores (undeclared = 1) and ``cpu_budget`` the box budget (None = ``default_cpu_budget()``);
+    the verdict holds when declared plus already-reserved cores exceed it.
     """
     import dataclasses
 
@@ -748,9 +949,126 @@ def admit_and_register(
             commit_used=status.commit_used + reserved,
         )
         verdict = admit(int(peak_gib * GIB), adjusted, cushion_pct=cushion_pct, commit_limit=commit_limit)
+        verdict = _with_cpu_axis(verdict, cores, reserved_cores(admission_path, **liveness), cpu_budget)
         if verdict.admit:
-            register_command(admission_path, key, pid, peak_gib, **{k: v for k, v in liveness.items() if k == "create_time_fn"})
+            register_command(admission_path, key, pid, peak_gib, cores=cores,
+                             **{k: v for k, v in liveness.items() if k == "create_time_fn"})
     return verdict, reserved
+
+
+def _parent_pool_credit(admission_path, rows, selection, peak_mb, pid, reserved_kwargs):
+    """Check active linked allocations independently of RSS reads, under admission_lock."""
+    import math
+    import time
+
+    starts, _ = _ledger_starts(admission_path)
+    parent_key = (selection.get("pool_session_id"), selection.get("pool_run"))
+    own_key = (selection.get("session_id"), selection.get("run"))
+    if not all(isinstance(value, str) and value for value in (*parent_key, *own_key)) or parent_key == own_key:
+        raise ValueError("invalid parent pool identity")
+    alive = reserved_kwargs.get("alive_fn", pid_alive)
+    birth = reserved_kwargs.get("create_time_fn", pid_create_time)
+    image = reserved_kwargs.get("image_fn", pid_image)
+    now = reserved_kwargs.get("now_fn", time.time)
+    parent = starts.get(parent_key)
+    if not isinstance(parent, dict) or not _verified_pool_line(parent, alive, birth, image, now):
+        raise ValueError("parent pool has no active START with reliable PID birth evidence")
+    if parent.get("pool_session_id") or parent.get("pool_run"):
+        raise ValueError("nested parent pools are not supported")
+    capacity = _num(parent.get("declared_peak_mb"))
+    if capacity is None or not math.isfinite(capacity) or not 0 < capacity <= 1048576:
+        raise ValueError("parent pool registered peak is invalid")
+    validator = selection.get("validate_parent_peak")
+    if not callable(validator):
+        raise ValueError("parent pool grant validator is missing")
+    validator(capacity)
+    allocated = 0
+    for key, line in starts.items():
+        linked = (line.get("pool_session_id"), line.get("pool_run")) == parent_key
+        if key == own_key and not linked:
+            raise ValueError("child run is already registered outside this selected parent pool")
+        if not linked:
+            continue
+        pids = line.get("pids") or []
+        if not any(alive(value) for value in pids):
+            continue
+        if not _verified_pool_line(line, alive, birth, image, now):
+            raise ValueError("active child pool allocation has unreadable or mismatched PID birth evidence")
+        size = _num(line.get("declared_peak_mb"))
+        if size is None or not math.isfinite(size) or size <= 0:
+            raise ValueError("active child pool allocation has an invalid peak")
+        if key == own_key:
+            if peak_mb < size:
+                raise ValueError("existing child allocation cannot shrink without explicit release")
+            if pid is not None and line["pids"] != [pid]:
+                raise ValueError("child run is already allocated to a different active PID")
+            continue  # Rechecking one run replaces its allocation; it never adds it twice.
+        allocated += size
+    if peak_mb > capacity or allocated + peak_mb > capacity:
+        raise ValueError("requested child allocations exceed the parent's registered pool peak")
+    parent_rows = [row for row in rows if (row["session_id"], row["run"]) == parent_key and row["pid"] is not None]
+    if len(parent_rows) != 1:
+        raise ValueError("parent pool reservation/RSS evidence is missing or ambiguous")
+    return min(parent_rows[0]["bytes"], int(peak_mb * 1024**2)), {
+        "pool_session_id": parent_key[0], "pool_run": parent_key[1],
+        "pool_peak_mb": capacity, "allocated_peak_mb": allocated + peak_mb,
+        "remaining_peak_mb": capacity - allocated - peak_mb,
+    }
+
+
+def admit_selected_reservation(
+    admission_path, peak_gib: float, status: MemoryStatus, selector,
+    *, key: str | None = None, pid: int | None = None, cushion_pct: float = 25.0,
+    commit_limit: int | None = None, cores: int = 1, cpu_budget: int | None = None, **reserved_kwargs,
+) -> tuple[AdmitVerdict, int, dict]:
+    """Credit one validated caller grant or parent pool during atomic check-and-register.
+
+    ``selector`` is an engine callback, not wire data: it verifies the actual
+    caller's grant or native parent lineage in the real settings store while
+    this lock is held. Only the explicit selection receives credit; linked child
+    peaks remain bounded by the parent's active registered budget. Default
+    admission never calls this opt-in path.
+    """
+    import dataclasses
+    import time
+
+    if (key is None) != (pid is None):
+        raise ValueError("selected reservation registration requires both key and pid")
+    with admission_lock(admission_path):
+        selection = selector()
+        if not isinstance(selection, dict) or selection.get("kind") not in ("own-grant", "parent-pool"):
+            raise ValueError("invalid reservation selector")
+        sid, run = selection.get("session_id"), selection.get("run")
+        rows = _holdings(admission_path, reserved_kwargs.get("rss_fn", tree_rss_mb),
+            reserved_kwargs.get("alive_fn", pid_alive), reserved_kwargs.get("create_time_fn", pid_create_time),
+            reserved_kwargs.get("image_fn", pid_image), reserved_kwargs.get("now_fn", time.time))
+        extra = {}
+        if selection["kind"] == "own-grant":
+            grant = selection.get("grant")
+            if not isinstance(grant, dict):
+                raise ValueError("validated reservation grant is missing")
+            if not sid or not run or grant.get("grantee_session_id") != sid or grant.get("run") != run:
+                raise ValueError("reservation selector does not match its grant")
+            credit_rows = [row for row in rows if row["pid"] is None and row["session_id"] == sid and row["run"] == run
+                           and row.get("grant_issuer_session_id") == grant.get("issuer_session_id")]
+            credit = min(sum(row["bytes"] for row in credit_rows), int(grant["declared_peak_mb"] * 1024**2))
+        else:
+            credit, extra = _parent_pool_credit(admission_path, rows, selection, peak_gib * 1024, pid, reserved_kwargs)
+        reserved = sum(row["bytes"] for row in rows) - credit
+        adjusted = dataclasses.replace(status, avail_phys=max(0, status.avail_phys - reserved),
+                                       commit_used=status.commit_used + reserved)
+        verdict = admit(int(peak_gib * GIB), adjusted, cushion_pct=cushion_pct, commit_limit=commit_limit)
+        cpu_live = {k: v for k, v in reserved_kwargs.items() if k in ("alive_fn", "create_time_fn", "image_fn", "now_fn")}
+        verdict = _with_cpu_axis(verdict, cores, reserved_cores(admission_path, exclude_key=(sid, run), **cpu_live), cpu_budget)
+        if verdict.admit and pid is not None:
+            birth = reserved_kwargs.get("create_time_fn", pid_create_time)(pid)
+            import math
+            if not isinstance(birth, (float, int)) or isinstance(birth, bool) or not math.isfinite(birth) or birth <= 0:
+                raise ValueError("selected reservation requires reliable PID birth evidence")
+            register_command(admission_path, key, pid, peak_gib,
+                create_time_fn=lambda value: birth, reservation_session_id=sid, reservation_run=run, cores=cores,
+                **{k: extra[k] for k in ("pool_session_id", "pool_run") if k in extra})
+    return verdict, reserved, {"kind": selection["kind"], "session_id": sid, "run": run, "credited_bytes": credit, **extra}
 
 
 def admit(

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Workday-complete step 3: consolidate the session's branch onto main.
 
 Drives `sync-main.py` and `workday_ceremony_lib` git helpers to merge/rebase,

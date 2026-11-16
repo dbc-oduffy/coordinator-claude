@@ -1,3 +1,12 @@
+---
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
+    omitted_reasons:
+      archived_spec: private-source
+      last_verbose_sha: private-source
+---
+
 # Cutover State Machine
 
 Purpose: document the phase-gated migration primitive that discharges the
@@ -72,6 +81,32 @@ derivation matches nothing. It refuses unless all hold:
    appends `{phase, derived_count, derived_ids, at}` to the record's
    `derivation_history`, so narrowing is visible in the diff rather than
    silent.
+
+## Premise and boundary corrections
+
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-18-007, batch-18-008, batch-18-009, batch-18-010, batch-18-011, batch-18-012, batch-18-018 -->
+
+- **Gate regressions and their fixes.** AC4 first shipped testing only confirmed-subset-of-derived,
+  and passed the exemplar with 2 of 13 consumers confirmed while printing "two-way agreement
+  holds"; the derived-subset-of-confirmed clause was restored. The AC7 377-consumer
+  derived set was fixed by usage-context classification, not by weakening the gate.
+- **AC5(b) partial.** `archive-stamp-cli` was 1 of 22 blockers, not the sole one. The PM ruled
+  2026-07-25 to spin off the other 21 (5 production scripts, 16 test files) rather than fund them
+  in this plan.
+- **Dual-gate reversal (PM-approved F7).** The dual-gate rule is about independence, not
+  freshness; call-time re-derivation cures staleness.
+- **Bulk retrofit (PM, 2026-07-25).** Every distinct live cutover surface is a cutover record
+  (C11-C17), not deferred to next phase-advance.
+- **Fail-closed foreign reach (PM ruling F5).** C12, C14, C15b and C16 were authored with
+  INDETERMINATE on their face; upgrade depends on C19.
+- **Open premise defect (C19).** `cartography.edges` emits only `import`/`call` kinds;
+  `_call_edges` reads `node.func` and never `node.args`/`node.keywords`; the package has no
+  writer/reader/indeterminate verdict ontology. C19 sizing was understated, and build-own-classifier
+  versus depend-on-`project_token_sweep` stays open for re-decision on the corrected facts.
+- **C9 improvement-queue item.** `2026-06-27-machine-enforce-reader-first-contract-bu.yaml` is
+  annotated superseded-in-part, not discharged: do not close it as discharged and do not `git mv`
+  it to archive.
+- **Schema allOf vs hand-edits.** The guard, not the schema, closes the hand-edit path.
 
 ## `closed_reason` on a memo-deliverable handoff — send the stand-down notice
 

@@ -6,8 +6,8 @@ by docstring cross-reference back to a nominated canonical copy in
 `offer-exploration-tier-dispatch.py`. A test
 (`coordinator/tests/test_resolve_git_common_dir_worktree_portability.py`) asserted every copy
 was a byte-identical local `FunctionDef` -- catching divergence, but only by enforcing the
-duplication it should have eliminated. This module is the single definition site; the eight
-callers (`_foreground_dispatch_strip.py`, `nudge-foreground-agent-dispatch.py`,
+duplication it should have eliminated. This module is the single definition site; the seven
+callers (`_foreground_dispatch_strip.py`,
 `nudge-multiwave-workflow.py`, `observe-post-compact.py`,
 `offer-exploration-tier-dispatch.py`, `runtime-tripwire-em-check.py`,
 `runtime-tripwire-stop-watcher.py`, `subagent-zero-tool-use-detect.py`) import it instead of

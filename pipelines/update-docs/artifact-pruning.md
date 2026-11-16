@@ -98,17 +98,7 @@ maps to this pipeline's KEEP, same as the ripeness guard's absent-`status:` rule
 
 2. **If nothing classifies as PRUNE,** record `prune_count: 0` for the Phase 13 summary and exit this pipeline.
 
-### Step 2: Safety Commit
-
-Before any deletions, snapshot current state:
-
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" --blanket --invoking-command update-docs "pre-prune checkpoint (update-docs Phase 8b)"
-```
-
-This makes the entire prune operation revertible as a single `git revert`.
-
-### Step 3: Delete
+### Step 2: Delete
 
 Use `git rm` so deletions appear in git history:
 - Plans: `git rm docs/plans/<file>`
@@ -118,15 +108,14 @@ Use `git rm` so deletions appear in git history:
 
 Remove any empty directories left behind on the filesystem.
 
-### Step 4: Commit
+### Step 3: Commit
 
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" --blanket --invoking-command update-docs "artifact pruning: pruned N plans, N handoffs, N task dirs (update-docs Phase 8b)"
-```
+No commit here: the `git rm` paths join Phase 9's scoped commit, so the prune reverts with it.
+Never `--blanket` — the tree is shared and a peer's unverified edits would ride along.
 
-### Step 5: Record Counts
+### Step 4: Record Counts
 
-Pass `pruned_plans`, `pruned_archived_handoffs`, `pruned_task_dirs`, and the safety-commit SHA to the Phase 13 summary.
+Pass `pruned_plans`, `pruned_archived_handoffs` and `pruned_task_dirs` to the Phase 14 summary.
 
 ## Tuning
 

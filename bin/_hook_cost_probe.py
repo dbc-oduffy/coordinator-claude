@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 
 """Imports `sys.argv[1]` in a fresh subprocess and reports the module/file-open/spawn
 cost of that import, so a caller can measure a hook module's own import overhead in

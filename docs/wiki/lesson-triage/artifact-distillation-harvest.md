@@ -1,3 +1,9 @@
+---
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
+---
+
 # Artifact Distillation & Harvest
 
 
@@ -5,7 +11,7 @@
 
 ## Overview
 
-The pipeline runs roughly: **Phase 0** (dedup/overlap check) → **Phase 1** (nugget extraction, ID-pinned) → **Clustering** (topic grouping) → **Phase 2** (synthesis into guides/DRs) → **Phase 3b/4/5** (quality gates, atlas-drift advisory, PM approval, disposal). Two related ceremonies feed and depend on it: the **plan-priority atlas gate** (which archived specs are ripe to harvest) and **archive foldering** (where terminal artifacts land once harvested).
+The pipeline runs roughly: **Phase 0** (dedup/overlap check) → **plan-triage** (one Haiku relay reads the daily/release logs only and drops cited plans judged `probably_not` before any plan is opened; a failed triage keeps every plan) → **Phase 1** (nugget extraction, ID-pinned) → **Clustering** (topic grouping) → **Phase 2** (synthesis into guides/DRs) → **Phase 3b/4/5** (quality gates, atlas-drift advisory, PM approval, disposal). Two related ceremonies feed and depend on it: the **plan-priority atlas gate** (which archived specs are ripe to harvest) and **archive foldering** (where terminal artifacts land once harvested).
 
 ## Key Decisions
 
@@ -84,6 +90,15 @@ was silently dropping archived records. The general lesson: tightening a schema 
 class is itself a good moment to re-run everything that reads that class end-to-end — schema
 enforcement surfaces pre-existing silent-drop bugs in downstream consumers, not just malformed
 new writes.
+
+## Spend Bounds on the Harvest Workflow
+
+- **Admission counts:** the manifest's `not_admitted` and `deferred` lists get no dispatch; every return reports `not_admitted_count`, `deferred_count`, `not_admitted_by_reason`.
+- **Logs-first plan triage:** one Haiku relay reads logs only, never a plan; `probably_not` plans leave every batch; unsure means keep.
+- **At most 5 writers:** synth, retry and re-synth share one budget; batches hold whole topic clusters by shared stem, balanced by work units; overflow lands in `writer_budget_exhausted_topics`.
+- **project-rag routing:** scan briefs look guides up through project-rag; Grep only after two errors.
+
+Mechanics: `coordinator/pipelines/artifact-distillation/PIPELINE.md` § Plan Triage, § Synth batching and the writer budget.
 
 ## Consolidation Pass Between Clustering and Synth
 
@@ -201,3 +216,17 @@ drift on run one is doing its job, not miscalibrated.
 | Disposal success-rate gate | `/distill` disposal manifest | Mass-throttle disposing on empty scan | Blocking |
 | Opus fidelity check | Phase 3b (contradiction-escalation) | Semantic drift on nugget replacement | Blocking |
 | Phase 2 ID set-diff | Phase 3b (synthesis) | Mechanical coverage gaps nugget→delta | Blocking |
+
+## Artifact Shape Contract — Decisions and Distribution Facts
+
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-6-028, batch-6-029, batch-6-032, batch-6-033, batch-6-061, batch-6-062, batch-6-063, batch-27-055, batch-30-007 -->
+
+- **Permissive container for review integration records.** `review-integration-record` is a PERMISSIVE container `$def` (more-specific glob `state/review-trail/*-integration.json`, no required fields, additionalProperties allowed). Strict-schema modeling was rejected because it would recreate grandfathering churn on divergent instances; relocation was rejected as over-heavy for legitimately co-located audit.
+- **Three observability-driven record types (v1.2):** `roadmap` (`state/roadmap/*.md`), `tracker` (`docs/project-tracker.md`), and `health-status` (`state/health/*.md`). health-status keeps its posture `health` axis separate from the lifecycle `status` axis so liveness keys on lifecycle only.
+- **Ask 3 declined.** Removal of the handoff-archived `superseded` status was refused: it is a the Staff Engineer-reviewed DO-NOT-NARROW invariant, retained with rationale in DECISIONS.md.
+- **Rationale lives in two places (D2).** DECISIONS.md plus the embedded schema `description`/`$comment`, both rather than either-or. Generated JSON strips YAML `#` comments; JSON Schema `description`/`$comment` are first-class emitted keywords and are not stripped, so they travel with the vendored `.schema.json`.
+
+### Gotchas
+
+- **Vendored bundle freshness.** The engine repo confirmed its vendored artifact-shape-contract bundle tracks the doctrine repo's HEAD (freshness test is byte-equality). The delta was additive (62 to 63 schemas, zero removals). Regeneration is withheld while the CONTRACT_VERSION bump is engine-side; the doctrine repo's own golden test stays red in the interim.
+- **A warm re-push is never zero bytes.** It moves about 918 bytes of manifest, and a consumer freshness check costs on the order of 1 KB rather than the 122-byte sidecar body.

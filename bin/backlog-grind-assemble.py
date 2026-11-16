@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # backlog-grind-assemble — CLI trampoline over claude-klabauter
 # coordinator_core.backlog_grind_assemble (the cadence-parameterized
 # computed-skill assembler replacing the five duplicated backlog-grind

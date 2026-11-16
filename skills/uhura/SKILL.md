@@ -15,7 +15,7 @@ conventions it borrows.
 
 ## Entry
 
-`<plugin-root>/bin/uhura-mode.py enter --repo <root> --session-id <this-session> --name <peer-name>`
+`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/uhura-mode" enter --repo <root> --session-id <this-session> --name <peer-name>` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\uhura-mode.exe"`, same arguments)
 
 Resolve per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`. Entry never refuses: last writer wins. `who` reports the
 holder; `stand-down` releases it and is **scoped to the caller** — you cannot stand another session

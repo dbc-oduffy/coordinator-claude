@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """list-orphaned-plans.py — CLI trampoline over the control-plane engine's
 `coordinator_core.ops.draft_plan_aging.list_orphaned` compute core.
 

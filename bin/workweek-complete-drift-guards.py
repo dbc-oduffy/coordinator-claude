@@ -1,4 +1,4 @@
-# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+#!/usr/bin/env python3
 """workweek-complete-drift-guards.py — /workweek-complete advisory + gate
 dispatch logic, ported out of coordinator-content-repo's coordinator/commands/workweek-complete.md
 (M3 chunk WWC-3, 2026-07-23 bash-extirpation campaign).

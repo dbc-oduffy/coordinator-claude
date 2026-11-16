@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """query-roadmap-serve.py -- the porter over `ops/roadmap_dag.py:assemble_roadmap_dag`.
 
 No shebang line, no exec bit. The `.cmd`/`.ps1` siblings beside this file ARE

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 coordinator-doc-new — scaffold a conformant coordinator document (handoff, spinoff, memo, plan, decision, audit-record, completion, sidecar, run-report [alias: flight-recorder], research-synthesis, review-findings) or delegate to a typed writer for queue/lesson/workflow types.
 # Module docstring updated to list all supported types.
@@ -259,9 +260,15 @@ def _ensure_bin_lib_bootstrapped() -> None:
     """
     import importlib.util
 
-    if "lib" in sys.modules and getattr(sys.modules["lib"], "__file__", None):
-        return
     _bin_lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+    if "lib" in sys.modules and getattr(sys.modules["lib"], "__file__", None):
+        # TRAP: a warm pool worker restores sys.path after each served call, so a cached `lib` no longer
+        # implies its directory is on sys.path; the sibling imports below would then fail
+        # (`ModuleNotFoundError: python_interp` via dispatch.emit -> mint_baton_from_sizing, 2026-11-11).
+        # Re-assert exactly what `lib/__init__.py` asserted on first import.
+        if _bin_lib not in sys.path:
+            sys.path.insert(0, _bin_lib)
+        return
     _spec = importlib.util.spec_from_file_location(
         "lib", os.path.join(_bin_lib, "__init__.py"), submodule_search_locations=[_bin_lib]
     )
@@ -722,7 +729,7 @@ def _machine_local_impl() -> str:
     arbitrary-code-execution vector if a caller can control the env. Invalid values fall
     back to the default impl with a stderr warning rather than executing the supplied path.
 
-    Settings-home first (DR-210 Amendment 2026-07-24: "resolves nothing
+    Settings-home first (DR-210: the engine "resolves nothing
     through ~/.claude/bin") once past the (unchanged) MACHINE_LOCAL_IMPL
     validation above — falls back to the retired compat mirror only when the
     settings-home candidate is absent on disk.
@@ -746,7 +753,7 @@ def _machine_local_impl() -> str:
 
 def _load_machine_local_kernel():
     """Load `_machine_local.py`'s module object by its own resolved path
-    (`_machine_local_impl()` -- settings-home first, DR-210 Amendment) and
+    (`_machine_local_impl()` -- settings-home first, DR-210) and
     return it, in-process, no interpreter spawn.
 
     Spec: docs/plans/2026-09-11-a-python-process-does-not-spawn-a-python-process.md
@@ -885,9 +892,7 @@ def _assert_no_archived_handoff_twin(out_path: str, handoff_id: str | None, repo
     if not repo_root:
         return
     _dest = os.path.dirname(out_path)
-    if re.fullmatch(r"\d{4}-\d{2}", os.path.basename(_dest)):
-        _dest = os.path.dirname(_dest)
-    if os.path.basename(_dest) != "handoffs":
+    if "handoffs" not in (os.path.basename(_dest), os.path.basename(os.path.dirname(_dest))):
         return
     try:
         _ensure_engine_on_path()
@@ -895,7 +900,12 @@ def _assert_no_archived_handoff_twin(out_path: str, handoff_id: str | None, repo
             HandoffArchivedTwinError,
             assert_no_archived_twin,
         )
+        from coordinator_core.session.output_tree_layout import is_month_dir
     except Exception:  # noqa: BLE001 -- best-effort import; unresolvable seam degrades to no-check
+        return
+    if is_month_dir(os.path.basename(_dest)):
+        _dest = os.path.dirname(_dest)
+    if os.path.basename(_dest) != "handoffs":
         return
     try:
         assert_no_archived_twin(out_path, repo_root, handoff_id=handoff_id)
@@ -5155,6 +5165,19 @@ def _sizing_remit_and_steps(
     return "\n".join([covers[0], "", *covers[1:]]), steps
 
 
+def _archived_baton_abs(edge: str, repo_root: str) -> str | None:
+    """Absolute path of the swept archive copy of a `state/handoffs/` edge, or None."""
+    try:
+        from pathlib import Path as _ArchPath  # noqa: PLC0415
+
+        from coordinator_core.ops.resolve_swept_baton import _find_first_match  # noqa: PLC0415
+
+        _hit = _find_first_match(_ArchPath(repo_root), os.path.basename(edge))
+    except Exception:  # noqa: BLE001 -- unresolved stays the caller's refusal
+        return None
+    return str(_hit) if _hit else None
+
+
 def mint_baton_from_sizing(
     sizing_rel: str, repo_root: str, *, baton: str | None = None, deliverable_id: str | None = None,
 ) -> dict:
@@ -5241,8 +5264,10 @@ def mint_baton_from_sizing(
     if existing_abs is None and isinstance(existing, str) and existing and "baton" not in fields:
         existing_abs = os.path.join(repo_root, existing)
         if not os.path.isfile(existing_abs):
-            fields.append("baton")
-            reasons.append(f"baton edge {existing} resolves to no file")
+            existing_abs = _archived_baton_abs(existing, repo_root)
+            if existing_abs is None:
+                fields.append("baton")
+                reasons.append(f"baton edge {existing} resolves to no file")
     _sizing_dlv = meta.get("deliverable_id") or None
     if deliverable_id and _sizing_dlv and deliverable_id != _sizing_dlv:
         fields.append("deliverable_id")
@@ -9572,7 +9597,8 @@ def main(argv: "list[str] | None" = None) -> int:
                     out_path = os.path.join(_repo_root, out_path)
                     _anchored_repo_root = _repo_root
 
-    out_path = _place_in_output_tree(out_path, explicit=bool(args.out))
+    if not (args.out and doc_type == "plan"):  # an explicit plan --out is verbatim: sizing `plan:` edges name it
+        out_path = _place_in_output_tree(out_path, explicit=bool(args.out))
 
     # Security: containment check — resolve symlinks + '..' and verify the output
     # path falls within an allowed write root before creating any directories or files.

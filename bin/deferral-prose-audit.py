@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """List deferral-shaped prose outside a plan's task spine and optionally seed it to the improvement queue.
 
 Population: docs/plans/*.md stamped `status: implemented` with a filename date on or after --since
@@ -26,7 +27,17 @@ from pathlib import Path
 from typing import Callable, List, NamedTuple, Optional, Sequence
 
 DEFAULT_SINCE = "2026-07-09"
-KEYWORDS = re.compile(r"\b(?:defer\w*|follow[- ]?ups?|later)\b", re.I)
+_DEST = r"(?:plan|ask|session|phase|wave|chunk|row|pr|run|pass|round|release|sprint|iteration)s?"
+# A commitment names a destination: defer/push TO somewhere, a follow-up/later <destination noun>, or "as a follow-up".
+# A bare status word ("deferred"), temporal "later" and "follow-up call" never match.
+_TARGET = rf"(?:\w+\s+){{0,2}}?(?:{_DEST}|later|next|tranche|follow[- ]?ups?|[CR]\d+)\b"
+KEYWORDS = re.compile(
+    rf"\bdefer\w*\b[^.;:()]{{0,60}}?\b(?:to|until|into)\s+{_TARGET}"
+    rf"|\bpush(?:ed|es|ing)?\s+(?:it\s+|them\s+|this\s+|that\s+)?(?:out\s+)?(?:to|into)\s+{_TARGET}"
+    rf"|\bfollow[- ]?ups?\s+{_DEST}\b"
+    rf"|\b(?:as|in|into|for|to)\s+(?:a|an|the)\s+follow[- ]?ups?\b(?!\s+(?:call|question|email|message|ping|review|check)s?\b)"
+    rf"|\b(?:to|in|into|for|until)\s+(?:a|an|the|some)?\s*later\s+{_DEST}\b",
+    re.I)
 ROUTED = re.compile(r"state/(?:improvement-queue|debt-backlog|bug-backlog)/|harvest-key:", re.I)
 _DATE = re.compile(r"^(\d{4}-\d{2}-\d{2})")
 _SKIP_HEADINGS = re.compile(

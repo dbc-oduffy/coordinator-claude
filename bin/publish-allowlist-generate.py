@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """coordinator/bin/publish-allowlist-generate.py — derives field 7 (the
 allowlist CSV) of the two publish-mirror rows in
 `setup/publish-targets.portable` from `setup/publish-allowlist-declarations.

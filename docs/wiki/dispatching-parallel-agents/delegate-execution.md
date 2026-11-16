@@ -6,7 +6,7 @@ related:
   - plugins/coordinator-claude/coordinator/commands/delegate-execution.md
   - plugins/coordinator-claude/coordinator/agents/executor.md
   - docs/wiki/dispatching-parallel-agents.md
-  - plugins/coordinator-claude/coordinator/skills/review-code/SKILL.md
+  - plugins/coordinator-claude/coordinator/skills/review/SKILL.md
   - coordinator/skills/enrich-and-review/SKILL.md
 ---
 

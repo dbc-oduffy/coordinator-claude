@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """group-em-memory-governor-wait — the Group EM's one-shot wake on the memory governor's log.
 
 The governor runs detached from the session and appends to its --log; this waiter is the session's

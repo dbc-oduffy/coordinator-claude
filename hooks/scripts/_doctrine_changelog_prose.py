@@ -954,7 +954,7 @@ def _iter_schema_json_violations(text: str) -> "list[Violation]":
     violations: list = []
     cursor = 0
 
-    def _walk(node):
+    def _walk(node) -> None:
         nonlocal cursor
         if isinstance(node, dict):
             for key, value in node.items():

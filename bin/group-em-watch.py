@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 group-em-watch.py — CLI trampoline over the engine repo's
 coordinator_core.group_em.watch.
@@ -34,10 +35,14 @@ JSON-RPC transport to put under it.
 
 from __future__ import annotations
 
+import os
 import sys
 
 
 def _import_cli():
+    _bin_dir = os.path.dirname(os.path.abspath(__file__))
+    if _bin_dir not in sys.path:
+        sys.path.insert(0, _bin_dir)
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 

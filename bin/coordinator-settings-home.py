@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """coordinator-settings-home.py — door-resolvable engine entrypoint for `coordinator-settings-home`.
 
 Prints the coordinator settings-home root; `check` runs only the machine-local

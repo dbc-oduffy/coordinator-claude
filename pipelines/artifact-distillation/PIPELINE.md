@@ -29,15 +29,45 @@ Session workflows generate artifacts that accumulate indefinitely. The knowledge
 
 ---
 
+## Scripted vs judgment
+
+The EM runs `distill_mechanical.py prepare` before the Workflow and `finalize` after it (`commands/distill.md` § Execution vehicle). Scripted, no agent: input and shard load, deterministic topic-key clustering, source-hash, candidates, promote, verify-citations, archive moves, scratch drop, index regen. `prepare --pointer-index PATH` (JSONL `{path, heading, start_line, end_line, tag}` per line; a malformed line exits 2) leaves nuggets whose source path the index lists out of synth, sends the rest judge-only, and carries a `pointer_index` note in every synth payload.
+
+### Judgment sites
+
+An agent runs only at these sites; each is prose or classification that needs a model.
+
+- Logs-first plan triage (Haiku), when the prepared batches cite plans
+- Nugget scan (distill-writer, Haiku) only on the `args.batches` route with no `args.prepared`; on the prepared path no scan runs, because prepare gives every file it reads one fate (`prepared.classifiedFiles`): lifted nuggets or a recorded file fate
+- Synth: at most 3 single-turn, no-tool schema calls on `coordinator:distill-synth`, one prepared synth batch each (the model classifies nothing and reads nothing)
+- Judgment corpus and per-cluster judgment mining
+- Contradiction detection, escalation (Opus) and fidelity check
+- DR-dedup
+- Phase 3d deletion manifest
+- Citation-repoint apply
+- Artifact re-entry
+- Phase 0 reality-check scout and handoff outlier scouts (EM-dispatched, outside the Workflow)
+
+Curated clusters (`distill.write_curated_clusters`) stay an accepted input to the grouping.
+
+### Lift and classification rules
+
+- **One classifier.** `artifactClassOf(path, logRoots)` in `distill-harvest.workflow.js` returns `intake | triage-only | completion | plan | live-plan | cross-repo memo | handoff | unrecognised`. Plan triage (`planPathsOf`) and the Phase 3d class check (`enforceIntakeAndClass`) both call it, so a path has one class in every phase. Top-level `archive/plans/` and `archive/specs/` are `plan` (delete-eligible); `docs/plans/**` and nested archive plans/specs are `live-plan` (triage input, PRESERVE with its own `live-plan` reason, never a delete cohort). `cross-repo/archive/`, `archive/cross-repo/` and `state/cross-repo/archive/` are `cross-repo memo`. The `triage-only` directories equal `_TRIAGE_ONLY_DIRS` in `distill_mechanical.py`.
+- **Plan triage status.** When plans exist and every one was prepared, `plan_triage.status` is `skipped-all-prepared` with the admitted plan count; `skipped-no-plans` means no plan was admitted.
+- **Tasks skip.** The lifter never lifts an H2 titled `Tasks` or `Task spine`, nor any fenced `yaml plan-tasks` block; a plan whose only content is the spine records an EPHEMERAL file fate. Design, decision and what-I-learned sections lift per sub-bullet.
+- **Historical stamp.** In a plan whose frontmatter `status` is `implemented`, a nugget from an H2 titled Problem or Background carries `historical: true`; `synth_inputs` copies it into the synth entry, and synth lands it only as a dated historical note, never as a present-tense claim.
+
+---
+
 ## Phase Pipeline — STRICT SEQUENCE
 
 ```
-Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N, QG)
-  → [Clustering] → [Consolidation, coordinator, mechanical] → Phase 2 (Sonnet ×M, parallel)
-  → [Coverage gate, mechanical set-diff — gap re-synth (Sonnet) only for uncovered nuggets]
+Phase 0 (Coordinator) → [Plan triage, Haiku ×1, logs only] → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N, QG)
+  → [Clustering] → [Consolidation, coordinator, mechanical] → Phase 2 (distill-synth ×≤3, single-turn)
+  → [Coverage gate, mechanical report from finalize's dispositions, no dispatch]
   → Phase 2.5 (Sonnet ×K, judgment-mining)
   → Phase 3a (Sonnet ×C, parallel by cluster) → [cross-cluster-check] → [Esc: Opus + fidelity-check (Sonnet), if needed]
-  → Phase 3b (Sonnet, single) → Phase 3c (Coordinator, mechanical) → Phase 3d (Sonnet, single)
+  → Phase 3b (script, no agent) → Phase 3c (Coordinator, mechanical) → Phase 3d (Sonnet, single)
   → Phase 4 (summary + atlas advisory, no wait) → Phase 5 (Coordinator, apply + delete)
 
 Phase 2.5 through 3d (all agent-dispatching sub-steps of that range, including the cross-cluster
@@ -55,7 +85,17 @@ Cross-Repo Archive Specialist Branch (Sonnet ×1 or ×N shards, parallel to Phas
 
 ## Phase 0: Scoping (Coordinator, ~5 min)
 
-Moved to [`phase-0-scoping.md`](phase-0-scoping.md) — read it in full before running this step. Call `distill.scope` with `run_id`, and pass its `workflow_input_path` (not `input.json`) as `args.inputFile` to `distill-harvest.workflow.js`.
+Moved to [`phase-0-scoping.md`](phase-0-scoping.md) — read it in full before running this step. Call `distill.scope` with `run_id`, and run `distill_mechanical.py prepare --input-file` on its `workflow_input_path` (not `input.json`) and pass the `prepared.json` as `args.prepared` to `distill-harvest.workflow.js`.
+
+---
+
+## Plan Triage (Haiku ×1, logs first, before any plan is read)
+
+**Model:** Haiku, one `coordinator:distill-writer` agent, phase `plan-triage`, between reading `args.prepared` and the Phase 1 scan wave; it takes its candidate plans from the `args.prepared` batches. **Runs only when** those batches cite `docs/plans/` or `archive/**/plans/` paths.
+
+The agent reads the log roots only (`args.logRoots`, default `archive/daily-summaries` and `archive/release-notes`; repo-relative, never a drive root, never `..`) and never opens a candidate plan. It returns `{path, verdict: moved_the_needle | probably_not, cite}` per plan. A `probably_not` plan leaves every batch before any scan agent opens it; a batch left empty is dropped; non-plan files pass through. A plan the agent did not judge is kept, and so is every plan when the triage returns nothing usable (`plan_triage.status: agent-failed`): triage never halts the run on its own failure. If every file is triaged out the run halts `all-plans-triaged-out`.
+
+The result carries `plan_triage: {status, candidates, kept, dropped, dropped_plans: [{path, cite}]}`. Prompt text: `agent-prompts/plan-triage.md`.
 
 ---
 
@@ -76,6 +116,10 @@ One Haiku agent per batch. Each agent reads every artifact in its batch and extr
 - `[AMBIGUOUS]` — can't classify with confidence → surfaced for Sonnet judgment in Phase 2
 
 **Format awareness:** Haiku receives format hints per batch from Phase 0. YAML frontmatter in artifacts is parsed as metadata (dates, status, branch info), not classified as prose knowledge.
+
+**Per-batch digest and guide subset (workflow vehicle):** a batch from `distill.workflow_input` may carry `digestPath` (a per-file digest the scan agent reads first, opening an original only when the digest is not enough) and `relevantGuides` (the ranked wiki guides this batch may check, project-rag when present, lexical otherwise). `distill_mechanical.py prepare` carries both through into `args.prepared` untouched, and `distill-harvest.workflow.js` renders them in place of the full slug list; a batch lacking them renders the full list as before. Nugget `source` and `file_fates` still name the original file paths, one fate per file, and Haiku still classifies.
+
+**Guide lookup routing.** The scan brief and `agent-prompts/phase-1.md` send guide and wiki lookups through project-rag (`project_symbol`, `project_semantic_search`, `project_file`, plus the guide outline from `coordinator_core/distill/guide_index.py`); Grep and Glob are the fallback only after two project-rag errors.
 
 "Haiku catalogs; it does NOT synthesize or judge. Completeness matters more than analysis."
 
@@ -130,7 +174,7 @@ Moved to [`cross-repo-archive-branch.md`](cross-repo-archive-branch.md) — read
 
 ## Clustering Interstitial (Coordinator or Haiku)
 
-Moved to [`clustering-and-consolidation.md`](clustering-and-consolidation.md) — read it in full before running this step. The curated-clusters file the Workflow reads (`args.curatedFile`) is written by `distill.write_curated_clusters`, never composed by hand.
+Moved to [`clustering-and-consolidation.md`](clustering-and-consolidation.md) — read it in full before running this step. The curated-clusters file whose content rides `args.prepared.curated` is written by `distill.write_curated_clusters`, never composed by hand.
 
 ---
 
@@ -156,7 +200,7 @@ Unchanged sections are NOT included in the delta. This prevents guide drift wher
 
 For new guides: produce the full document in standard format (H1 title, optional TOC, architecture overview, reference tables, cross-references). Also note the new guide in the batch scratch file so Phase 5 can update `docs/wiki/DIRECTORY_GUIDE.md` and `docs/README.md`.
 
-Decision records: any `[DECISION]` nugget (not `[SUPERSEDED]`) → one decision record in standard format, numbered by the scaffolder (`coordinator-doc-new --type decision`), never by the agent. In the Workflow, each synth agent mints its own records this way and returns `op: CREATE_DR` with `target` set to the path the scaffolder printed; the record carries `provenance:` as a mapping with this run's `run_id` and `source_nuggets`. A `[DECISION]` nugget is `SKIP` only with a reason starting `DR-ALLOCATOR-UNAVAILABLE` (scaffolder cannot run) or `DR-EXISTS <path>` (an existing record already states it); any other disposition leaves it folded and sends it back through the Coverage Gate.
+Decision records: any `[DECISION]` nugget (not `[SUPERSEDED]`) → one decision record in standard format, numbered by the scaffolder (`coordinator-doc-new --type decision`), never by the agent. In the Workflow, each synth agent mints its own records this way and returns `op: CREATE_DR` with `target` set to the path the scaffolder printed; the record carries `provenance:` as a mapping with this run's `run_id` and `source_nuggets`. Its title is the decision in the nugget's own words, and a page links it by its path relative to that page. `distill_mechanical.py finalize` promotes the staged files (a failure rolls back and halts `promote-failed`); no agent runs the promote. A `[DECISION]` nugget is `SKIP` only with a reason starting `DR-ALLOCATOR-UNAVAILABLE` (scaffolder cannot run), `DR-EXISTS <path>` (an existing record already states it, or a newer one reverses it), or `FLEET-RULE-OWNED-ELSEWHERE <owning repo or doc>` (the nugget restates a fleet rule another repo owns; no local record is minted, at most a wiki pointer); any other disposition leaves it folded and sends it back through the Coverage Gate.
 
 **DISPATCH:** Open `agent-prompts/phase-2.md`. Copy the **Phase 2: Sonnet Knowledge Synthesis Prompt** verbatim. Fill in:
 - `[SYSTEM_TAG]` — system name for this guide
@@ -164,7 +208,7 @@ Decision records: any `[DECISION]` nugget (not `[SUPERSEDED]`) → one decision 
 - `[EXISTING_GUIDE_CONTENT]` — current guide content, or "NEW GUIDE"
 - `[CANDIDATE_RESTATEMENTS]` — the routing record's `candidate_restatements: [{line, excerpt}]`
   list for this system's target wiki path (same field the automated
-  `distill-harvest.workflow.js` Wave 1.5 relay computes — on this hand-orchestrated path, source
+  `distill_mechanical.py prepare` computes into `args.prepared.candidates` — on this hand-orchestrated path, source
   it from the routing record directly, or "none" if empty), or run the Wave-1.5-equivalent CLI
   yourself against the target if no routing record exists for this manual run
 - `[SCRATCH_PATH]` — `state/scratch/artifact-distillation/{run-id}/topic-{name}-phase2-sonnet.md`
@@ -178,6 +222,14 @@ Instruct each agent in its prompt to use Read and Write. (The Agent tool has no 
 **Scratch verification:** Verify all expected topic files exist before proceeding to Phase 3a.
 
 **Recovery for Phase 3a/3b/3d (the highest-risk steps — largest context load, longest runtime) is `resumeFromRunId`, not a manual scratch checkpoint.** `distill-harvest.workflow.js` folds Phase 2.5, 3a (plus the cross-cluster check and conditional Opus escalation), 3b, and 3d into itself (§ below) — Wave 1's scan is journaled by the Workflow runtime, and a rate-limit wipeout mid-run resumes by re-invoking the script with `resumeFromRunId` set to the failed invocation's Workflow-tool `wf_...` id (never to `run_id`, the distillation slug — see the script's own NEGATIVE-SPEC comment). There is no separate `git add`/`git commit` checkpoint step for this vehicle; the two surfaces describe one recovery mechanism, not two.
+
+**Resume on the script copy the run started on.** Resume replays only unchanged agent calls, and the scan briefs embed the `args.prepared` batch values, so re-running `prepare` into different values or changing the scan brief re-runs the whole scan and leaves the curated map stale. Finish an in-flight run on its pinned copy, or re-curate after resuming. `A-RESUME-ACROSS-A-LOADER-CHANGE-RE-RUNS-THE-SCAN`.
+
+**Synth batching.** `prepare` packs each topic's curated nuggets, page heading outline and gotcha one-liners into `synth-batch-NN.json` (up to `SYNTH_BATCH_BYTES`, no topic past `SYNTH_TOPIC_TOKENS`) and inlines them as `prepared.synth.payloads`. The Workflow dispatches at most `MAX_SYNTH_CALLS` (3) single-turn, no-tool `coordinator:distill-synth` calls, one payload each, answering that payload's own schema (`prepared.synth.schemas[i]`; `SYNTH_SCHEMA` is the fallback): `topic_key` is an enum of the payload's keys and every cite an enum of that topic's `cite_ids`, so a cite outside the topic is refused at generation. Per topic `{section_heading, action: append|new_section, markdown, cites}` ops plus an optional `decision_records` list; a topic with neither carries `no_ops_reason` (`nothing-new-vs-page`, `all-nuggets-duplicate`, `insufficient-substance` or `stale-code-state`). A nugget a landing topic leaves uncited carries its own `nugget_reasons` entry `{nugget_id, reason}` (same reason enum, `nugget_id` an enum of that topic's `cite_ids`).
+
+**Homing.** A nugget homes by the wiki page its own content names; a path-derived, leading-words, file-stem or fallback tag (`tag_source`) or the literal `uncategorized` never outvotes content and is never a cluster slug. The nuggets with no content home of one scan batch form ONE judge-only `nugget-<batch_id>` topic (e.g. `nugget-batch-1`): a list of nuggets in, a reason or a home per nugget out, never a block, a path/branch/DR-id/fragment-named page, a topic per nugget or a no-op for a whole bucket. The unit writes no page; a nugget carrying a stable contract or a root cause gets a `nugget_reasons` entry with `home_suggestion {wiki_path, kind: durable-contract|root-cause}`, never a no-op reason, and `apply_synth` reports it under `home_suggestions` as `JUDGED:home-suggested`. A `per_nugget` topic mints a new page only from synth's content-derived `page_title`; without one its ops do not land and the nugget goes to per-nugget judgment. An existing resolved disk home still wins over any other verdict. The workflow's `synth_outcome` reports `covered`/`assigned` nuggets and `no_ops_reasons` (`dropped` for a sent topic the synth never named). Topics past the third batch are `deferred_topics`, picked up next run. The model reads no file; `finalize` is the splicer: it applies the ops to the staged pages, checks every cite against the nugget and code state, scaffolds an H1 and nav for a page not yet created, and mints each decision record through the scaffolder, never the model. Promote is unchanged. After promote, finalize advances the run watermark; it does not commit. The EM commits the finalize-report `commit_paths` (the promoted pages plus the promoted run watermark).
+
+**Agent cap.** The runtime refuses an invocation's 1001st `agent()` call, cached replays included, so a resume pays its whole replayed prefix against the cap again (`A-WORKFLOW-RESUME-PAYS-ITS-REPLAYED-PREFIX-AGAINST-THE-AGENT-CAP`). The scripted launch keeps the count far under it: no load, source-hash, candidates or promote agent runs, and `estimateDispatches` models what remains.
 
 ---
 
@@ -195,25 +247,16 @@ exactly the shape of work a dispatched Haiku agent adds zero judgment to and onl
 latency, and nondeterminism (an agent can misread its own scratch file); doing the diff as free
 JS in the Workflow script removes all three.
 
-For each cluster with a synth result, `findCoverageGaps()` computes `uncoveredNuggets` (assigned
-nugget objects whose id is absent from that cluster's `dispositions:`). The Workflow logs one
-line — `covered/total` nugget counts plus the list of gap cluster topic keys — every run, whether
-or not any gaps exist (no silent caps).
+Finalize derives each nugget's disposition from the ops' cites: cited (`ADD_SECTION`, `CREATE_DR` or
+`DR-EXISTS`), `JUDGED:<reason>` (a valid `nugget_reasons` entry, or its topic's `no_ops_reason` when nothing
+landed there), or `uncited`. `distill_measure` reports three-way coverage as separate numbers:
+`covered_by_ops`, `covered_by_judgment` and `uncited_in_op_topic` (plus `uncited_in_noop_topic` and
+`unreturned`; the five sum to `assigned`); `covered` stays as `covered_by_ops`. The Workflow logs
+`covered/total` nugget counts plus the gap topic keys every run, whether or not any gaps exist (no silent caps).
 
-**Gap recovery:** any cluster with `uncoveredNuggets.length > 0` triggers exactly ONE Sonnet
-gap-synth `agent()` call scoped to only that cluster's uncovered nugget subset (same
-`SYNTH_SCHEMA`, same additive-write contract as Wave 2, targeting the same `wiki_path`). The
-gap agent's returned `dispositions:` are unioned into the original synth result (dedup by
-`nugget_id`, gap-synth entries fill only ids the original result was missing) — there is no
-retry-cap/halt-and-surface-to-PM ceremony as the old Phase 2.7-QG FAIL path had, because a
-gap-synth failure is caught and logged (`unresolved_gap_clusters`) rather than blocking the run;
-Wave 2's own `resumeFromRunId` re-run mechanics remain the recovery path for a hard synth
-failure.
-
-**Folded decisions.** `findFoldedDecisions()` also flags every `[DECISION]` nugget whose disposition is neither `CREATE_DR` with a `target` under `docs/decisions/` nor `SKIP` with one of the two pinned reasons. Folded nuggets re-synth in the same single gap pass as uncovered ones, and the gap disposition replaces the original. Any nugget still folded afterwards is reported in `dr_minting.folded_unresolved`; the run does not halt.
-
-Full mechanics: `distill-harvest.workflow.js` § "Coverage gate" (function `findCoverageGaps`,
-the gap-synth `agent()` dispatch, and the merge-back loop).
+**Gaps:** a nugget no synth op cites and no reason covers is reported `uncited` and carries to the next run; no
+gap-synth call dispatches. A `[DECISION]` nugget reaches a record only through a `decision_records`
+entry; one without it is reported in `dr_minting.folded_unresolved`, and the run does not halt.
 
 ---
 
@@ -225,7 +268,9 @@ Mine the run's reviewer sidecars for cross-spec convergence patterns — finding
 
 **Full procedure** (corpus collection, finding eligibility, shape-matching rules, update path, convergence threshold, proposal format, promoted-entry frontmatter schema): see `agent-prompts/phase-2-5-judgment-mining.md` — the eligibility/shape-matching/threshold rules it documents are unchanged; the Workflow's dispatch brief follows them inline rather than through a hand-filled template.
 
-**Judgment clusters.** The producer is the in-run `judgment-corpus` scout (Sonnet, read-only, one agent): it finds reviewer sidecars by their `findings_ledger:` frontmatter key, joins them to this run's plans, and groups eligible findings by claim topic and verdict direction. A caller may supply `judgmentClusters` in the input file instead; input-file clusters win and no scout dispatches. `judgment_mining.status` is `ran` when clusters came from the input file or the scout returned (zero clusters included), `unavailable` only when the scout failed. `judgment_mining.cluster_source` is `input`, `in-run-scout` or `none`; `sidecars_seen` counts the sidecars the scout found, so a thin corpus is visible.
+**Judgment clusters.** The producer is the in-run `judgment-corpus` scout (Sonnet, read-only, one agent): it finds reviewer sidecars by their `findings_ledger:` frontmatter key, joins them to this run's plans, and groups eligible findings by claim topic and verdict direction. A caller may supply `judgmentClusters` in the input file instead; input-file clusters win and no scout dispatches. **The scout is gated mechanically, not sampled.** `distill_mechanical.py prepare` emits `judgmentPrecheck`: sidecar discovery by `findings_ledger:` frontmatter, the `target_plan:`/`plan:` stem join to this run's batch files, ledger status filtering (`em-rejected`/`suspended` out), the distinct-plan count against `min_convergence`, and the `docs/wiki/codebase-judgment/*.md` listing. The workflow dispatches the scout only when `judgmentPrecheck.dispatch` is true (distinct eligible plans ≥ `min_convergence`, or an existing entry with at least one eligible plan to increment); otherwise it logs the skip and the phase reports `ran` with zero clusters. An absent precheck is no dispatch. Supplied `judgmentClusters` bypass both precheck and scout. Only four items need judgment and stay with agents once the precheck passes: (1) claim-topic equivalence grouping of findings across sidecars, (2) excluding mechanical/docs-checker-class findings the ledger does not label, (3) matching a topic to an existing judgment entry, (4) the wording of a judgment proposal.
+
+`judgment_mining.status` is `ran` when clusters came from the input file, the precheck skipped the scout, or the scout returned (zero clusters included), `unavailable` only when the scout failed. `judgment_mining.cluster_source` is `input`, `in-run-scout` or `none`; `sidecars_seen` counts the sidecars the scout found when it dispatched; when the precheck skips the scout, it carries `judgmentPrecheck.sidecars_seen` from the input file, so the count is the precheck's and a thin corpus is visible.
 
 **Judgment proposals stay in-memory** (`judgmentResults`, appended to `judgment-proposals.md` by each mining agent for cross-agent visibility within the fan-out) and are returned as part of the Workflow's result — Phase 3b (also folded into the Workflow, § below) consumes them directly rather than re-reading a hand-managed scratch file mid-chain.
 
@@ -237,7 +282,7 @@ Mine the run's reviewer sidecars for cross-spec convergence patterns — finding
 
 **Sharding rule (Option B — clustered pairwise):** Reuses Phase 2.5's shape-match clustering apparatus (the caller-supplied `contradictionClusters` input, per D3 of the coordinator's own pipeline-defects wiki: cluster on coarse topic domains, never exact topic-string equality). Each 3a agent compares all topics *within its cluster* — detecting intra-cluster contradictions. The Workflow handles cross-cluster contradictions separately (see below).
 
-**Cluster channel.** `contradictionClusters` (`{clusterTag, topicKeys}`) arrive in the curated file (`args.curatedFile`) or, for a single-pass caller, in the input file; the curated file wins. With neither, the phase reports `unavailable`. A `topicKeys` entry matching no cluster of this run is dropped before dispatch and reported in `contradiction_detection.unmatched_topic_keys`.
+**Cluster channel.** `contradictionClusters` (`{clusterTag, topicKeys}`) arrive in the curated return (`args.prepared.curated`) or, for a single-pass caller, in the input file; the curated file wins. With neither, there is nothing to compare: the phase reports `none`, not `unavailable`. A `topicKeys` entry matching no cluster of this run is dropped before dispatch and reported in `contradiction_detection.unmatched_topic_keys`.
 
 **Single-topic cluster exemption:** A cluster with fewer than two topics cannot have an intra-cluster contradiction by definition — no agent is dispatched for it; the Workflow folds in a zero-contradiction result directly rather than omitting the cluster.
 
@@ -264,17 +309,17 @@ After the cross-cluster check, the Workflow reads `unresolvable_contradictions` 
 
 ---
 
-## Phase 3b: Decision-Record Dedup (folded into the Workflow — Sonnet, single)
+## Phase 3b: Decision-Record Dedup (finalize script, no agent)
 
-**Model:** Sonnet. **Dispatch:** Single agent, dispatched directly by `distill-harvest.workflow.js`'s `phase-3b` phase. **Runs after:** Phase 3a, the cross-cluster check, and the conditional Opus escalation above.
+**Model:** none. **Dispatch:** none: `distill_mechanical.py finalize` (`apply_synth`) matches each synth `decision_record` title and slug against `args.prepared.drIndex` (`existing_dr_for`); a match is not minted, is listed under the splice report's `dr_exists`, and its nuggets read `DR-EXISTS <path>`. `distill-harvest.workflow.js`'s `phase-3b` phase only reports. **Runs after:** Phase 3a, the cross-cluster check, and the conditional Opus escalation above.
 
-**Input, in-memory, not scratch files:** every `CREATE_DR` disposition from Wave 2's returned `dispositions[]`, with its `target` (the decision records synth agents scaffolded and wrote directly to `docs/decisions/*.md`, the same direct-write contract wiki guides get), plus judgment-mining `new-entry` proposals (cross-reference only — `docs/wiki/codebase-judgment/` is a separate namespace from `docs/decisions/`, never merged into a DR), plus the Opus escalation resolution when Phase 3a triggered one. The dedup agent Reads the real `docs/decisions/*.md` files stamped with this run's `run_id` rather than re-reading a Phase 2 scratch file — there is no staged-apply step for DRs in this pipeline.
+**Input, in-memory, not scratch files:** every `CREATE_DR` disposition from Wave 2's returned `dispositions[]`, with its `target` (the decision records synth agents scaffolded and wrote directly to `docs/decisions/*.md`, the same direct-write contract wiki guides get), and the `DR-EXISTS` skips finalize recorded. Judgment-mining `new-entry` proposals live in `docs/wiki/codebase-judgment/`, a separate namespace from `docs/decisions/`, and are never merged into a DR.
 
-**CRITICAL FAILURE MODE:** An empty canonical DR set (zero decision records found) despite non-empty `CREATE_DR` input is always a pipeline error, never a valid outcome. Unlike the retired turn-by-turn path, the Workflow does not halt the run on this — it surfaces `failure: true` plus `failure_detail` on the returned `phase_3b_dr_dedup` object for the Phase 4 summary to name, the same log-and-surface treatment every other late-pipeline single-agent failure in this Workflow gets. When there is nothing DR-shaped to dedup at all (zero `CREATE_DR` dispositions AND zero judgment new-entry proposals), the Workflow skips the dispatch entirely without spending an agent call on it.
+**CRITICAL FAILURE MODE:** `[DECISION]` nuggets that end with no record, no `DR-EXISTS` skip and no fleet-rule skip are a pipeline error, never a valid outcome. The Workflow does not halt on it — it surfaces `failure: true` plus `failure_detail` on the returned `phase_3b_dr_dedup` object for the Phase 4 summary to name. Zero `CREATE_DR` dispositions report through the skip branch below.
 
-**Written-record check.** The agent returns `dr_files_found`: every decision record it confirmed on disk for this run. `reconcileDrTargets()` puts each claimed `target` it did not find into `dr_minting.missing_files`; a record carrying this run's `run_id` that no `CREATE_DR` names lands in `dr_minting.unclaimed_files` (an agent died or dropped its claim after scaffolding) — the EM fills or removes each before committing.
+**Written-record check.** `dr_files_found` is the minted `CREATE_DR` targets finalize reported; `reconcileDrTargets()` puts any target outside it into `dr_minting.missing_files`, and a found path no `CREATE_DR` names lands in `dr_minting.unclaimed_files`.
 
-**`dr_minting` and the no-DECISION-nuggets case.** The result carries `dr_minting: {status, decision_nuggets, create_dr, skipped, allocator_unavailable, folded_unresolved, targets, missing_files, unclaimed_files}`. A run with zero `[DECISION]` nuggets and zero judgment new-entry proposals reports `dr_minting.status: no-decision-nuggets` and `phase_3b_dr_dedup.failure: false` — it held nothing decision-shaped. A run with `[DECISION]` nuggets and zero `CREATE_DR` keeps `failure: true` when any nugget is folded or allocator-skipped; when every one is a `DR-EXISTS` skip it reports `failure: false` and names the existing records.
+**`dr_minting` and the no-DECISION-nuggets case.** The result carries `dr_minting: {status, decision_nuggets, create_dr, create_dr_dispositions, skipped, allocator_unavailable, folded_unresolved, targets, missing_files, unclaimed_files}`; `create_dr` counts distinct minted targets, `create_dr_dispositions` the `CREATE_DR` dispositions (more than one nugget can land in one record). A run with zero `[DECISION]` nuggets and zero `CREATE_DR` dispositions reports `dr_minting.status: no-decision-nuggets` and `phase_3b_dr_dedup.failure: false` — it held nothing decision-shaped. A run with `[DECISION]` nuggets and zero `CREATE_DR` keeps `failure: true` when any nugget is folded or allocator-skipped; when every one is a `DR-EXISTS` or `FLEET-RULE-OWNED-ELSEWHERE` skip it reports `failure: false` and names the existing records and the fleet-rule owners.
 
 ---
 
@@ -323,29 +368,30 @@ Moved to [`phase-3d-deletion-manifest.md`](phase-3d-deletion-manifest.md) — re
 
 ---
 
-## Artifact-Level Send_Back Re-Entry (folded into the Workflow — Sonnet, one per cluster)
+## Artifact-Level Send_Back Re-Entry (folded into the Workflow — off the default path)
 
-**Model:** Sonnet. **Dispatch:** parallel, one re-harvest agent per SEND_BACK cluster (grouped
-by originating batch), dispatched directly by `distill-harvest.workflow.js`'s `artifact-reentry`
-phase, immediately after `phase-3d`. Runs only when `phase_3d_deletion_manifest.status` is `ran`.
+**Model:** Sonnet, `coordinator:distill-synth` (no tools). **Gate:** runs only with `args.reentry: true`
+and `phase_3d_deletion_manifest.status` `ran`. Without it every `SEND_BACK` row resolves `BLOCKED`, the
+reason naming re-entry as off the default path, and no `artifact-reentry` agent is dispatched.
 
 `findCoverageGaps`' shape lifted from nugget level (§ Coverage gate, Clustering Interstitial
 above) to artifact level: Phase 3d's `SEND_BACK` disposition means "not yet harvested, not
-settled" — carrying it forward unresolved is the exact defect this gate exists to close: either
-an artifact was harvested or it wasn't, and if it isn't, it gets sent back to be completed
-rather than recorded as settled.
+settled" — carrying it forward unresolved is the exact defect this gate exists to close.
 
-Each round: compute the current `SEND_BACK` set from the deletion manifest, group by batch, and
-dispatch one re-harvest agent per non-empty batch cluster to re-open the SEND_BACK artifact(s),
-complete the extraction Phase 3d found missing, and re-resolve each to `DELETE`, `BLOCKED`, or
-(if genuinely still incomplete) `SEND_BACK` — re-evaluating the delete guards on return exactly
-as Phase 3d itself does.
+Each round: compute the current `SEND_BACK` set, cut each original synth payload down to the page
+topics holding those artifacts' nuggets, and dispatch one `distill-synth` call per such payload. The
+returns are synth returns (ops, decision records, nugget reasons), never page writes: the run returns
+them as `reentry_manifest` (the `promote_manifest` shape) and `distill_mechanical.py finalize --manifest
+<reentry_manifest> --no-scratch --no-archive` splices them through the same cite-checked path as the
+promote manifest. No re-entry row resolves `DELETE` in-run: a row with returned ops is `BLOCKED`
+"pending finalize of reentry_manifest"; one with no page-topic nugget or no returned op is `BLOCKED`
+naming that.
 
 **Same three properties as the nugget-level Coverage Gate:**
 - **No silent caps.** Every round logs covered/total (settled vs. still-`SEND_BACK`) whether or
   not any `SEND_BACK` rows remain, before dispatch decides whether to run.
 - **A re-harvest failure is caught and logged**, never a run-blocking halt — a batch cluster
-  whose agent fails to return leaves its artifacts `SEND_BACK` for the next round (or the cap
+  whose call fails to return leaves its artifacts `SEND_BACK` for the next round (or the cap
   below), the same non-fatal degrade the Coverage Gate's `unresolved_gap_clusters` gives.
 - **Bounded re-entry.** Capped at `SEND_BACK_REENTRY_CAP` (2) rounds. An artifact still
   `SEND_BACK` after the cap becomes `BLOCKED`, naming the cap and the original missing-citation
@@ -454,8 +500,6 @@ the same flow, not two competing mechanisms.
 
    **Agentic-path fallback if the engine repo declines / both the script and `--batch` are unavailable:** hand-appending is degraded (drift-prone), not broken — but it MUST still conform exactly to the schema-of-record (`coordinator/schemas/distillation-log.schema.md`), not an improvised shape:
    - **Row shape is exactly** `- <path> -> <disposition>, <fate> (run: <run-id>)` — `<run-id>` belongs in the trailing `(run: ...)` parenthetical and NOWHERE else; a `last_sha` or any other provenance detail belongs in the `<fate>` prose fragment, never smuggled into the `(run: ...)` parenthetical alongside or instead of the run id.
-   - **`<disposition>` MUST be one of the five enum values** `DISTILLED`, `PROMOTE`, `EPHEMERAL`, `SKIP`, `PRESERVE` — verbatim, exact case. Do NOT improvise a sixth value (e.g. an ad-hoc `DELETED` token): two recent engine-repo runs hand-appended 195 rows using `DELETED`, which is not in the enum and is invisible to every reader that parses against the schema-of-record. The ratified mapping treats an improvised `DELETED` action as canonical `EPHEMERAL` — use `EPHEMERAL` directly rather than reintroducing the non-canonical token.
-   - Never the legacy `docs/wiki/.distill-log.md` path, never the Unicode `→` glyph (ASCII `->` only, per the schema-of-record's single most load-bearing detail).
 
 8. **Amend log update** into the deletion commit
 

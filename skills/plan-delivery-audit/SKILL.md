@@ -27,6 +27,8 @@ Rough-sort by frontmatter `status:`:
 
 Read each independently; Oracle 1 is the hypothesis, Oracles 2 and 3 test it; never let Oracle 1 color how you read them.
 
+`DELIVERY-MEANS-IT-RAN-END-TO-END` (`wiki/planning/wiring-table.md`): a `wiring:` part (wired, not_built, blocked, off_route; `consumes`, `produces`) claimed wired is checked against its `built_path` and `runs_evidence` at the delivered sha; none, `delivered` is false.
+
 **Oracle 1 — plan-claim.** The plan's own `status:`, per-AC status column, execution/`reviewed:`
 notes. A claim, not a verdict.
 

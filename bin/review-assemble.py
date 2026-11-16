@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # review-assemble — CLI trampoline over claude-klabauter
 # coordinator_core.review_assemble (the `/review` skill's read-only
 # residue-brief compute, and future review-assemble subcommands).

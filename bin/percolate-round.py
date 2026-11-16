@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """percolate-round.py — one-command sequencer for a single-target percolate
 publish round: dry-run -> parse -> scan-secrets -> inverse-drift -> Step 3
 gate -> real run -> commit -> push (on a clean round; DR-301). There is no
@@ -166,14 +167,16 @@ import contextlib
 import faulthandler
 import io
 import json
+import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Collection, Dict, List, NamedTuple, Optional, Sequence, Tuple
+from typing import Any, Collection, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 _BIN_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _BIN_DIR.parent.parent
@@ -309,6 +312,80 @@ _PARSE_DRYRUN = _BIN_DIR / "percolate-parse-dryrun.py"
 _PUBLISH = _BIN_DIR / "publish.py"
 _PERCOLATE_PUSH = _BIN_DIR / "percolate-push.py"
 _STATE_ROOT_RESOLVER = _REPO_ROOT / "coordinator" / "lib" / "coordinator-state-root.py"
+
+def _commit_clone_module():
+    """`bin/lib/commit_clone`: stdlib-only, imported before the engine is bound."""
+    bin_lib = str(_BIN_DIR / "lib")
+    if bin_lib not in sys.path:
+        sys.path.insert(0, bin_lib)
+    import commit_clone  # noqa: PLC0415
+
+    return commit_clone
+
+
+def _live_repo_root() -> Path:
+    """The live source repo: `_REPO_ROOT` itself, or the repo this commit clone was cut from.
+    Every read or write of live-tree state goes through here -- the clone is sparse and is pruned."""
+    return _commit_clone_module().source_repo_root(_REPO_ROOT)
+
+
+def _temp_layout():
+    """`coordinator_core.temp_layout`, loaded by path: it is stdlib-only and the engine may not be
+    bound yet (the round's scratch dir is made before `_bootstrap_engine`)."""
+    import importlib.util  # noqa: PLC0415
+
+    spec = importlib.util.spec_from_file_location(
+        "_round_temp_layout", _REPO_ROOT / "coordinator_core" / "temp_layout.py"
+    )
+    temp_layout = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(temp_layout)
+    return temp_layout
+
+
+def _commit_sha(repo_root: Path, ref: str) -> str:
+    """`ref` as a full commit id; a full hex id is returned without a spawn. Raises
+    RuntimeError when it names no commit."""
+    if _FULL_SHA_RE.fullmatch(ref):
+        return ref
+    rev = _git_bytes(repo_root, "rev-parse", "--verify", f"{ref}^{{commit}}")
+    if rev.returncode != 0:
+        raise RuntimeError(f"{ref!r} does not resolve to a commit")
+    return rev.stdout.decode().strip()
+
+
+def _git_bytes(repo_root: Path, *args: str) -> "subprocess.CompletedProcess[bytes]":
+    return subprocess.run(
+        ["git", "-C", str(repo_root), *args], capture_output=True,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+
+
+def _resolve_clone_sha(repo_root: Path, source_ref: Optional[str]) -> str:
+    """The commit the round's code runs from: `source_ref`, else HEAD. A ref this repo does not
+    hold falls back to HEAD (the round's own preflight still judges the ref against its source).
+    Raises RuntimeError when HEAD itself does not resolve."""
+    for ref in ([source_ref] if source_ref else []) + ["HEAD"]:
+        rev = _git_bytes(repo_root, "rev-parse", "--verify", f"{ref}^{{commit}}")
+        if rev.returncode == 0:
+            return rev.stdout.decode().strip()
+    raise RuntimeError("HEAD does not resolve to a commit")
+
+
+def _delegate_to_commit_clone(argv: List[str], source_ref: Optional[str]) -> int:
+    """Run this same entry from a shared clone at the round's commit, so uncommitted edits in the
+    live tree never reach the round's code and never refuse it."""
+    commit_clone = _commit_clone_module()
+    try:
+        sha = _resolve_clone_sha(_REPO_ROOT, source_ref)
+        clone = commit_clone.materialise_commit_clone(_REPO_ROOT, sha, commit_clone.default_cache_root())
+    except Exception as exc:  # RuntimeError, OSError: a refusal naming the cause, never a crash
+        retry = "" if "Retry:" in str(exc) else (
+            f' Retry: python "{_BIN_DIR / "lib" / "commit_clone.py"}" materialise <full-sha> --repo "{_REPO_ROOT}"'
+            f' (sha: git -C "{_REPO_ROOT}" rev-parse HEAD)'
+        )
+        print(f"percolate-round: refused, nothing staged: commit clone failed: {exc}{retry}", file=sys.stderr)
+        return _EXIT_FAIL
+    return commit_clone.run_entry_from_clone(clone, "coordinator/bin/percolate-round.py", ["percolate-round.py", *argv])
 
 #: D1 fix — inherited-holder handoff. `_cmd_round` opens `_round_held_lock`
 #: over `Path(dest)` and spawns `publish.py` (Step 4 real run) as a
@@ -476,6 +553,12 @@ _GIT_PUSH_TIMEOUT_SECS = 120.0
 #: family: these resolve identity, and identity resolution that COSTS
 #: seconds is the defect, not the bound.
 _REGISTRY_CLI_TIMEOUT_SECS = 2.0 + _SPAWN_SCHEDULING_HEADROOM_SECS
+
+#: Kill ceiling on the `machine-local dump` spawn `resolve_target._dump_registry`
+#: makes on the round's behalf. Equals `coordinator_core.machine_local_spawn
+#: .ML_SPAWN_TIMEOUT_S` with no scheduling headroom: a dump that outlives it is
+#: killed and reaped, never waited on (the dump-spawns-dump storm, c260e1).
+_MACHINE_LOCAL_DUMP_TIMEOUT_SECS = 2.0
 
 # NOT dead, despite this module's own legs no longer passing it: the scan and
 # parse legs here became in-process `_run_step` calls, but `percolate-mirror.py`
@@ -645,7 +728,7 @@ def _run_step(script: Path, argv: List[str]) -> subprocess.CompletedProcess:
     import traceback  # noqa: PLC0415 - only needed on this path
 
     out, err = io.StringIO(), io.StringIO()
-    equivalent_spawn = [sys.executable, str(script), *argv]
+    equivalent_spawn = [_console_python(), str(script), *argv]
     try:
         module = _sibling_cli(script)
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -1128,8 +1211,64 @@ def _dest_head_diff_names(repo_root: str) -> Optional[set]:
     return {line for line in result.stdout.splitlines() if line}
 
 
+_STRANDED_PROOF_BATCH = 500
+
+
+def _in_published_scope(rel: str, scope_dirs: Collection[str]) -> bool:
+    """True when dest-relative `rel` sits under one of the published row dirs;
+    `""` / `"."` name the repo root and cover everything."""
+    for d in scope_dirs:
+        d = d.strip("/")
+        if d in ("", ".") or rel == d or rel.startswith(d + "/"):
+            return True
+    return False
+
+
+def _stranded_source_deletions(
+    manifest: _RoundManifest, repo_root_path: Path, head_tree: set, source_root: Path
+) -> List[str]:
+    """Dest-relative paths a PRIOR round's sync already removed from dest's
+    disk and no commit ever carried: tracked at dest HEAD, inside a published
+    row's scope, absent from `declared_payload`, `manifest.removed` and dest's
+    disk, AND proven deleted at source (present in source history's deletions,
+    gone from source's worktree). The source proof is what keeps dest-local
+    residue and another publisher's files untouched; a dest layout that does
+    not mirror the source layout proves nothing and is left alone.
+
+    No spawn unless a candidate exists; then one `git log` per
+    `_STRANDED_PROOF_BATCH` candidates. Empty on any git failure."""
+    import os
+
+    scope = manifest.published_dest_dirs
+    if not scope:
+        return []
+    skip = manifest.declared_payload | manifest.removed
+    candidates = sorted(
+        rel
+        for rel in head_tree
+        if rel not in skip
+        and _in_published_scope(rel, scope)
+        and not os.path.lexists(repo_root_path / rel)
+        and not os.path.lexists(source_root / rel)
+    )
+    deleted_at_source: set = set()
+    for start in range(0, len(candidates), _STRANDED_PROOF_BATCH):
+        batch = candidates[start : start + _STRANDED_PROOF_BATCH]
+        result = _run(
+            [
+                "git", "--literal-pathspecs", "-C", str(source_root), "--no-optional-locks",
+                "log", "--format=", "--name-only", "--no-renames", "--diff-filter=D", "--", *batch,
+            ],
+            timeout=_GIT_PLUMBING_TIMEOUT_SECS,
+        )
+        if result.returncode != 0:
+            return []
+        deleted_at_source.update(line for line in result.stdout.splitlines() if line)
+    return [rel for rel in candidates if rel in deleted_at_source]
+
+
 def _pathspec_from_manifest(
-    manifest: _RoundManifest, repo_root: str
+    manifest: _RoundManifest, repo_root: str, source_root: "Optional[Path]" = None
 ) -> Tuple[List[str], Dict[str, int]]:
     """Builds the commit pathspec by comparing `manifest.declared_payload`
     against DEST HEAD, in both directions, then reusing
@@ -1212,6 +1351,9 @@ def _pathspec_from_manifest(
             "swept before any rule can retire them.",
             file=sys.stderr,
         )
+    if source_root is not None:
+        for rel in _stranded_source_deletions(manifest, repo_root_path, head_tree, source_root):
+            seen.setdefault(str(repo_root_path / rel), ("REMOVE", rel))
     return _filter_commit_pathspec(repo_root_path, repo_root_norm, seen, repo_root=repo_root)
 
 
@@ -2032,7 +2174,7 @@ def _source_sha_suffix(pinned_sha: str = "") -> str:
     from coordinator_core.git.git_state import format_source_sha_suffix  # noqa: PLC0415
     from coordinator_core.git.git_state import source_sha_suffix  # noqa: PLC0415
 
-    return format_source_sha_suffix(pinned_sha) if pinned_sha else source_sha_suffix(_REPO_ROOT)
+    return format_source_sha_suffix(pinned_sha) if pinned_sha else source_sha_suffix(_live_repo_root())
 
 
 def _build_commit_subject(
@@ -2284,7 +2426,7 @@ def _round_changelog_lag_line(
         return _changelog_lag_line(
             target_rows,
             all_rows,
-            _REPO_ROOT,
+            _live_repo_root(),
             source_head,
         )
     except Exception:  # noqa: BLE001 - advisory line, never a round failure
@@ -2565,6 +2707,9 @@ def _extract_row_tally(stdout: str, stderr: str) -> Optional[str]:
 
 _CAUSE_LINE_RE = re.compile(r"^\s*(?:\[[^\]\n]+\]\s*)?(?:Error|FATAL)\b[:\s].*", re.IGNORECASE)
 _REFUSED_LABEL_RE = re.compile(r"^\s*\[timing\]\s+(.+?):\s+(REFUSED:.+?):\s+[\d.]+s wall")
+# publish.py `_main`'s own refusal prefix; the line is returned whole (never truncated) because
+# it names the dirty paths and the remedy.
+_PUBLISH_REFUSAL_RE = re.compile(r"^\s*publish: refused --\s")
 _CAUSE_MAX_CHARS = 300
 
 
@@ -2580,6 +2725,10 @@ def _extract_failure_cause(stdout: str, stderr: str) -> Optional[str]:
     that printed no `Error:` line. `None` means neither was found; the caller
     says so rather than invent one.
     """
+    for text in (stderr, stdout):
+        for line in text.splitlines():
+            if _PUBLISH_REFUSAL_RE.match(line):
+                return line.strip()
     for text in (stderr, stdout):
         for line in text.splitlines():
             if _CAUSE_LINE_RE.match(line):
@@ -2691,7 +2840,7 @@ _ENGINE_IMPORT_PROBE = (
     "        importlib.import_module(name)\n"
     "    except (ImportError, SyntaxError) as exc:\n"
     "        bad[name] = f'{type(exc).__name__}: {exc}'\n"
-    "    except Exception:\n"
+    "    except BaseException:\n"
     "        pass\n"
     "print(json.dumps(bad))\n"
 )
@@ -2706,6 +2855,10 @@ def _engine_modules_to_import(repo_root: str, pathspec: Sequence[str]) -> List[s
         rel = raw.replace("\\", "/")
         parts = rel.split("/")
         if parts[0] != "coordinator_core" or not rel.endswith(".py") or "tests" in parts[:-1]:
+            continue
+        # Trap: importing `__main__` RUNS the entrypoint, and a test module may raise pytest's
+        # Skipped (a BaseException); neither is an import-closure question.
+        if parts[-1] == "__main__.py" or parts[-1].startswith("test_"):
             continue
         if not (root / rel).is_file():
             continue
@@ -2728,15 +2881,19 @@ def _console_python() -> str:
     return resolve_console_python() or sys.executable
 
 
-def _engine_import_failures(repo_root: str, pathspec: Sequence[str]) -> Optional[str]:
+def _engine_import_failures(
+    repo_root: str, pathspec: Sequence[str], *, write_bytecode: bool = False
+) -> Optional[str]:
     """Import every engine module this round published, in ONE interpreter rooted at the
     destination, and name each that fails. None when all import (or none apply). Catches a
-    published importer whose imported definition never shipped."""
+    published importer whose imported definition never shipped. `write_bytecode` drops `-B`; only
+    a throwaway export tree may set it, never the real destination."""
     modules = _engine_modules_to_import(repo_root, pathspec)
     if not modules:
         return None
+    flags = ["-I"] if write_bytecode else ["-I", "-B"]
     probe = _run(
-        [_console_python(), "-I", "-B", "-c", _ENGINE_IMPORT_PROBE, repo_root, *modules],
+        [_console_python(), *flags, "-c", _ENGINE_IMPORT_PROBE, repo_root, *modules],
         timeout=_REGISTRY_CLI_TIMEOUT_SECS,
         cwd=repo_root,
     )
@@ -2751,6 +2908,73 @@ def _engine_import_failures(repo_root: str, pathspec: Sequence[str]) -> Optional
     return "published engine module(s) fail to import at the destination: " + "; ".join(
         f"{name} -> {err}" for name, err in sorted(bad.items())
     )
+
+
+def _early_engine_import_refusal(
+    source_dir: str,
+    shipped_sha: Optional[str],
+    withholding: Any,
+    *,
+    mirror: Optional[Path] = None,
+    passed: Optional[List[str]] = None,
+) -> Optional[str]:
+    """Refusal text when a `coordinator_core` module this round changes fails to import in the
+    per-sha source export, else None. Runs before staging so a half-shipped importer fails in
+    seconds, not after the publish leg; `_engine_import_failures` still runs post-run against the
+    real destination.
+
+    The export is the shared commit clone at `shipped_sha` (a cache hit when it is the round's own). Changed
+    modules are `git diff <mirror walk base>..<shipped_sha> -- coordinator_core`; no `mirror` stamp
+    means only `_ENGINE_IMPORT_ALWAYS` is probed. Withheld paths are skipped: a withheld path
+    publishes at pre-checkpoint content this export does not hold. The row allowlist does not
+    narrow the probe (loading publish.py costs more than the denied modules' clean imports).
+    `.lastsync` is a destination sha, not a source one, so it cannot anchor the diff.
+    None when `shipped_sha` is unset or the export cannot be built (the post-run gate covers it).
+    `passed`, when given, receives `shipped_sha` only when the probe ran and every module imported:
+    a sha pins one tree, so it is the tree identity the post-run gate skips on."""
+    if not shipped_sha:
+        return None
+    commit_clone = _commit_clone_module()
+    try:
+        export_root = commit_clone.materialise_commit_clone(
+            Path(source_dir), shipped_sha, commit_clone.default_cache_root()
+        )
+    except (RuntimeError, OSError, AttributeError, ImportError):
+        return None
+    rels: List[str] = []
+    base = None
+    if mirror is not None:
+        import coordinator_core.percolate.source_preflight as _preflight  # type: ignore[import-not-found]  # noqa: PLC0415
+
+        base = _preflight.mirror_walk_base(mirror)
+    if base:
+        diff = _run(
+            ["git", "-C", str(source_dir), "--no-optional-locks", "diff", "--name-only",
+             f"{base}..{shipped_sha}", "--", "coordinator_core"],
+            timeout=_GIT_PLUMBING_TIMEOUT_SECS,
+        )
+        if diff.returncode == 0:
+            rels = [p for p in diff.stdout.splitlines() if p.strip()]
+    withheld = {p.replace("\\", "/") for p in (getattr(withholding, "paths", None) or {})}
+    rels = [r for r in rels if r not in withheld]
+    failure = _engine_import_failures(str(export_root), rels, write_bytecode=True)
+    if failure is None:
+        if passed is not None:
+            passed.append(shipped_sha)
+        return None
+    return f"early engine-import gate (source export {shipped_sha[:12]}): {failure}"
+
+
+def _early_import_probe_covers_late_gate(
+    probed_sha: Optional[str], withholding: Any
+) -> bool:
+    """True when the early probe already passed on the exported tree this round publishes and no
+    `coordinator_core` path was withheld (a withheld path ships pre-checkpoint content the export
+    does not hold, so the post-run gate must probe it)."""
+    if not probed_sha:
+        return False
+    withheld = (getattr(withholding, "paths", None) or {}) if withholding is not None else {}
+    return not any(str(p).replace("\\", "/").startswith("coordinator_core/") for p in withheld)
 
 
 def _round_refusal_reason(
@@ -3107,6 +3331,7 @@ class _RoundSlot:
     def __init__(self, repo_root: Path):
         self.repo_root = repo_root
         self.token: Optional[str] = None
+        self.heartbeat: "Any" = None
 
 
 def _round_slot_session_id(repo_root: Path) -> Optional[str]:
@@ -3120,9 +3345,9 @@ def _round_slot_session_id(repo_root: Path) -> Optional[str]:
 
 @contextlib.contextmanager
 def _hold_round_slot(dest: str):
-    """Take the mirror's origin slot before Step 1 and release it on every exit.
-    `PublishSlotHeldError` propagates to the caller as BUSY; an unobtainable lease
-    (`PublishLeaseError`) propagates as a refusal."""
+    """Take the mirror's origin slot before Step 1, renew its lease on a heartbeat until the
+    round ends, and release it on every exit. `PublishSlotHeldError` propagates to the caller
+    as BUSY; an unobtainable lease (`PublishLeaseError`) propagates as a refusal."""
     root = Path(dest)
     slot = _RoundSlot(root)
     if _publish_slot.slot_remote(root) is None:
@@ -3132,7 +3357,16 @@ def _hold_round_slot(dest: str):
         root, _publish_slot.make_holder(_round_slot_session_id(root))
     )
     try:
-        yield slot
+        # The heartbeat stops (inner `with`) before the release below.
+        with _publish_slot.slot_heartbeat(root, slot.token) as slot.heartbeat:
+            try:
+                yield slot
+            finally:
+                hb = slot.heartbeat
+                if hb is not None and hb.lost:
+                    print(f"percolate-round: slot lost during the round: {hb.lost}", file=sys.stderr)
+                elif hb is not None and hb.error:
+                    print(f"percolate-round: slot renewal failing at exit: {hb.error}", file=sys.stderr)
     finally:
         try:
             _publish_slot.release_slot(root, slot.token)
@@ -3145,6 +3379,12 @@ def _confirm_round_slot(slot: _RoundSlot) -> bool:
     must neither commit nor push. Fail-closed on a lease-protocol error."""
     if slot.token is None:
         return True
+    if slot.heartbeat is not None and slot.heartbeat.lost:
+        print(
+            f"percolate-round: publish slot lost before commit/push ({slot.heartbeat.lost}); no push.",
+            file=sys.stderr,
+        )
+        return False
     try:
         _publish_slot.confirm_slot(slot.repo_root, slot.token)
     except (_publish_slot.PublishSlotLostError, _publish_lease.PublishLeaseError) as exc:
@@ -3169,6 +3409,8 @@ def _cmd_round_default(
     tmp: Path,
     *,
     override: "Optional[DestRootOverride]" = None,
+    withholding: "Any" = None,
+    engine_import_probed_sha: Optional[str] = None,
 ) -> int:
     """The round, PM ruling 2026-08-15: one sync, not two. Step 2's dry run
     is dropped entirely -- Step 1 IS the real `publish.py` run, and it
@@ -3233,6 +3475,13 @@ def _cmd_round_default(
                 real_cmd.append("--no-delta")
             if getattr(args, "source_ref", None):
                 real_cmd += ["--source-ref", args.source_ref]
+            if withholding is not None and withholding.paths:
+                withheld_path = tmp / "withheld-paths.json"
+                withheld_path.write_text(
+                    json.dumps({"walk_base": withholding.walk_base, "toplevel": withholding.toplevel, "paths": dict(withholding.paths)}),
+                    encoding="utf-8", newline="\n",
+                )
+                real_cmd += ["--withheld-paths-json", str(withheld_path)]
             if override is not None:
                 from percolate.targets import (  # type: ignore[import-not-found]  # noqa: PLC0415
                     PUBLISH_DEST_ROOT_LIVE_FLAG,
@@ -3528,7 +3777,7 @@ def _cmd_round_default(
 
             # --- pathspec build ----------------------------------------------
             pathspec, filter_drops = (
-                _pathspec_from_manifest(manifest, repo_root)
+                _pathspec_from_manifest(manifest, repo_root, _live_repo_root())
                 if manifest is not None
                 else ([], _no_filter_drops())
             )
@@ -3760,6 +4009,8 @@ def _cmd_round_default(
                     commit_message = compose_message(
                         subject=subject, prose=_not_carried_body
                     )
+                    if withholding is not None and withholding.paths and withholding.walk_base:
+                        commit_message += f"\n\nSource-Withheld-Base: {withholding.walk_base}"
                     if manifest is not None and manifest.stamp_source_head:
                         commit_message += format_publish_trailers(
                             round_id=manifest.round_id,
@@ -3870,7 +4121,11 @@ def _cmd_round_default(
             )
 
             engine_import_failure = (
-                None if args.no_publish else _engine_import_failures(repo_root, pathspec)
+                None
+                if args.no_publish or _early_import_probe_covers_late_gate(
+                    engine_import_probed_sha, withholding
+                )
+                else _engine_import_failures(repo_root, pathspec)
             )
             refusal_reason = _round_refusal_reason(
                 real_returncode=real.returncode,
@@ -3952,7 +4207,7 @@ def _field7_preflight(target: str, source_ref: str = "") -> Optional[str]:
     publish = _sibling_cli(_PUBLISH)
     publish._source_ref_override = source_ref
     try:
-        pinned = publish._round_pin_source_sha(_REPO_ROOT, {})
+        pinned = publish._round_pin_source_sha(_live_repo_root(), {})
     except Exception:  # an unresolvable HEAD falls back to the checkout; the validator still judges it
         pinned = None
     ok, detail, owned = publish._field7_declaration_check(pinned)
@@ -3989,16 +4244,21 @@ def _resolve_shipped_sha(repo_root: Path, ref: str) -> Optional[str]:
     return out or None
 
 
-def _fold_bar_refusal(repo_root: Path, source_ref: str = "") -> Optional[str]:
+_SHA_UNRESOLVED = object()
+
+
+def _fold_bar_refusal(repo_root: Path, source_ref: str = "", sha: object = _SHA_UNRESOLVED) -> Optional[str]:
     """Advisory text when no green recorded full-suite verdict exists for the shipped commit, or None.
 
     Advisory only: the caller prints it and proceeds. Keyed to the commit the round ships: `source_ref`
-    when given, else HEAD (a detached HEAD resolves).
+    when given, else HEAD (a detached HEAD resolves). `sha` is the caller's already-resolved value
+    (None = unresolvable); omitted, it is resolved here.
     """
     from coordinator_core.ops import fold_bar  # type: ignore[import-not-found]  # noqa: PLC0415
 
     ref = source_ref or "HEAD"
-    sha = _resolve_shipped_sha(repo_root, ref)
+    if sha is _SHA_UNRESOLVED:
+        sha = _resolve_shipped_sha(repo_root, ref)
     if sha is None:
         return f"fold bar: cannot resolve '{ref}' to a commit in {repo_root}"
     result = fold_bar.verdict(sha, repo_root)
@@ -4007,6 +4267,149 @@ def _fold_bar_refusal(repo_root: Path, source_ref: str = "") -> Optional[str]:
     sv = result.verdict
     detail = f" [failed={sv.failed}, reds={[r.get('nodeid', '') for r in sv.reds]}]" if sv is not None else ""
     return f"fold bar: {result.reason}{detail}"
+
+
+class _UnreadableObject(Exception):
+    pass
+
+
+def _registry_integrity_refusal(source_dir: Path, source_ref: str, sha: Optional[str]) -> Optional[str]:
+    """Refusal text when the committed op registry at `sha` names a module its tree lacks, or None.
+
+    Reads git objects in-process (zero spawn, no interpreter, no worktree): the incident class is a
+    registry naming a missing module; a runtime-only import error stays with the destination probe.
+    An unresolvable sha or an unreadable object refuses, never passes. A tree with no registry
+    surfaces yields no absences.
+    """
+    ref = source_ref or "HEAD"
+    if sha is None:
+        return f"registry-incomplete: cannot resolve '{ref}' to a commit in {source_dir}"
+    from coordinator_core.authz.registration_quad_static import (  # type: ignore[import-not-found]  # noqa: PLC0415
+        registry_module_absences,
+    )
+    from coordinator_core.git import git_objects  # type: ignore[import-not-found]  # noqa: PLC0415
+    from coordinator_core.git import rollback_check  # type: ignore[import-not-found]  # noqa: PLC0415
+    from coordinator_core.lifecycle import git_common_dir  # type: ignore[import-not-found]  # noqa: PLC0415
+
+    try:
+        common = git_common_dir(Path(source_dir))
+    except RuntimeError as exc:
+        return f"registry-incomplete: cannot resolve the git directory of {source_dir}: {exc}"
+
+    def read_source(path: str) -> Optional[bytes]:
+        blob = rollback_check._blob_at_commit(common, sha, path)
+        if blob is rollback_check.ABSENT:
+            return None
+        if blob is None:
+            raise _UnreadableObject(f"{path}: commit or tree unreadable at {sha[:12]}")
+        obj = git_objects.read_object(common, blob)
+        if obj is None:
+            raise _UnreadableObject(f"{path}: blob {str(blob)[:12]} unreadable at {sha[:12]}")
+        return obj[1]
+
+    try:
+        absences = registry_module_absences(read_source)
+    except _UnreadableObject as exc:
+        return f"registry-incomplete: unreadable-object: {exc}"
+    if absences:
+        return f"registry-incomplete: the registry at {sha[:12]} names module(s) absent from that tree: {', '.join(absences)}"
+    return None
+
+
+_ROUND_TMP_PREFIX = "percolate-round-"
+_STAMPED_TMP_RE = re.compile(r"^percolate-round-(\d+)-")
+_LEGACY_TMP_MAX_AGE_S = 24 * 3600
+
+
+def _pid_is_alive(pid: int) -> bool:
+    """True when `pid` names a running process (never signals it: os.kill(pid, 0) kills on Windows)."""
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes  # noqa: PLC0415
+
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        handle = kernel32.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            if kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return code.value == 259
+            return True
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _reap_dead_round_tempdirs() -> None:
+    """Remove percolate-round-* temp dirs no live round owns; best effort, never raises.
+
+    A stamped dir (`percolate-round-<pid>-*`) goes when its pid is dead. A legacy
+    unstamped dir carries no owner, so it goes only once older than a day.
+    """
+    # Rounds now write under the managed root; the legacy top-level Temp still holds dirs from
+    # rounds before that move, read through temp_layout's sanctioned legacy accessor.
+    try:
+        layout = _temp_layout()
+        roots = (layout.managed_tempdir(), layout.legacy_top_level_path(_ROUND_TMP_PREFIX).parent)
+        entries = [e for root in roots for e in root.glob(_ROUND_TMP_PREFIX + "*")]
+    except Exception:
+        return
+    now = time.time()
+    for entry in entries:
+        try:
+            if not entry.is_dir() or entry.is_symlink():
+                continue
+            stamped = _STAMPED_TMP_RE.match(entry.name)
+            if stamped:
+                if _pid_is_alive(int(stamped.group(1))):
+                    continue
+            elif now - entry.stat().st_mtime < _LEGACY_TMP_MAX_AGE_S:
+                continue
+            shutil.rmtree(entry, ignore_errors=True)
+        except OSError:
+            continue
+
+
+@contextlib.contextmanager
+def _round_tempdir():
+    """Yield a pid-stamped scratch dir removed on every exit, SIGTERM/SIGHUP included.
+
+    The signal handlers raise SystemExit so the `finally` unwinds; a SIGKILL
+    leaves the dir for the next round's `_reap_dead_round_tempdirs`.
+    """
+    tmpdir = tempfile.mkdtemp(prefix=f"{_ROUND_TMP_PREFIX}{os.getpid()}-", dir=str(_temp_layout().managed_tempdir()))
+
+    def _unwind(signum, _frame):
+        raise SystemExit(128 + signum)
+
+    saved = {}
+    for name in ("SIGTERM", "SIGHUP"):
+        signum = getattr(signal, name, None)
+        if signum is None:
+            continue
+        try:
+            saved[signum] = signal.signal(signum, _unwind)
+        except (ValueError, OSError):
+            continue
+    try:
+        yield Path(tmpdir)
+    finally:
+        for signum, prior in saved.items():
+            try:
+                signal.signal(signum, prior)
+            except (ValueError, OSError):
+                pass
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 def _cmd_round(args: argparse.Namespace) -> int:
@@ -4040,14 +4443,19 @@ def _cmd_round(args: argparse.Namespace) -> int:
     # upstream and is pushed; with --source-ref it must already be held by a remote
     # branch, and nothing is pushed.
     _bootstrap_engine()
-    bar_refusal = _fold_bar_refusal(Path(source_dir), getattr(args, "source_ref", None) or "")
+    source_ref = getattr(args, "source_ref", None) or ""
+    shipped_sha = _resolve_shipped_sha(Path(source_dir), source_ref or "HEAD")
+    bar_refusal = _fold_bar_refusal(Path(source_dir), source_ref, shipped_sha)
     if bar_refusal is not None:
         print(f"percolate-round: advisory, proceeding: {bar_refusal}", file=sys.stderr)
+    registry_refusal = _registry_integrity_refusal(Path(source_dir), source_ref, shipped_sha)
+    if registry_refusal is not None:
+        print(f"percolate-round: refused, nothing synced: {registry_refusal}", file=sys.stderr)
+        return _EXIT_FAIL
     from coordinator_core.percolate.source_preflight import (  # type: ignore[import-not-found]  # noqa: PLC0415
         check_source_published as _check_source_published,
     )
 
-    source_ref = getattr(args, "source_ref", None) or ""
     refusal = _check_source_published(
         Path(source_dir),
         Path(dest),
@@ -4058,6 +4466,32 @@ def _cmd_round(args: argparse.Namespace) -> int:
         print(f"percolate-round: refused: {refusal}", file=sys.stderr)
         return _EXIT_FAIL
 
+    import coordinator_core.percolate.source_preflight as _source_preflight  # type: ignore[import-not-found]  # noqa: PLC0415
+
+    withholding = _source_preflight.source_withholding(Path(source_dir), Path(dest), source_ref=source_ref)
+    if withholding.refusal is not None:
+        print(f"percolate-round: refused: {withholding.refusal}", file=sys.stderr)
+        return _EXIT_FAIL
+    if withholding.paths:
+        print(
+            f"percolate-round: withholding {len(withholding.paths)} path(s) owned by run-open "
+            f"checkpoint commit(s), published at their pre-checkpoint content: "
+            f"{', '.join(sorted(withholding.paths))}"
+        )
+
+    early_probed: List[str] = []
+    early_import_refusal = (
+        None
+        if args.no_publish
+        else _early_engine_import_refusal(
+            source_dir, shipped_sha, withholding,
+            mirror=Path(dest), passed=early_probed,
+        )
+    )
+    if early_import_refusal is not None:
+        print(f"percolate-round: refused, nothing synced: {early_import_refusal}", file=sys.stderr)
+        return _EXIT_FAIL
+
     field7_refusal = (
         _field7_preflight(target, source_ref) if source_ref else _field7_preflight(target)
     )
@@ -4065,10 +4499,12 @@ def _cmd_round(args: argparse.Namespace) -> int:
         print(f"percolate-round: refused, nothing synced: {field7_refusal}", file=sys.stderr)
         return _EXIT_FAIL
 
-    with tempfile.TemporaryDirectory(prefix="percolate-round-") as tmpdir:
-        tmp = Path(tmpdir)
+    _reap_dead_round_tempdirs()
+    with _round_tempdir() as tmp:
         return _cmd_round_default(
-            args, target, percolate_root, source_dir, dest, tmp, override=override
+            args, target, percolate_root, source_dir, dest, tmp, override=override,
+            withholding=withholding,
+            engine_import_probed_sha=early_probed[0] if early_probed else None,
         )
 
 
@@ -4161,12 +4597,17 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    _bootstrap_engine()
-
     parser = _build_parser()
     args = parser.parse_args(argv)
     if args.open_only and args.no_publish:
         parser.error("--open-only and --no-publish are mutually exclusive")
+
+    # Before `_bootstrap_engine`: the round's code and chain run from a commit clone, never the live tree.
+    if not _commit_clone_module().is_commit_clone(_REPO_ROOT):
+        return _delegate_to_commit_clone(
+            list(sys.argv[1:] if argv is None else argv), getattr(args, "source_ref", None)
+        )
+    _bootstrap_engine()
 
     # A round once sat idle after its commit (0 CPU, no children) holding the
     # destination lock; static tracing found no unbounded wait. A healthy round

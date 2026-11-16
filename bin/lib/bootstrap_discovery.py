@@ -131,6 +131,10 @@ _ENGINE_ROOT_BOOTSTRAP_CALL_NAMES = frozenset({
     # `require_dispatch_engine_on_path` — a caller that uses it HAS bootstrapped,
     # and the surviving `query-*` CLIs all reach the seam only through it.
     "resolve_claude_klabauter_root_or_exit",
+    # DoE-sanctioned placement (test_no_hand_rolled_engine_root_placement):
+    # `cc_invoke.place_engine_root_on_path` puts an already-resolved engine root
+    # on sys.path. It takes a root, so it is not a resolver and has no family.
+    "place_engine_root_on_path",
 })
 
 #: Resolver-family classification for the AST family-map gate (AC4,

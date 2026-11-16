@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Report-only check: warns when an agent's frontmatter `tools:` names an `mcp__<server>__`
 namespace that no local config registers.
 
@@ -23,13 +24,28 @@ from pathlib import Path
 
 _NS_RE = re.compile(r"mcp__([A-Za-z0-9_.-]+?)__")
 _ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(_ROOT / "lib"))
-from frontmatter_scan import read_text, scan_frontmatter  # noqa: E402
-try:  # a lone copy of this script (tests) carries no coordinator/lib sibling
-    from _git_root_walk import git_root_walk  # noqa: E402
-except ImportError:
-    def git_root_walk():
-        return None
+
+def git_root_walk():
+    return None
+
+
+read_text = None
+scan_frontmatter = None
+
+
+def _bootstrap() -> None:
+    """Put the sibling `lib` on `sys.path` and bind the helpers the checks read."""
+    global read_text, scan_frontmatter, git_root_walk
+    if str(_ROOT / "lib") not in sys.path:
+        sys.path.insert(0, str(_ROOT / "lib"))
+    from frontmatter_scan import read_text as _read_text, scan_frontmatter as _scan
+
+    read_text, scan_frontmatter = _read_text, _scan
+    try:  # a lone copy of this script (tests) carries no coordinator/lib sibling
+        from _git_root_walk import git_root_walk as _walk
+    except ImportError:
+        return
+    git_root_walk = _walk
 
 
 def _load_json(path: Path) -> dict:
@@ -115,6 +131,7 @@ def _agents_dir(repo_root: Path) -> Path:
 
 
 def main(argv: "list[str] | None" = None) -> int:
+    _bootstrap()
     ap = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     ap.add_argument("--repo-root", default=None, help="subject repo (default: env, then cwd's repo)")
     args = ap.parse_args(argv)

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 group-em-nomination.py — CLI trampoline over the engine's
 `coordinator_core.group_em.nomination` and its shared holder-record

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 generate-tested-platforms — derive `tested_platforms` from platform-outcome records.
 

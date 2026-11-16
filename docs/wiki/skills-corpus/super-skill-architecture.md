@@ -233,7 +233,6 @@ its description or drops from the listing entirely).
 - Pattern spec: `2026-05-06-decision-tree-skill-pattern.md` under `archive/specs/`
 - coordinator:plan: `plugins/coordinator-claude/coordinator/skills/plan/SKILL.md`
 - coordinator:review: `plugins/coordinator-claude/coordinator/skills/review/SKILL.md`
-- coordinator:review-code: `plugins/coordinator-claude/coordinator/skills/review-code/SKILL.md`
 - Writing-skills wiki (skill TDD): `docs/wiki/skills-corpus/writing-skills.md`
 - Skill budget discipline: `docs/wiki/skills-corpus/skill-budget-discipline.md`
 - Dogfood super-skill spec: `2026-05-07-dogfood-super-skill.md` under `archive/specs/2026-05/`

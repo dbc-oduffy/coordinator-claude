@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """suite-verdict -- run the full suite once, bisect each red to its first-red commit, and record the verdict.
 
 The EM launches this in the background under a live tier-u grant; fold and publish only read the

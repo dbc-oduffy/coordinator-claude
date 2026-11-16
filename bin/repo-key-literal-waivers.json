@@ -55,28 +55,28 @@
     {
       "row": "claude-klabauter",
       "path": "ops/check_machine_local_regeneratability.py",
-      "literal": "repos.market_intelligence3",
+      "literal": "repos.delphios",
       "source": 1,
       "published": 0
     },
     {
       "row": "claude-klabauter",
       "path": "ops/check_machine_local_regeneratability.py",
-      "literal": "repos.market_intelligence4",
+      "literal": "repos.dronesim",
       "source": 1,
       "published": 0
     },
     {
       "row": "claude-klabauter",
       "path": "ops/check_machine_local_regeneratability.py",
-      "literal": "repos.market_intelligence0",
+      "literal": "repos.fifa_stats",
       "source": 1,
       "published": 0
     },
     {
       "row": "claude-klabauter",
       "path": "ops/check_machine_local_regeneratability.py",
-      "literal": "repos.market_intelligence1",
+      "literal": "repos.geneva_mvp",
       "source": 1,
       "published": 0
     },
@@ -97,7 +97,7 @@
     {
       "row": "claude-klabauter",
       "path": "ops/check_posix_exec_assumptions.py",
-      "literal": repos.market_intelligence6,
+      "literal": "doe_claude",
       "source": 1,
       "published": 0
     },
@@ -118,14 +118,14 @@
     {
       "row": "claude-klabauter",
       "path": "ops/fleet/consumer_corpus_preflight.py",
-      "literal": "repos.market_intelligence3",
+      "literal": "repos.delphios",
       "source": 1,
       "published": 0
     },
     {
       "row": "claude-klabauter",
       "path": "ops/fleet/consumer_corpus_preflight.py",
-      "literal": "repos.market_intelligence4",
+      "literal": "repos.dronesim",
       "source": 1,
       "published": 0
     },
@@ -139,21 +139,21 @@
     {
       "row": "claude-klabauter",
       "path": "ops/fleet/consumer_corpus_preflight.py",
-      "literal": "repos.market_intelligence0",
+      "literal": "repos.fifa_stats",
       "source": 1,
       "published": 0
     },
     {
       "row": "claude-klabauter",
       "path": "ops/fleet/consumer_corpus_preflight.py",
-      "literal": "repos.market_intelligence1",
+      "literal": "repos.geneva_mvp",
       "source": 1,
       "published": 0
     },
     {
       "row": "claude-klabauter",
       "path": "ops/fleet/consumer_corpus_preflight.py",
-      "literal": "repos.market_intelligence5",
+      "literal": "repos.holodeck",
       "source": 1,
       "published": 0
     },
@@ -167,7 +167,7 @@
     {
       "row": "claude-klabauter",
       "path": "ops/fleet/consumer_corpus_preflight.py",
-      "literal": "repos.market_intelligence2",
+      "literal": "repos.nimbalyst",
       "source": 1,
       "published": 0
     },
@@ -181,7 +181,7 @@
     {
       "row": "claude-klabauter",
       "path": "ops/verify_ue_overrides.py",
-      "literal": "repos.market_intelligence4",
+      "literal": "repos.dronesim",
       "source": 1,
       "published": 0
     },

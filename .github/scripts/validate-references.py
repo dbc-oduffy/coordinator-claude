@@ -4,6 +4,7 @@
 import re
 import sys
 import pathlib
+from collections.abc import Iterator
 
 LINK_RE = re.compile(r'\[([^\]]*)\]\(([^)]+)\)')
 
@@ -17,7 +18,7 @@ REPO_TOP_DIRS = {
 }
 
 
-def check_routing_files(errors: list):
+def check_routing_files(errors: list) -> None:
     """Check that agent names in routing.md files have matching agent .md files."""
     # Collect all agent stems across all plugins for cross-plugin resolution
     all_agent_stems: set[str] = set()
@@ -79,7 +80,7 @@ def check_routing_files(errors: list):
                     )
 
 
-def iter_lines_outside_code_blocks(text: str):
+def iter_lines_outside_code_blocks(text: str) -> Iterator[tuple[int, str]]:
     """Yield (line_num, line) for lines NOT inside fenced code blocks."""
     in_code_block = False
     for line_num, line in enumerate(text.splitlines(), 1):
@@ -91,7 +92,7 @@ def iter_lines_outside_code_blocks(text: str):
             yield line_num, line
 
 
-def check_memory_links(errors: list):
+def check_memory_links(errors: list) -> None:
     """Check that markdown links in MEMORY.md files resolve.
 
     coordinator-claude is a distribution package — no live memory files to check.
@@ -135,7 +136,7 @@ def is_excluded_path(path: pathlib.Path) -> bool:
     return False
 
 
-def check_markdown_links(errors: list):
+def check_markdown_links(errors: list) -> None:
     """Check relative markdown links in plugins/ and docs/ directories.
 
     Skips plugins/cache/ (third-party plugins we don't control) and reference docs.
@@ -181,7 +182,7 @@ def check_markdown_links(errors: list):
                         errors.append(f"{md_file}:{line_num}: broken link '{target}' — target not found")
 
 
-def main():
+def main() -> int:
     errors = []
 
     check_routing_files(errors)

@@ -24,7 +24,7 @@ SECTION_GLOBS: dict[str, str] = {
     "pipelines": "pipelines/*/PIPELINE.md",
 }
 
-def check_plugin(plugin_dir: pathlib.Path, errors: list):
+def check_plugin(plugin_dir: pathlib.Path, errors: list) -> None:
     readme = plugin_dir / "README.md"
     if not readme.exists():
         return
@@ -49,7 +49,7 @@ def check_plugin(plugin_dir: pathlib.Path, errors: list):
             )
 
 
-def main():
+def main() -> int:
     errors = []
 
     if not PLUGINS_ROOT.is_dir():

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # execute-plan-assemble — CLI trampoline over claude-klabauter
 # coordinator_core.execute_plan_assemble.apply (the mutating half of the
 # `/execute-plan` Phase-1 pre-execution chain -- stamp-check, authorize-

@@ -8,10 +8,9 @@ Contract: coordinator/docs/wiki/coordinator-tripwires/a-handoff-written-by-hand-
 """
 from __future__ import annotations
 
-import json
+import importlib.util
 import os
 import re
-import subprocess
 import sys
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
@@ -36,19 +35,37 @@ def _settings_home() -> Path:
     return Path(os.environ.get("CLAUDE_HOME") or Path.home()) / ".coordinator-claude-settings"
 
 
-def _machine_local(*args: str) -> str:
-    exe = _settings_home() / "bin" / ("machine-local.cmd" if os.name == "nt" else "machine-local")
-    r = subprocess.run([str(exe), *args], capture_output=True, text=True, timeout=60,
-                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    if r.returncode != 0:
-        raise RuntimeError(r.stderr.strip())
-    return r.stdout.strip()
+def _registry_dump() -> Dict[str, object]:
+    """Every `repos.*` key and its value, resolved in-process by the machine-local kernel.
+
+    Trap: never spawn `machine-local.cmd` here. On Windows a subprocess timeout kills cmd.exe and
+    orphans its python grandchild, and a hook that fires per session turns that into a process storm.
+    """
+    impl = _settings_home() / "bin" / "_machine_local.py"
+    spec = importlib.util.spec_from_file_location("_machine_local_kernel_handoff_lint", impl)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"machine-local kernel not loadable: {impl}")
+    mod = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(mod)
+        layers = mod._build_resolution_layers(mod._registry_dir())
+        out: Dict[str, object] = {}
+        for key in mod._all_keys(layers):
+            if not key.startswith("repos."):
+                continue
+            rc, val = mod.resolve_one(key, layers)
+            if rc == mod.EXIT_OPERATIONAL:
+                raise RuntimeError(f"machine-local could not resolve {key}")
+            if rc == mod.EXIT_OK and val is not None:
+                out[key] = val
+    except SystemExit as exc:
+        raise RuntimeError(f"machine-local kernel exited {exc.code}") from exc
+    return out
 
 
 def raw_repos() -> Dict[str, object]:
-    """Every `repos.*` registry key (prefix stripped) with its unvalidated value, from one dump read."""
-    return {k[len("repos."):]: v for k, v in json.loads(_machine_local("dump")).items()
-            if k.startswith("repos.")}
+    """Every `repos.*` registry key (prefix stripped) with its unvalidated value, from one registry read."""
+    return {k[len("repos."):]: v for k, v in _registry_dump().items() if k.startswith("repos.")}
 
 
 def fleet_repos(raw: Optional[Dict[str, object]] = None) -> Dict[str, Path]:
@@ -99,7 +116,7 @@ def report(repos: Dict[str, Path]) -> List[str]:
 def main() -> int:
     try:
         repos = fleet_repos()
-    except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+    except Exception as exc:  # advisory lint: an unreadable registry skips, never fails the hook
         print(f"lint skipped -- {exc or type(exc).__name__}")
         return 0
     for line in report(repos):

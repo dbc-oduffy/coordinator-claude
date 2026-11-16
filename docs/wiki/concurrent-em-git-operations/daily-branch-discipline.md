@@ -1,3 +1,11 @@
+---
+provenance:
+  - distilled: 2026-11-13
+    run_id: 2026-11-13-11h40
+    omitted_reasons:
+      archived_spec: private-source
+---
+
 # Daily-branch discipline
 
 The discipline governing which branch an EM's checkout sits on, day to day, and what makes a workstream branch legitimate.
@@ -360,7 +368,8 @@ unconfirmed until read in `coordinator_core/bash_guards/`.
 - **Linked worktrees (already created)** — the hook exited silently when run inside a `worktrees/` git-dir. Doctrine bans worktree creation; the audit catches existing ones separately. The worktree-creation deny is a **separate, live** guard at the tool seam, not part of this retired hook — see `guard-message-concision.md` § Worktree ban: rationale, the sanctioned alternative, and the override.
 - **Compound commands beyond the first git op** — the hook inspected only the first `git <branch-op>` it found. Subsequent ops in `git checkout -b foo && git checkout -b bar` were never separately validated; coverage relied on step 1 denying so step 2 never ran. **Any reinstatement must not inherit this** — a precedence-based check that denies step 1 but leaves step 2 unvalidated is trivially bypassed by reordering.
 - **`git -C <path>` / `git --git-dir=<path>/.git`** — cross-repo forms were policed by the same shape rules (allowed if the target branch name was canonical `work/{machine}/{date-or-span}` or `main`; denied otherwise). No override was needed for shape-canonical names. The parser captured the `-C <path>` value to validate `is_local_branch` and `@{-1}` resolution against the sibling repo's refs, not `$GIT_ROOT`.
-- **`cd <path> && git ...`** — historical: when the hook was live, cross-repo via `cd` was denied outright when a branch-mutating subcommand followed, because the hook subprocess couldn't resolve the post-`cd` cwd (`$GIT_ROOT` was captured at entry, before the `cd`), and `COORDINATOR_OVERRIDE_BRANCH=1` was the sanctioned bypass for legitimate cd-then-git cross-repo work. With no hook installed today (see status block, § Enforcement surfaces), this form is not denied at all — nothing currently blocks it.
+  <!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-1-040 -->
+  Decision (2026-05-08): the outright deny for `-C` / `--git-dir=` branch ops was removed and the `cd && git` deny kept unchanged, because cwd-tracking was out of scope.- **`cd <path> && git ...`** — historical: when the hook was live, cross-repo via `cd` was denied outright when a branch-mutating subcommand followed, because the hook subprocess couldn't resolve the post-`cd` cwd (`$GIT_ROOT` was captured at entry, before the `cd`), and `COORDINATOR_OVERRIDE_BRANCH=1` was the sanctioned bypass for legitimate cd-then-git cross-repo work. With no hook installed today (see status block, § Enforcement surfaces), this form is not denied at all — nothing currently blocks it.
 
 **`session-init.sh` committing to `main` during orphan-handoff sweep (fixed)**
 
@@ -515,6 +524,11 @@ The `cs_compute_machine` function body now lives natively in the machine-resolve
   tip); a hunk can vanish from a parent that never conflicted, hence verify against each parent.
 - **Dirty worktrees.** Worktrees are forbidden (override needs explicit PM permission via the
   EM), so a dirty one is debris to drain; the lock is a stale signal, the dirt is not.
+
+## Reversing a multi-commit change on the shared bus
+<!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-2-005 -->
+
+A change landed as a chain of scoped commits on the daily branch has no single merge SHA, so there is no one commit to revert. Reversal means `git revert` of each commit in the chain, in reverse order. The 2026-06-08 repo-setup consolidation (C1-C10) is the worked case: undoing it takes ten reverts, newest first. Record the chain's commit range in the plan or handoff so the reversal path exists when needed.
 
 ## Reconciling append-queue files across a long divergence
 

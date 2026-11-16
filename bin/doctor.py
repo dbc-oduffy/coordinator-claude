@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 coordinator/bin/doctor.py — the WS-9 out-of-harness health/repair command.
 

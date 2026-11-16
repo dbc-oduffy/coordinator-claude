@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from __future__ import annotations
 # refresh-queries.py — CLI trampoline over claude-klabauter coordinator_core.text.refresh_queries.
 #

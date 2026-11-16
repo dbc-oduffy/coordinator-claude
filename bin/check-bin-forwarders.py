@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 check-bin-forwarders.py -- CLI trampoline over coordinator_core.plugin_health.doe_bin_forwarders.
 
