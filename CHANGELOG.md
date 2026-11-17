@@ -4,6 +4,10 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.21] — 2026-11-17
+
+- **Kill guard:** scripts that kill only the processes they started are no longer denied for also reading the process table.
+
 ## [4.6.20] — 2026-11-17
 
 - **Distill:** the prepare step's pointer pass is several times faster on incremental runs.
