@@ -13,8 +13,9 @@ each connection carries one JSON line {"text": ...}. The leg POSTs it to the
 live language server's SendUserCascadeMessage for agy's own conversation and answers one JSON
 line {"ok", "status", "body"}.
 
-The leg exits, unlinking its endpoint, once $AGY_LEG_PARENT_PID (the agy process it serves) is
-gone; without that variable it runs until killed.
+The leg exits, unlinking its endpoint, once its agy session is gone: unimatrix-liveness's
+agy_session_state reads "dead" (presence lock unheld and $AGY_LEG_PARENT_PID, when set, dead; with no
+pid, unheld past the grace after the leg started).
 
 Usage (agy runs this): nohup python3 unimatrix-agy-leg.py <sock> > unimatrix-agy-leg.out 2>&1 &
 The log path is $AGY_LEG_LOG else unimatrix-agy-leg.log beside this script.
@@ -31,6 +32,7 @@ import socket
 import sys
 import threading
 import time
+import types
 import urllib.error
 import urllib.request
 
@@ -201,7 +203,24 @@ def _rewrite_spool(path, data, keep):
     os.replace(tmp, path)
 
 
-PARENT_POLL_SECS = 5
+PARENT_POLL_SECS = float(os.environ.get("AGY_LEG_POLL_SECS") or 5)
+_STARTED = None  # time.time() at main() entry: the session's age origin, never this process's start
+
+
+def _liveness() -> "types.ModuleType":
+    """The unimatrix-liveness module, loaded on first use; $AGY_LEG_GRACE_SECS overrides its session grace."""
+    lv = sys.modules.get("unimatrix_liveness")
+    if lv is None:
+        spec = importlib.util.spec_from_file_location(
+            "unimatrix_liveness", os.path.join(os.path.dirname(os.path.abspath(__file__)), "unimatrix-liveness.py"))
+        lv = importlib.util.module_from_spec(spec)
+        sys.modules["unimatrix_liveness"] = lv
+        spec.loader.exec_module(lv)
+        try:
+            lv.AGY_SESSION_GRACE_SECONDS = float(os.environ["AGY_LEG_GRACE_SECS"])
+        except (KeyError, ValueError):
+            pass
+    return lv
 
 
 def _roster():
@@ -216,21 +235,18 @@ def _roster():
     return roster
 
 
-def parent_gone():
-    """True when $AGY_LEG_PARENT_PID names a process that no longer exists."""
+def session_gone() -> bool:
+    """True when this conversation's agy session is provably dead.
+
+    Reads liveness's agy_session_state: the presence lock, the pid in $AGY_LEG_PARENT_PID when set, and
+    the leg's own start time for the grace. A leg started with no pid exits once the lock stays unheld
+    past the grace."""
+    rec = {"ts": _STARTED or time.time()}
     try:
-        pid = int(os.environ.get("AGY_LEG_PARENT_PID", ""))
-    except ValueError:
-        return False
-    if sys.platform == "win32":  # os.kill(pid, 0) terminates the process on Windows
-        return not _roster().pid_alive(pid)
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return True
-    except OSError:
-        return False  # EPERM: alive under another user
-    return False
+        rec["agy_pid"] = int(os.environ["AGY_LEG_PARENT_PID"])
+    except (KeyError, ValueError):
+        pass
+    return _liveness().agy_session_state(os.environ.get("ANTIGRAVITY_CONVERSATION_ID"), rec) == "dead"
 
 
 def stamp_proc_start():
@@ -349,7 +365,9 @@ def serve_pipe(endpoint, pending):
     return t
 
 
-def main(sock):
+def main(sock) -> None:
+    global _STARTED
+    _STARTED = time.time()
     pending = not os.environ.get("ANTIGRAVITY_CSRF_TOKEN")
     log("start", {"pid": os.getpid(), "ls_address": os.environ.get("ANTIGRAVITY_LS_ADDRESS"),
                   "conversation": os.environ.get("ANTIGRAVITY_CONVERSATION_ID"),
@@ -365,7 +383,7 @@ def main(sock):
         while t.is_alive():
             stamp_proc_start()
             time.sleep(PARENT_POLL_SECS)
-            if parent_gone():
+            if session_gone():
                 log("exit", {"reason": "agy parent gone"})
                 return
         return
@@ -384,7 +402,7 @@ def main(sock):
             c, _ = srv.accept()
         except socket.timeout:
             stamp_proc_start()
-            if parent_gone():
+            if session_gone():
                 log("exit", {"reason": "agy parent gone"})
                 srv.close()
                 os.unlink(sock)

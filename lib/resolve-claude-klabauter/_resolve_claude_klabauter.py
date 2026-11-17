@@ -195,9 +195,8 @@ def _resolve_claude_klabauter_root(ml_dir: Path, *, allow_self_location: bool = 
     """Resolve the claude-klabauter root path via the env-then-registry
     ladder, validating it before return.
 
-    Rung 0 (highest, C4 — Review: code-reviewer Finding 4, this shim's own
-    error message promised this rung as a bootstrap remedy but never
-    implemented it): ``COORDINATOR_ENGINE_ROOT`` env var, if set and
+    Rung 0 (highest; this shim's own error message names it as the
+    bootstrap remedy, so it must exist): ``COORDINATOR_ENGINE_ROOT`` env var, if set and
     non-empty. Mirrors ``coordinator_core.engine_root.coordinator_engine_
     root``'s Rung 1 — duplicated here, not imported, because this file is a
     standalone bootstrap script that must run before claude-klabauter (and therefore
@@ -1595,9 +1594,8 @@ def exec_cli(target: str, argv: Optional[List[str]] = None) -> None:
         target_path = resolve_target_path(bin_dir, target)
     target_claude_klabauter_root = claude_klabauter_root
 
-    # Hoisted above the os.name branch (Review: code-reviewer F4 — was
-    # byte-for-byte duplicated on both legs). Readability, not executability
-    # (Review: code-reviewer F1) — the interpreter-targeted POSIX mechanism
+    # Hoisted above the os.name branch so both legs share one check.
+    # Readability, not executability: the interpreter-targeted POSIX mechanism
     # below execs `sys.executable`, which always exists and is executable,
     # so `os.execv` itself no longer raises for an unreadable *target*; the
     # failure would otherwise surface only after process replacement, inside

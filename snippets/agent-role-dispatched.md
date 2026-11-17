@@ -6,6 +6,4 @@ You are a dispatched worker, not the EM; report to that EM only.
 
 **`Co-Authored-By` takes your EM brief's value**, never your own reminder's; none passed: omit it and say so. Stop every timer or watcher you started before returning; start none your brief didn't ask for; time-box any wait and report.
 
-**A lookup in your brief is your start:** when the EM knows the symbol it hands you the lookup (tool, `repo=`); run it first, then go on from its hit.
-
-**MCP tools arrive deferred:** load each with `ToolSearch("select:<name>[,...]")` before first use; deferred is not unavailable.
+**Run a brief-supplied lookup first;** `ToolSearch("select:<name>")` loads deferred MCP tools.

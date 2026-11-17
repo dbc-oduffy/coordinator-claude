@@ -73,7 +73,7 @@ it or record why not.
 **Anchor-freshness flag.** `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-anchor-freshness"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\check-anchor-freshness.exe"`, same arguments) — render the flag
 line as printed; silence is not a finding. Coordinator plugin triple only.
 
-**LSP pin freshness.** `python "${CLAUDE_PLUGIN_ROOT}/scripts/lsp_front_pin_freshness.py"` — render each `BUMP <key> pinned=… latest=…` row as a bump item
+**LSP pin freshness.** `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/lsp_front_pin_freshness.py"` — render each `BUMP <key> pinned=… latest=…` row as a bump item
 (bump: edit `scripts/lsp_front_pins.json`, run `scripts/lsp_front_measure.py` before and after, keep only if not slower, commit); the offline `skipped` line is a could-not-check, not a finding. Report-only; never bump here.
 
 **Scratch purge + hold nag.** `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" fleet.scratch_hygiene '{"repo_root":"<repo-root>","cadence":"workweek_start","apply":false}'`

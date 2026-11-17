@@ -8,7 +8,7 @@ argument-hint: "[PM ask text | nothing — describe the ask inline]"
 
 # Sizing — the Build Door
 
-**Non-Claude EM:** no `Workflow` tool; run `coordinator-invoke engine_ask.submit --params-file <json>` (`AN-EXTERNAL-SUBMIT-GOES-THROUGH-ENGINE-ASK-WITH-SOURCE-PM-OR-RELAYED`).
+**Non-Claude EM:** no `Workflow` tool; `coordinator-invoke engine_ask.submit --params-file <json>`, then `workflow.fire`, `workflow.fire_status`/`workflow.fire_wait`, `workflow.revise` (`AN-EXTERNAL-SUBMIT-GOES-THROUGH-ENGINE-ASK-WITH-SOURCE-PM-OR-RELAYED`). Grok: `--permission-mode auto` plus absolute-path `--allow` rules per op, never bypass; read a `fire: false` mint from `coordinator-warp-run-tokens/<run_id>.json`, not `dispatch.minted_run` (mutating); pwsh params by `--params-file`. Route: `coordinator/docs/wiki/non-claude-workers/non-claude-em-path.md`.
 
 **Two doors:** this is the sizing door; `/coordinator:research` is the research door.
 

@@ -34,7 +34,7 @@ restate it.
 meaning is the profile's `appetite` block. `standard` stops at 40 agent calls and its `where`
 excludes P3: name `sweep` for a large TF set. `--max=N` → `--limit N`. `--budget-tokens=N` — passed through as `budget_tokens`; a run with none carries the default budget of
 `--budget-tokens=2000000`, never unbudgeted.
-Grinder defaults (`coordinator/docs/wiki/grinder-efficiency-defaults.md`): script-first triage settles
+Grinder defaults: script-first triage settles
 dedupes, flakes and already-green rows before any agent sees a row; the default budget above applies;
 the EM reads 25/50/75% checkpoints of the budget at its next turn; each green row lands as a scoped
 commit per green row.

@@ -39,7 +39,7 @@ import re
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, NamedTuple, Optional
+from typing import Callable, Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 
 FATES = ("captured", "superseded", "archive", "drop", "agent")
 AGENT = "agent"
@@ -689,15 +689,27 @@ def _measure_pointers(entries: List[dict]) -> dict:
     }
 
 
-def measure(manifest: dict, repo_root: Path) -> dict:
+def measure(manifest: dict, repo_root: Path, pointer_entries_: Optional[List[dict]] = None) -> dict:
     """Measure the fate rule over a distill manifest with every row's file text loaded from
     `repo_root`: per marker set (v1, v2), files settled, durable sections and their total chars, the
-    plan/spec agent-queue chars before and after the heading-class filter, and the v1 pointer index."""
+    plan/spec agent-queue chars before and after the heading-class filter, and the v1 pointer index.
+    `pointer_entries_` is an index the caller already built: tagging every section is the dominant cost,
+    so a pointer pass hands its entries in rather than paying for the index twice. Trap: an incremental pass
+    reuses the page's coalesced spans, so its entry count is not comparable with a fresh build's; the
+    `spans` field says which one was counted."""
     rows = _manifest_rows(manifest)
+    spans = "per-section"
+    if pointer_entries_ is None:
+        pointer_entries_ = pointer_index(rows, repo_root)
+    else:
+        paths = {_norm(r["path"]) for r in rows}
+        pointer_entries_ = [e for e in pointer_entries_ if e["path"] in paths]
+        if any(e["heading"] == "(pointer page)" for e in pointer_entries_):
+            spans = "page-coalesced where reused"
     return {
         "rows": len(rows),
         "plan_spec": _measure_plan_spec(rows, repo_root),
-        "pointer_index": _measure_pointers(pointer_index(rows, repo_root)),
+        "pointer_index": {**_measure_pointers(pointer_entries_), "spans": spans},
         "v1": _measure_with(rows, repo_root, DETECTOR_V1),
         "v2_strong_only": _measure_with(rows, repo_root, DETECTOR_V2_STRONG),
         "v2": _measure_with(rows, repo_root, DETECTOR_V2),
@@ -748,6 +760,65 @@ _TAG_CODES = {"root cause": "rc", "decision": "dec", "ruling": "rul", "reversed 
 
 def _tag_code(tag: str) -> str:
     return "+".join(_TAG_CODES.get(t, t.replace(" ", "-")) for t in tag.split("+"))
+
+
+_CODE_NAMES = {code: name for name, code in _TAG_CODES.items()}
+
+
+def _git_paths(repo_root: Path, *args: str) -> Optional[Set[str]]:
+    """NUL-separated path output of a git query, or None when git refuses it."""
+    import subprocess
+    done = subprocess.run(["git", "-C", str(repo_root), *args], capture_output=True, text=True, encoding="utf-8",
+                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    return None if done.returncode else {p for p in done.stdout.split("\0") if p}
+
+
+def _changed_since(repo_root: Path, sha: str, untracked: Set[str]) -> Optional[Set[str]]:
+    """Paths whose working-tree content may differ from `sha` (committed, staged, unstaged, untracked); None
+    when `sha` is not a commit in this repository."""
+    if not re.fullmatch(r"[0-9a-f]{4,64}", sha):
+        return None
+    changed = _git_paths(repo_root, "diff", "--name-only", "-z", "--no-renames", sha, "--")
+    return None if changed is None else changed | untracked
+
+
+def _generator_changed(repo_root: Path, changed: Set[str]) -> bool:
+    """True when this script itself is among the changed paths: new rules would index unchanged files differently."""
+    try:
+        return Path(__file__).resolve().relative_to(repo_root.resolve()).as_posix() in changed
+    except ValueError:
+        return False
+
+
+def incremental_pointer_index(rows: Iterable[dict], repo_root: Path, page_text: str) -> Tuple[List[dict], int]:
+    """`pointer_index` for `rows`, rereading only files that may differ from the page's recorded sha: a row whose
+    path has entries on the page at a sha it has not changed since reuses them (spans as the page coalesced
+    them, full tag names, a placeholder heading); every other row is read. Returns (entries, files reread).
+    The page merged with the result equals a full rebuild's, as merge_pointer_page replaces entries by path."""
+    prior: Dict[str, List[dict]] = {}
+    for e in read_pointer_page(page_text):
+        prior.setdefault(e["path"], []).append(e)
+    untracked = _git_paths(repo_root, "ls-files", "-o", "--exclude-standard", "-z") or set()
+    # Generator drift invalidates only the sha groups it postdates: a stale section for a path no run
+    # rereads would otherwise force every path's full reread forever.
+    changed = {}
+    for sha in {es[0]["sha"] for es in prior.values()}:
+        c = _changed_since(repo_root, sha, untracked)
+        changed[sha] = None if c is None or _generator_changed(repo_root, c) else c
+    out: List[dict] = []
+    reread = 0
+    for row in rows:
+        path = _norm(row["path"])
+        es = prior.get(path)
+        ch = changed.get(es[0]["sha"]) if es else None
+        if ch is not None and path not in ch:
+            out.extend({"path": path, "heading": "(pointer page)", "start_line": e["start_line"],
+                        "end_line": e["end_line"], "tag": "+".join(_CODE_NAMES.get(c, c) for c in e["tag"].split("+"))}
+                       for e in es)
+            continue
+        reread += 1
+        out.extend(pointer_index([row], repo_root))
+    return out, reread
 
 
 # Spans this close (the blank lines between sections) coalesce on the page. The page is agent-read and
@@ -829,20 +900,26 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 2
     root = Path(args[1]) if len(args) > 1 else Path(__file__).resolve().parents[3]
     manifest = json.loads(Path(args[0]).read_text(encoding="utf-8"))
-    print(json.dumps(measure(manifest, root), indent=2))
     if out_path is None and page_path is None:
+        print(json.dumps(measure(manifest, root), indent=2))
         return 0
     rows = _manifest_rows(manifest)
     extra = widen_rows(rows, root) if widen else []
-    entries = pointer_index(rows + extra, root)
+    page = Path(page_path) if page_path is not None else None
+    existing = page.read_text(encoding="utf-8") if page is not None and page.exists() else ""
+    reread = None
+    if widen and existing:
+        entries, reread = incremental_pointer_index(rows + extra, root, existing)
+    else:
+        entries = pointer_index(rows + extra, root)
+    print(json.dumps(measure(manifest, root, entries), indent=2))
     print(json.dumps({"pointer_pass": {"manifest_rows": len(rows), "widened_rows": len(extra),
-                                       "entries": len(entries), "files": len({e["path"] for e in entries})}}))
+                                       "entries": len(entries), "files": len({e["path"] for e in entries}),
+                                       **({"reread_files": reread} if reread is not None else {})}}))
     if out_path is not None:
         Path(out_path).parent.mkdir(parents=True, exist_ok=True)
         Path(out_path).write_text("".join(json.dumps(e) + "\n" for e in entries), encoding="utf-8")
-    if page_path is not None:
-        page = Path(page_path)
-        existing = page.read_text(encoding="utf-8") if page.exists() else ""
+    if page is not None:
         page.parent.mkdir(parents=True, exist_ok=True)
         page.write_text(merge_pointer_page(existing, entries, str(sha)), encoding="utf-8")
     return 0

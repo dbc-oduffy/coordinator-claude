@@ -118,7 +118,7 @@ def _hub_session_dir(root: str, session_id: str) -> str:
 
 def _probe_bin() -> str:
     settings = os.environ.get("COORDINATOR_SETTINGS_HOME") or os.path.join(
-        os.environ.get("CLAUDE_HOME") or os.path.expanduser("~"), ".coordinator-claude-settings"
+        os.environ.get("CLAUDE_HOME") or str(Path.home()), ".coordinator-claude-settings"
     )
     name = PROBE_BIN + (".exe" if sys.platform == "win32" else "")
     path = os.path.join(settings, "bin", name)

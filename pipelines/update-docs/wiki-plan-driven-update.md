@@ -32,6 +32,8 @@ Run in the EM session before any dispatch. No leg dispatches an agent.
    - Op not registered: `no-producer`. Phase 14 carries a `no-producer` line, no agent is
      dispatched, and no agent substitutes a wiki grep or plan read. Memo the owner of the missing
      producer.
+   - `empty_reason: ledger_missing`: the repo has no plan-completion ledger. Treat as
+     `no-producer`.
    - `pages[]` non-empty: continue.
 
 The step edits no page.

@@ -89,14 +89,39 @@ def _run_bg(argv, *, cwd, env, runner, name):
     return 0
 
 
-def _with_settings_bin(environ):
+GROK_ENGINE_OPS = ("engine_ask.submit", "workflow.fire", "workflow.fire_status", "workflow.fire_wait",
+                   "workflow.revise")
+
+
+def _settings_bin_dir(environ) -> str:
+    home = environ.get("COORDINATOR_SETTINGS_HOME") or str(Path.home() / ".coordinator-claude-settings")
+    return str(Path(home) / "bin")
+
+
+def _grok_launch_args(extra, environ, platform) -> list[str]:
+    """`extra` led by `--permission-mode auto` and one `--allow Bash(<abs coordinator-invoke> <op>:*)` per engine op.
+
+    grok does not expand `$HOME` when matching, so each rule names the resolved absolute path. A caller's
+    own `--permission-mode` and any allow rule it already passed are kept, never doubled.
+    """
+    exe = str(Path(_settings_bin_dir(environ)) / ("coordinator-invoke.exe" if platform == "win32"
+                                                  else "coordinator-invoke"))
+    head = [] if any(a == "--permission-mode" or a.startswith("--permission-mode=") for a in extra) \
+        else ["--permission-mode", "auto"]
+    for op in GROK_ENGINE_OPS:
+        rule = f"Bash({exe} {op}:*)"
+        if rule not in extra:
+            head += ["--allow", rule]
+    return [*head, *extra]
+
+
+def _with_settings_bin(environ) -> str:
     """The caller's PATH with `<settings home>/bin` appended once, so agy's sandbox resolves coordinator-invoke.
 
     Reads the injected `environ`, not `os.environ`, so it mirrors `_settings_home.settings_home()`'s
     COORDINATOR_SETTINGS_HOME / `~/.coordinator-claude-settings` precedence rather than calling it.
     """
-    home = environ.get("COORDINATOR_SETTINGS_HOME") or str(Path.home() / ".coordinator-claude-settings")
-    bin_dir = str(Path(home) / "bin")
+    bin_dir = _settings_bin_dir(environ)
     path_key = next((k for k in environ if k.upper() == "PATH"), None)
     entries = [e for e in (environ[path_key].split(os.pathsep) if path_key else []) if e]
     if bin_dir not in entries:
@@ -139,9 +164,30 @@ def exit_check(session_id, cwd=None, *, open_runs=None):
     return EXIT_OPEN_RUNS if runs else 0
 
 
+_CODEX_SUBCOMMANDS = ("exec", "e")
+
+
+def _codex_writable_dirs(extra: list[str], cwd: str | None = None) -> list[str]:
+    """`extra` with `--add-dir <machine lock root>` added: codex's workspace-write sandbox otherwise denies
+    the engine's per-user lock sidecar, and engine_ask.submit refuses. With `cwd`, `-C <cwd>` too: the
+    supervised spawn takes no cwd, so codex otherwise works in the caller's tree. Placed after an `exec`
+    subcommand, whose own flags are the ones it reads."""
+    from coordinator_core.locked_write import _machine_lock_dir
+
+    root = str(_machine_lock_dir().parent)
+    flag = [] if root in extra else ["--add-dir", root]
+    if cwd and not {"-C", "--cd"} & set(extra):
+        flag += ["-C", cwd]
+    if not flag:
+        return list(extra)
+    if extra and extra[0] in _CODEX_SUBCOMMANDS:
+        return [extra[0], *flag, *extra[1:]]
+    return [*flag, *extra]
+
+
 def launch(family, extra, *, session_id=None, which=shutil.which, spawn=_spawn, environ=None,
            prepare_only=False, platform=None, native_executable=None, mint=uuid.uuid4,
-           name=None, resume=None, cwd=None, runner=subprocess.run, open_runs=None):
+           name=None, resume=None, cwd=None, runner=subprocess.run, open_runs=None) -> int:
     """Write the grant and run the CLI with the token env; returns an exit code.
 
     claude is not supervised: `claude --bg [-n NAME | --resume ID]` runs captured in `cwd` on both OSes and
@@ -190,7 +236,9 @@ def launch(family, extra, *, session_id=None, which=shutil.which, spawn=_spawn, 
     except HeadlessEmGrantError as exc:
         print(f"headless-em-launch: refused: {exc}", file=sys.stderr)
         return REFUSED
-    cmd = [cli, *extra]
+    cmd = [cli, *_codex_writable_dirs(extra, cwd)] if family == "codex" else [cli, *extra]
+    if family == "grok":
+        cmd = [cli, *_grok_launch_args(extra, environ, platform)]
     if family == "claude":
         cmd = [cli, "--bg", *(["--resume", resume] if resume else ["-n", name] if name else []), *extra]
     child = {SESSION_ENV: sid, HEADLESS_EM_TOKEN_ENV: token, PROVIDER_ENV: family}

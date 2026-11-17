@@ -145,11 +145,12 @@ def leg_target_live(legs_dir, target):
         return False
 
 
-def load_leg_peers(legs_dir, taken_names=(), taken_targets=()):
+def load_leg_peers(legs_dir, taken_names=(), taken_targets=()) -> list:
     """Peers for every live agy leg record in `legs_dir`: name agy-<conversation>, target the conversation.
 
-    A record whose leg is not live (`leg_record_live`), whose name or conversation is already
-    `taken_*` (peers.json wins), or that is unreadable is skipped.
+    A record whose leg is not live (`leg_record_live`), whose agy session reads dead
+    (`agy_session_state`: a leaked leg must not revive its face), whose name or conversation is
+    already `taken_*` (peers.json wins), or that is unreadable is skipped.
     """
     peers = []
     try:
@@ -167,6 +168,8 @@ def load_leg_peers(legs_dir, taken_names=(), taken_targets=()):
             continue
         if not isinstance(conv, str) or not conv or conv in taken_targets or not leg_record_live(rec):
             continue
+        if _liveness().agy_session_state(conv, rec) == "dead":
+            continue
         name = readable_peer_name("agy", conv, rec.get("cwd"))
         if name in taken_names:
             continue
@@ -182,11 +185,9 @@ def default_codex_locks_dir():
     return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "thread-writer-locks"
 
 
-def default_presence_dir():
+def default_presence_dir() -> Path:
     """Where agy keeps one presence lock per live conversation: next to its brain root (AGY_BRAIN_DIR)."""
-    brain = os.environ.get("AGY_BRAIN_DIR")
-    root = Path(brain).parent if brain else Path.home() / ".gemini" / "antigravity-cli"
-    return root / "presence"
+    return _liveness().agy_presence_dir()
 
 
 def readable_peer_name(vendor, target, cwd=None):
@@ -313,24 +314,16 @@ def codex_is_sendable_root(metadata):
     return metadata.get('agent_path') in (None, '/root')
 
 
-def lock_held(path):
-    """True while another process holds any flock on `path`; a free or unreadable file is not live.
+def lock_held(path) -> bool:
+    """True while another process holds the lock on `<id>.lock`; a free or unreadable file is not live.
 
-    Probes with an exclusive lock so a holder in shared mode still reads as held. A missing or
-    unreadable file, or any lock error other than contention, reads as not held.
+    Delegates to liveness's `agy_presence_held` (one probe): exclusive-probe, so a shared-mode holder
+    reads as held; a missing file, an unsafe id or a non-contention lock error reads as not held.
     """
-    try:
-        file = open(path, "r+b" if sys.platform == "win32" else "rb")
-    except OSError:
+    path = Path(path)
+    if not path.name.endswith(".lock"):
         return False
-    with file:
-        try:
-            if not _transport().lock_file(file):
-                return True
-            _transport().unlock_file(file)
-        except (OSError, ImportError):
-            return False
-        return False
+    return _liveness().agy_presence_held(path.name[:-len(".lock")], presence_dir=path.parent)
 
 
 _ROLLOUT_VERDICTS = {}

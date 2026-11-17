@@ -4,6 +4,7 @@
 Usage:
   unimatrix-autolink.py
   unimatrix-autolink.py restart   (stop the box router and its faces, then start the installed one)
+  unimatrix-autolink.py restart-box <alias>   (ask the box's supervisors to stop, then start one per role from this copy)
 
 Far boxes are the members of the signed membership snapshot (verified offline against the pinned key,
 minus this box), dialled as `<user>@<host>` from the record. Only when no snapshot exists are they the
@@ -62,6 +63,7 @@ PULL_SOURCES_INTERVAL_SECONDS = 900
 PULL_STAMP_NAME = "pull-sources-stamp.json"
 LOCK_STALE_SECONDS = 60
 STAMP_GLOB = "supervisor-*.json"
+STOP_WAIT_SECONDS = 15  # covers a roster step in flight (link probe 3s + far-address budget 8s) plus one poll slice
 KEYS_PREFIX = "unimatrix.keys."
 SSH_DEFAULT_IDENTITIES = {"id_rsa", "id_dsa", "id_ecdsa", "id_ecdsa_sk", "id_ed25519", "id_ed25519_sk", "id_xmss"}
 SUPERVISORS = (("bridge", "unimatrix-roster.py"), ("inbox", "unimatrix-mirror-all.py"))
@@ -648,7 +650,7 @@ def ssh_alias_fallback(roster, alias, key, why, probe_fn, aliases_fn=None, hostn
 
 
 def link_peer(roster, alias, key, say, spawn=detached, probe_fn=probe, stable_fn=None, now=None, liveness=None,
-              pull_fn=None, mdns_fn=None, alias_fn=None, hosts=None):
+              pull_fn=None, mdns_fn=None, alias_fn=None, hosts=None) -> None:
     """Start whichever of the peer's two supervisors is not live. Never raises for a down peer.
 
     The mDNS live-address retry, the ssh-config alias retry, then the stable-name fallback, run only after the
@@ -727,7 +729,7 @@ def link_peer(roster, alias, key, say, spawn=detached, probe_fn=probe, stable_fn
             if stamp is not None:  # the reaper's evidence of a supervisor, kept after a record loses its pid
                 try:
                     roster.write_json_atomic(str(sdir / f"supervisor-{p.pid}.json"),
-                                             {"pid": p.pid, "procStart": stamp, "remote": remote})
+                                             {"pid": p.pid, "procStart": stamp, "remote": remote, "role": role})
                 except OSError:
                     pass
             roster.write_json_atomic(str(rec_path), rec)  # per spawn: a later failure never orphans this one
@@ -1506,13 +1508,117 @@ def cmd_restart():
     return 0
 
 
-def main(argv=None):
+def _box_supervisors(roster, sdir, alias, hosts, alive) -> list:
+    """[{pid, procStart, role, remote}] of every live supervisor serving `alias`'s box, records first, then stamps."""
+    box = box_key(roster, alias, hosts)
+    found, seen = [], set()
+
+    def add(entry, role, remote) -> None:
+        pid = entry.get("pid")
+        if pid in seen or not alive(entry):
+            return
+        seen.add(pid)
+        found.append({"pid": pid, "procStart": entry.get("procStart"), "role": role or "supervisor", "remote": remote})
+    for path in group_records(roster, sdir, hosts).get(box, []):
+        rec = read_record(path)
+        for role, _ in SUPERVISORS:
+            add(rec.get(role) or {}, role, alias)
+    for path in sorted(Path(sdir).glob(STAMP_GLOB)):
+        stamp = read_record(path)
+        remote = stamp.get("remote")
+        if isinstance(remote, str) and remote and box_key(roster, remote, hosts) == box:
+            add(stamp, stamp.get("role") if stamp.get("role") in dict(SUPERVISORS) else None, remote)
+    return found
+
+
+def cmd_restart_box(alias, wait=STOP_WAIT_SECONDS, link=link_peer, spawn=detached, pid_alive=None, sleep=time.sleep,
+                    say=print, roster=None) -> int:
+    """Hand a box's supervisors over by stop request: ask each live one to exit, wait, then start one per role.
+
+    Never kills: a supervisor that ignores the request fails the verb with no replacement started. Returns 0
+    only when the box ends with exactly one live supervisor per role."""
+    roster = roster or _roster()
+    sdir = state_dir(roster)
+    sdir.mkdir(parents=True, exist_ok=True)
+    hosts = {}
+    probe_alive = pid_alive or roster.pid_alive
+
+    def alive(entry) -> bool:
+        pid = entry.get("pid")
+        if not isinstance(pid, int) or not probe_alive(pid):
+            return False
+        try:
+            return roster.proc_start(pid) == entry.get("procStart")
+        except (OSError, subprocess.SubprocessError):
+            return False
+    box = box_key(roster, alias, hosts)
+    lock = sdir / f"autolink-{slug(box)}.lock"
+    if not acquire_lock(lock):
+        say(f"restart-box: link for {alias} mid-spawn")
+        return 1
+    held = True
+    targets = []
+    written = []  # only requests this call created: a request already pending belongs to a peer
+    try:
+        targets = _box_supervisors(roster, sdir, alias, hosts, alive)
+        for t in targets:
+            if roster.stop_request_path(t["pid"]).exists():
+                continue
+            written.append(t)
+            roster.request_stop(t["pid"], t["procStart"], t["role"], t["remote"])
+        for _ in range(max(1, round(wait / roster.STOP_POLL_SECONDS)) + 1):
+            if not any(alive(t) for t in targets):
+                break
+            sleep(roster.STOP_POLL_SECONDS)
+        survivors = [t for t in targets if alive(t)]
+        for t in survivors:
+            say(f"supervisor {t['role']} pid {t['pid']} did not honour the stop request")
+        if survivors:
+            return 1
+        for t in targets:
+            roster.clear_stop(t["pid"])
+        for path in group_records(roster, sdir, hosts).get(box, []):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        os.remove(lock)
+        held = False
+    finally:
+        if held:  # any early exit, an interrupt included, leaves no stop request pending for a late honour
+            for t in written:
+                try:
+                    os.remove(roster.stop_request_path(t["pid"]))
+                except OSError:
+                    pass
+            try:
+                os.remove(lock)
+            except OSError:
+                pass
+    link(roster, alias, resolve_key(roster, alias), say, spawn=spawn)
+    counts = {}
+    for t in _box_supervisors(roster, sdir, alias, hosts, alive):
+        counts[t["role"]] = counts.get(t["role"], 0) + 1
+    bad = False
+    for role, _ in SUPERVISORS:
+        if counts.get(role, 0) != 1:
+            say(f"restart-box: {alias} has {counts.get(role, 0)} live {role} supervisors after handover")
+            bad = True
+    if bad:
+        return 1
+    say(f"restart-box: {alias} handed over, one live supervisor per role")
+    return 0
+
+
+def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
     if argv and argv[0] in ("--help", "-h"):
         print(__doc__)
         return 0
     if argv == ["restart"]:
         return cmd_restart()
+    if len(argv) == 2 and argv[0] == "restart-box":
+        return cmd_restart_box(argv[1])
     try:
         run()
     except Exception:

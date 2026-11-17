@@ -95,7 +95,7 @@ derivation matches nothing. It refuses unless all hold:
   in this plan.
 - **Dual-gate reversal (PM-approved F7).** The dual-gate rule is about independence, not
   freshness; call-time re-derivation cures staleness.
-- **Bulk retrofit (PM, 2026-07-25).** Every distinct live cutover surface is a cutover record
+- **Bulk retrofit (PM).** Every distinct live cutover surface is a cutover record
   (C11-C17), not deferred to next phase-advance.
 - **Fail-closed foreign reach (PM ruling F5).** C12, C14, C15b and C16 were authored with
   INDETERMINATE on their face; upgrade depends on C19.

@@ -167,6 +167,7 @@ import contextlib
 import faulthandler
 import io
 import json
+import locale
 import os
 import re
 import shutil
@@ -353,11 +354,43 @@ def _commit_sha(repo_root: Path, ref: str) -> str:
     return rev.stdout.decode().strip()
 
 
+def _spooled_run(
+    cmd: List[str], *, timeout: Optional[float], text: bool, **kwargs
+) -> "subprocess.CompletedProcess":
+    """`subprocess.run` that returns when the child EXITS, never on pipe EOF.
+
+    Output goes to anonymous temp files, not pipes: a grandchild that inherited the child's
+    stdout/stderr and outlives it (publish.py's own children) can no longer hold the round; the spool
+    is read once, after exit. Raises
+    `subprocess.TimeoutExpired` with the output captured so far; `text` selects str over bytes.
+    """
+    kwargs.setdefault("creationflags", getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    if text and isinstance(kwargs.get("input"), str):
+        kwargs["input"] = kwargs["input"].encode(locale.getpreferredencoding(False))
+    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+        def _spooled() -> Tuple[Any, Any]:
+            out.seek(0)
+            err.seek(0)
+            raw = (out.read(), err.read())
+            if not text:
+                return raw
+            enc = locale.getpreferredencoding(False)
+            return tuple(b.decode(enc, "replace").replace("\r\n", "\n") for b in raw)
+
+        try:
+            done = subprocess.run(cmd, stdout=out, stderr=err, timeout=timeout, **kwargs)
+        except subprocess.TimeoutExpired as exc:
+            exc.stdout, exc.stderr = _spooled()
+            raise
+        stdout, stderr = _spooled()
+    # A stubbed `subprocess.run` hands back its own captured output; keep it.
+    if done.stdout is not None or done.stderr is not None:
+        return done
+    return subprocess.CompletedProcess(done.args, done.returncode, stdout, stderr)
+
+
 def _git_bytes(repo_root: Path, *args: str) -> "subprocess.CompletedProcess[bytes]":
-    return subprocess.run(
-        ["git", "-C", str(repo_root), *args], capture_output=True,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-    )
+    return _spooled_run(["git", "-C", str(repo_root), *args], timeout=None, text=False)
 
 
 def _resolve_clone_sha(repo_root: Path, source_ref: Optional[str]) -> str:
@@ -637,7 +670,7 @@ def _run(cmd: List[str], *, timeout: float, **kwargs) -> subprocess.CompletedPro
     # otherwise pop for every sibling-CLI invocation this driver makes.
     no_console_kwargs = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0), **kwargs}
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, **no_console_kwargs)
+        return _spooled_run(cmd, timeout=timeout, text=True, **no_console_kwargs)
     except subprocess.TimeoutExpired as exc:
         # Converted to a non-zero CompletedProcess (never raised) so every
         # existing call site's own `returncode != 0` -> `_print_step_failure`
@@ -1382,13 +1415,11 @@ def _already_committed_non_executable_scripts(
     would want the read set narrowed rather than this budget quietly grown.
     """
     try:
-        result = subprocess.run(
+        result = _spooled_run(
             ["git", "ls-files", "-s"],
             cwd=str(repo_root),
-            capture_output=True,
             text=True,
             timeout=_GIT_PLUMBING_TIMEOUT_SECS,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except subprocess.TimeoutExpired:
         return []
@@ -1524,13 +1555,15 @@ def _stage_shebang_exec_bits(
         shebang_paths.extend(reconciled_paths)
         if not shebang_paths:
             return 0
-        result = subprocess.run(
-            ["git", "add", "--chmod=+x", "--"] + shebang_paths,
-            cwd=str(root),
-            capture_output=True,
-            text=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
+        try:
+            result = _spooled_run(
+                ["git", "add", "--chmod=+x", "--"] + shebang_paths,
+                cwd=str(root),
+                text=True,
+                timeout=_GIT_PLUMBING_TIMEOUT_SECS,
+            )
+        except subprocess.TimeoutExpired:
+            result = subprocess.CompletedProcess([], 124, "", "git add timed out")
         if result.returncode != 0:
             print(
                 f"percolate-round: could not set the executable bit on "

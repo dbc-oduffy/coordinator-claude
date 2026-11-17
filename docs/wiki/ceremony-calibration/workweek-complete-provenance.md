@@ -24,4 +24,4 @@ Holds the per-section spec-backlink history for `workweek-complete.md`, kept off
 ## Cadence split origin
 
 <!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-1-063 -->
-The workday/workweek split (2026-05-04) lightened `/workday-complete` and added `/workweek-start` and `/workweek-complete`. The load-bearing rule: **handoffs are the atom, the changelog is the index.** Daily files are per machine, `tasks/week-changelog/YYYY-MM-DD-{hostname}.md`, which avoids concurrent-write conflicts.
+The workday/workweek split lightened `/workday-complete` and added `/workweek-start` and `/workweek-complete`. The load-bearing rule: **handoffs are the atom, the changelog is the index.** Daily files are per machine, `tasks/week-changelog/YYYY-MM-DD-{hostname}.md`, which avoids concurrent-write conflicts.

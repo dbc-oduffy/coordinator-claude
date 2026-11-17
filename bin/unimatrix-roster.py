@@ -37,6 +37,7 @@ LOOPBACK_SOCKS = os.environ.get("UNIMATRIX_LOOPBACK_SOCKS") or "/tmp/cc-socks"  
 FAR_SOCKET_FIELD = "macSocketPath"
 STILL_ACTIVE = 259
 POLL_SECONDS = 30
+STOP_POLL_SECONDS = 0.5
 PROBE_SECONDS = 3
 FAR_ADDRESS_BUDGET_SECONDS = 8
 FAR_ADDRESSES_TRIED = 2
@@ -623,17 +624,62 @@ def pick_remote(lan, tunnel=None, reachable=None):
     return lan if (reachable or lan_reachable)(lan) else tunnel
 
 
-def stamp_supervisor(remote):
+def stamp_supervisor(remote, role=None) -> None:
     """Write this process's `supervisor-<pid>.json` stamp, the autolink reaper's evidence of a live supervisor.
 
     Self-written so a supervisor started outside autolink (install, by hand) is still reapable when no
-    record names it. A stamp that cannot be written never stops the supervisor."""
+    record names it. `role` ("bridge" or "inbox") is recorded when given, so a stamp-only supervisor can
+    be addressed by request_stop. A stamp that cannot be written never stops the supervisor."""
     pid = os.getpid()
     try:
-        write_json_atomic(str(settings_home() / "unimatrix" / f"supervisor-{pid}.json"),
-                          {"pid": pid, "procStart": proc_start(pid), "remote": remote})
+        stamp = {"pid": pid, "procStart": proc_start(pid), "remote": remote}
+        if role:
+            stamp["role"] = role
+        write_json_atomic(str(settings_home() / "unimatrix" / f"supervisor-{pid}.json"), stamp)
     except (OSError, subprocess.SubprocessError):
         pass
+
+
+def stop_request_path(pid) -> Path:
+    return settings_home() / "unimatrix" / f"stop-{pid}.json"
+
+
+def request_stop(pid, proc_start_value, role, remote) -> None:
+    """Ask the supervisor identified by (pid, procStart) to exit on its own; the request is inert to any other process."""
+    path = stop_request_path(pid)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_json_atomic(str(path), {"pid": pid, "procStart": proc_start_value, "role": role, "remote": remote,
+                                  "requestedAt": time.time()})
+
+
+def stop_requested(own_proc_start) -> bool:
+    """True only when stop-<own pid>.json exists and names `own_proc_start`.
+
+    The caller reads its own procStart once at startup: reading it here could spawn `ps` per poll slice."""
+    try:
+        with open(stop_request_path(os.getpid()), encoding="utf-8") as fh:
+            return json.load(fh).get("procStart") == own_proc_start
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def clear_stop(pid) -> None:
+    """Remove `pid`'s stop request and supervisor stamp; absent files are fine."""
+    for path in (stop_request_path(pid), settings_home() / "unimatrix" / f"supervisor-{pid}.json"):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def wait_or_stop(seconds, own_proc_start, sleep=None) -> bool:
+    """Sleep `seconds` in STOP_POLL_SECONDS slices; True as soon as a stop is requested for this process."""
+    sleep = sleep or time.sleep
+    for _ in range(max(1, round(seconds / STOP_POLL_SECONDS))):
+        if stop_requested(own_proc_start):
+            return True
+        sleep(STOP_POLL_SECONDS)
+    return stop_requested(own_proc_start)
 
 
 def write_json_atomic(path, data):
@@ -1548,7 +1594,8 @@ def main(argv=None):
             say(f"stopped by signal {signum}; mirrors drop until relaunched")
             sys.exit(128 + signum)
         signal.signal(signal.SIGTERM, stopped)
-    stamp_supervisor(cfg.remote)
+    stamp_supervisor(cfg.remote, "bridge")
+    own_start = guarded(say, "own start", proc_start, os.getpid(), default=None)
     bridges = {}
     link_path = link_state_path(cfg.remote)
     # No record yet: None, so the first poll writes one and the G-EM watch sees a new box's first state.
@@ -1557,6 +1604,10 @@ def main(argv=None):
     try:
         guarded(say, "startup reap", reap_orphaned_mirrors, cfg.remote, say)
         while True:
+            if own_start is not None and stop_requested(own_start):
+                say("STOPPED-BY-REQUEST")
+                clear_stop(os.getpid())
+                break
             ok, why = guarded(say, "link probe", link_probe, cfg.remote, cfg.tunnel_remote,
                               default=(False, "probe error"))
             run, verdict = link_verdict(run, ok)
@@ -1579,7 +1630,12 @@ def main(argv=None):
                     guarded(say, "reap", reap_orphaned_mirrors, cfg.remote, say, unbacked=True,
                             keep={b.pid for b in bridges.values()})
                     guarded(say, "agy reap", reap_unbacked_agy_faces, say)
-            time.sleep(POLL_SECONDS)
+            if own_start is None:
+                time.sleep(POLL_SECONDS)
+            elif wait_or_stop(POLL_SECONDS, own_start):
+                say("STOPPED-BY-REQUEST")
+                clear_stop(os.getpid())
+                break
     finally:
         tree_kill_many([b.pid for b in bridges.values()])
 

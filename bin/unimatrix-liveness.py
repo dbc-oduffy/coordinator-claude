@@ -151,7 +151,7 @@ def stamp_fresh(d, field, max_age_seconds, now=None):
     return 0 <= clock_ms - stamp <= max_age_seconds * 1000
 
 
-def agy_face_unbacked(d, home=None):
+def agy_face_unbacked(d, home=None) -> bool:
     """True for a peer-router face of an agy session whose agy process is gone.
 
     The face is a proxy registered for `peers.json`'s `target` conversation; the agent behind it is
@@ -177,8 +177,96 @@ def agy_face_unbacked(d, home=None):
         return True
     except (OSError, ValueError):
         return False
-    agy_pid = rec.get("agy_pid") if isinstance(rec, dict) else None
-    return not (isinstance(agy_pid, int) and not isinstance(agy_pid, bool) and pid_alive(agy_pid))
+    if not isinstance(rec, dict):
+        return False
+    return agy_session_state(target, rec, home) == "dead"
+
+
+# Past this age a record with no recorded agy pid and no held presence lock reads as dead; agy takes
+# its presence lock when the conversation opens, within seconds of the launch hook writing the record.
+AGY_SESSION_GRACE_SECONDS = 60
+_SIBLINGS = {}
+
+
+def _transport() -> "types.ModuleType":
+    """The local transport module (process locks), loaded by path on first use."""
+    if "transport" not in _SIBLINGS:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "unimatrix_local_transport", Path(__file__).resolve().parent / "unimatrix-local-transport.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _SIBLINGS["transport"] = mod
+    return _SIBLINGS["transport"]
+
+
+def _safe_conversation(conversation) -> bool:
+    return isinstance(conversation, str) and bool(conversation) and "/" not in conversation \
+        and "\\" not in conversation and conversation not in (".", "..")
+
+
+def agy_presence_dir() -> Path:
+    """Where agy keeps one presence lock per live conversation: next to its brain root (AGY_BRAIN_DIR)."""
+    brain = os.environ.get("AGY_BRAIN_DIR")
+    return (Path(brain).parent if brain else Path.home() / ".gemini" / "antigravity-cli") / "presence"
+
+
+def agy_presence_held(conversation, presence_dir=None) -> bool:
+    """True while another process holds the conversation's presence lock; the signal needs no ancestry.
+
+    Probes with an exclusive lock so a shared-mode holder still reads as held. An unsafe name, a missing
+    or unreadable file and any non-contention lock error read as not held."""
+    if not _safe_conversation(conversation):
+        return False
+    path = Path(presence_dir if presence_dir is not None else agy_presence_dir()) / f"{conversation}.lock"
+    try:
+        file = open(path, "r+b" if sys.platform == "win32" else "rb")
+    except OSError:
+        return False
+    with file:
+        try:
+            transport = _transport()
+            if not transport.lock_file(file):
+                return True
+            transport.unlock_file(file)
+        except (OSError, ImportError):
+            return False
+    return False
+
+
+def _agy_record_age_origin(conversation, rec, home) -> float | None:
+    """Epoch seconds the leg record was started: `startedAt`/`ts` (ms or s), else the record file's mtime."""
+    for field in ("startedAt", "ts"):
+        stamp = rec.get(field)
+        if isinstance(stamp, (int, float)) and not isinstance(stamp, bool) and stamp > 0:
+            return stamp / 1000 if stamp > 1e11 else float(stamp)
+    if _safe_conversation(conversation):
+        try:
+            return (state_dir(home) / "agy-legs" / f"{conversation}.json").stat().st_mtime
+        except OSError:
+            return None
+    return None
+
+
+def agy_session_state(conversation, rec, home=None, now=None) -> str:
+    """"live" | "dead" | "unknown" for a conversation's agy session; the codex holder rule, plus the lock.
+
+    live: the presence lock is held, or the recorded `agy_pid` is alive (and still the process that stamped
+    `agy_proc_start`, when recorded). dead: no lock and the recorded pid is gone, or no pid is recorded and
+    the record is older than `AGY_SESSION_GRACE_SECONDS`. unknown: no lock, no pid, inside the grace or of
+    unprovable age. Trap: one lock probe and at most one pid check per call; keep callers to one call each."""
+    if agy_presence_held(conversation):
+        return "live"
+    rec = rec if isinstance(rec, dict) else {}
+    agy_pid = rec.get("agy_pid")
+    if isinstance(agy_pid, int) and not isinstance(agy_pid, bool):
+        recorded = rec.get("agy_proc_start")
+        probe = {"pid": agy_pid, "procStart": recorded} if isinstance(recorded, str) and recorded else {"pid": agy_pid}
+        return "live" if entry_live(probe) else "dead"
+    origin = _agy_record_age_origin(conversation, rec, home)
+    if origin is None:
+        return "unknown"
+    return "dead" if (time.time() if now is None else now) - origin > AGY_SESSION_GRACE_SECONDS else "unknown"
 
 
 def agy_peer_rows_orphaned(home=None):

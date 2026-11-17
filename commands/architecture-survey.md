@@ -14,7 +14,7 @@ Builds/refreshes the architecture atlas in `docs/architecture/`. Not for weekly 
 fan out (`A-SKILL-PHASE-NAMES-ITS-ACTOR`). Purpose, layout, rationale, retired mechanics:
 `coordinator/docs/wiki/skills-corpus/architecture-survey-residue.md`.
 
-**Script first**: a
+**Script first:** a
 deterministic query decides what changed; a model reads at most a ~10k-character preview per
 plan; never a fan-out over the whole corpus.
 

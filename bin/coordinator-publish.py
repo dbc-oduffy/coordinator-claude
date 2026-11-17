@@ -173,15 +173,19 @@ def _round_commit_clone_bin(own_bin: Path, argv: list[str]) -> Path | None:
 
 def main(argv: list[str]) -> int:
     _own_bin = Path(__file__).resolve().parent
+    _invoking = _invoking_clone_bin(_own_bin)
     try:
-        _clone_bin = _invoking_clone_bin(_own_bin) or _round_commit_clone_bin(_own_bin, argv)
+        _clone_bin = _invoking or _round_commit_clone_bin(_own_bin, argv)
     except _CloneRefused as _exc:
         print(f"coordinator-publish: refused -- commit clone failed: {_exc}", file=sys.stderr)
         return 1
     _allow_rollback = _ALLOW_ROLLBACK_FLAG in argv
     argv = [a for a in argv if a != _ALLOW_ROLLBACK_FLAG]
     if not _allow_rollback:
-        _refusal = _regression_refusal(argv, (_clone_bin or _own_bin).parents[1])
+        # A commit clone's git lacks the live head's history, so the guard would read "cannot
+        # judge" and go silent; this tree holds the same commit with its full ancestry.
+        _judge_root = (_invoking or _own_bin).parents[1]
+        _refusal = _regression_refusal(argv, _judge_root)
         if _refusal:
             print(f"coordinator-publish: refused: {_refusal} {_publish_ref_note()}", file=sys.stderr)
             return 1

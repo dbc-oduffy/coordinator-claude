@@ -157,7 +157,7 @@ phase (APM for scope; staff-eng or a domain reviewer for code); only `pm_only` s
 
 ## Grinder defaults
 
-Contract: `coordinator/docs/wiki/grinder-efficiency-defaults.md`; a baton is the row. **script-first triage**: the frozen gate report and `recycle-check.py` settle recycled, resurrected, held and unschedulable batons before any planner sees one. **default budget**: the EM sets `--waves <n>` on every sweep, never an open-ended loop; a token cap is an engine ask. **25/50/75% checkpoints**: the EM reads the landing ledger against those marks of the budget. **scoped commit per green row**: `land-wave.py` commits each baton's landing on its own pathspec.
+Contract: a baton is the row. **script-first triage**: the frozen gate report and `recycle-check.py` settle recycled, resurrected, held and unschedulable batons before any planner sees one. **default budget**: the EM sets `--waves <n>` on every sweep, never an open-ended loop; a token cap is an engine ask. **25/50/75% checkpoints**: the EM reads the landing ledger against those marks of the budget. **scoped commit per green row**: `land-wave.py` commits each baton's landing on its own pathspec.
 
 ## Anti-scope
 

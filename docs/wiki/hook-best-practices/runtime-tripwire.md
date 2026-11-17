@@ -160,7 +160,7 @@ L3b was originally planned as a `SessionStart` hook that emits the heartbeat-boo
 The L3b session-wide `CronCreate` EM-clock heartbeat has since been **retired**. Every `CronCreate` fire injects its prompt as a `Human:`-labeled transcript turn, so the silence directive rendered as user-shaped noise. Read the L3b row above as historical; L1 and L2 are the live layers.
 
 <!-- PROVENANCE: run 2026-11-13-20h30, derived from batch-1-082, batch-1-083 -->
-L3b was built and retired within a single day (2026-06-15) because `CronCreate` has no silent channel; that assumption was never verified before dispatch. L1 and L2 coverage was declared sufficient. A design that depends on a platform channel should probe the channel's feasibility before the build is dispatched, not after.
+L3b was built and retired within a single day because `CronCreate` has no silent channel; that assumption was never verified before dispatch. L1 and L2 coverage was declared sufficient. A design that depends on a platform channel should probe the channel's feasibility before the build is dispatched, not after.
 
 ### Open caveats
 

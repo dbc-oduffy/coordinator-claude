@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Bench harness for the /distill mechanical phases.
 
 Materializes the fixed fixture set into a scratch repo, then reports wall seconds, agent()

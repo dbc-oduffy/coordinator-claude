@@ -7,6 +7,7 @@ dependency. Socket path: $CODEX_APP_SERVER_SOCK, else ~/.codex/app-server-contro
 """
 import asyncio
 import base64
+import importlib.util
 import json
 import os
 import struct
@@ -17,6 +18,7 @@ from pathlib import Path
 
 TURN_TIMEOUT = 600
 NO_REPLY = "[unimatrix-peer-codex] no reply before timeout"
+RECORDED_BINARY = "codex-binary.path"
 DEFAULT_SOCK = "~/.codex/app-server-control/app-server-control.sock"
 
 
@@ -110,10 +112,49 @@ def codex_home():
     return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
 
 
+def recorded_binary_file(registry_dir=None):
+    """Where the SessionStart hook records the absolute codex path: <settings home>/host-sessions/codex/codex-binary.path."""
+    if registry_dir is None:
+        spec = importlib.util.spec_from_file_location("unimatrix_roster_for_codex", Path(__file__).resolve().parent / "unimatrix-roster.py")
+        roster = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(roster)
+        registry_dir = roster.settings_home() / "host-sessions" / "codex"
+    return Path(registry_dir) / RECORDED_BINARY
+
+
+def recorded_binary(registry_dir=None):
+    """The absolute codex path the SessionStart hook recorded, or None when absent, unreadable or no longer a file."""
+    try:
+        text = recorded_binary_file(registry_dir).read_text(encoding="utf-8").strip()
+    except Exception:
+        return None
+    return text if text and os.path.isabs(text) and os.path.isfile(text) else None
+
+
+def record_binary(registry_dir=None):
+    """Write shutil.which("codex") (absolute only) to the record when it differs; return the path or None."""
+    found = shutil.which("codex")
+    if not found or not os.path.isabs(found):
+        return None
+    target = recorded_binary_file(registry_dir)
+    try:
+        if target.read_text(encoding="utf-8").strip() == found:
+            return found
+    except OSError:
+        pass
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(f"{target.name}.{os.getpid()}.tmp")
+    tmp.write_text(found + "\n", encoding="utf-8")
+    os.replace(tmp, target)
+    return found
+
+
 def codex_binary():
-    """Resolve the native Windows executable, avoiding npm's shell wrapper for message text."""
+    """Resolve codex: CODEX_BIN, then PATH, then the hook-recorded absolute path, then bare "codex".
+
+    A Windows npm shell wrapper is swapped for the native executable (message text must not pass through it)."""
     configured = os.environ.get("CODEX_BIN")
-    found = shutil.which(configured or "codex") or configured or "codex"
+    found = shutil.which(configured or "codex") or configured or recorded_binary() or "codex"
     if os.name == "nt" and Path(found).suffix.lower() in (".cmd", ".ps1", ".bat"):
         root = Path(found).parent / "node_modules" / "@openai" / "codex"
         candidates = sorted(root.glob("node_modules/@openai/codex-win32-*/vendor/*/*/codex.exe"))

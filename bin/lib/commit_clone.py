@@ -42,6 +42,10 @@ _SEED_FILES = frozenset(
     + ("pyproject.toml",)
     # publish.py's end-of-run argv-parity gate reads this baseline; `_is_wanted` skips test dirs.
     + ("coordinator_core/tests/engine_cli_argv_parity_baseline.json",)
+    # publish.py and percolate-round.py load it by path before bootstrap, which the import filler never sees.
+    + ("coordinator_core/temp_layout.py",)
+    # coordinator_core/__init__.py imports it eagerly; unseeded, every clone import dies at __init__.
+    + ("coordinator_core/op_scopes.py",)
     + tuple(
         "coordinator/bin/" + name
         for name in (
@@ -381,6 +385,23 @@ def fill_package_data(clone: Path, package: str) -> None:
     data = _package_data(paths, {package})
     if data:
         fill_paths(Path(clone), data)
+
+
+def fill_tree(clone: Path, roots: tuple[str, ...]) -> None:
+    """Write every non-test file under clone-relative `roots` out of the clone's commit (two git
+    processes). For a reader that walks source by path, not by import (the allowlist generator's
+    closure parse and contract-root checks), which the import filler never serves."""
+    marker = _read_clone_marker(Path(clone))
+    if marker is None:
+        raise CommitCloneError(f"{clone} is not a commit clone")
+    try:
+        paths = list(_ls_blobs(Path(marker["source_root"]), marker["sha"], roots))
+    except (RuntimeError, OSError) as exc:
+        raise CommitCloneError(
+            f"commit clone fill of {', '.join(roots)} failed: {exc}. "
+            f"Retry: {_remediation(Path(marker['source_root']), marker['sha'])}"
+        ) from exc
+    fill_paths(Path(clone), [p for p in paths if not _is_test(p)])
 
 
 class _CommitFill(importlib.abc.MetaPathFinder):

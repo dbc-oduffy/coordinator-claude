@@ -1,67 +1,47 @@
-# learn-lessons script-first pipeline
+# learn-lessons — local flow pipeline
 
-> Referenced by `/learn-lessons` local mode. A pipeline definition, not an invocable skill.
+> Referenced by `coordinator/skills/learn-lessons/SKILL.md`. A pipeline definition, not an invocable skill.
 
-`lessons_mechanical.py prepare --repo R` closes every row a script can, packs the residue into at
-most 3 payloads and writes `prepared.json`; the `lessons-synth` Workflow runs at most 3 single-turn,
-no-tool `coordinator:lesson-synth` calls under a `budget_tokens` hard stop; `lessons_mechanical.py
-finalize --repo R` applies the returned verdicts. `--repo` is required; nothing resolves from cwd.
-Closing rules: `docs/wiki/lesson-triage/learn-lessons-mechanical-dispositions.md`. The script never
-guesses: `prepare` assigns no change-kind.
+Local mode runs `prepare -> triage workflow -> finalize -> bounded grind`. Only the triage workflow
+and the grind spawn agents; prepare and finalize are `lessons_mechanical.py`, `agent_spawns: 0`.
 
-## prepared.json (`lessons-prepared/1`)
+| Leg | Component | Reads | Writes |
+|---|---|---|---|
+| prepare | `lessons_mechanical.py prepare --repo-root R [--run-dir D] [--dry-run] [--age-cutoff Y-M-D \| --age-days N]` (`--repo-root` is required, never cwd) | `R/state/lessons` | `D/prepared.json`, `D/synth-batch-NN.json`; closure moves under `R/archive/lessons` |
+| triage | `lessons-triage.workflow.js`, args `{prepared, budget_tokens}` | `prepared` inline | returns `synth_results`, `budget_ledger` |
+| finalize | `lessons_mechanical.py finalize --run-dir D [--budget-tokens N]` | `D/prepared.json`, `D/synth-results.json`, `D/budget-ledger.json` | `D/records/<id>.json`, `D/finalize-report.json` |
+| grind | the `lessons` queue-grind profile, `budget_tokens` = `remaining_budget` | `residue_for_grind` | `D/records/` |
 
-```json
-{
-  "schema": "lessons-prepared/1",
-  "closed": [{"id": "<lesson stem>", "disposition": "<see below>", "evidence": "<path[:line] or rule>"}],
-  "residue_ids": ["<lesson stem>"],
-  "deferred_ids": ["<residue id past the third payload>"],
-  "synth": {
-    "payloads": [{"lessons": [{"id": "...", "body": "...", "...": "..."}], "est_tokens": 0}],
-    "schemas": [{"...": "per-call JSON schema, one per payload"}],
-    "budget_tokens": 1000000
-  }
-}
-```
+The caller saves the workflow's `synth_results` and `budget_ledger` as `D/synth-results.json` and
+`D/budget-ledger.json` between triage and finalize.
 
-- `closed[].disposition` is one of `malformed`, `dedupe`, `discard`, `retag-local`, `wiki-append`,
-  `age-sweep`. `evidence` names the citing path (`discard`, `wiki-append`), the surviving row
-  (`dedupe`) or the schema field (`malformed`).
-- `residue_ids` lists every row not closed, including deferred ones. `synth.payloads` holds at most
-  3 entries; a payload never exceeds `SYNTH_PAYLOAD_TOKENS` estimated tokens. Residue that fits no
-  payload is listed in `deferred_ids`, never dropped, and is cleared by a further run.
-- `budget_tokens` is the `whole_backlog_token_bar` of `coordinator/contract/ceremony-budget.json`.
-  The workflow stops before any call that would cross it and returns `budget_stop: true`.
-- `prepare` writes nothing under `state/lessons/` beyond closure moves.
+## Contract
 
-## Synth result
+- Shared constants and `BudgetLedger`: `lessons_contract.py`. `DEFAULT_BUDGET` is the lessons slice of
+  `whole_backlog_token_bar` in `coordinator/contract/ceremony-budget.json`.
+- At most `MAX_SYNTH_CALLS` triage calls, each batch under `SYNTH_BATCH_BYTES`; overflow is
+  `prepared.deferred`, handed back, never a further call.
+- Prepare closes dedupe, retag and `target_wiki` discard/wiki-append through the engine
+  `apply_mechanical` op, then the script rules over the remainder: `malformed` (a required field
+  missing or blank: reported in `prepared.malformed`, row untouched, never triaged, handed back by
+  finalize), `discard` (whole body verbatim in an index-reachable wiki page) and `wiki-append`
+  (body absent from an index-reachable wiki page the lesson names). A payload lesson carries no
+  verdict or change-kind. Rules: the wiki page below.
+- Each triage batch gets one refute call. Only refute-upheld `discard`, `dedupe` and `wiki-append`
+  verdicts apply; overturned, unrefuted and unappliable verdicts become residue. A `discard` that
+  names no target closes the row; any other target must be an existing repo file.
+- Budget is measured input plus output tokens. A call is admitted only while measured spend plus its
+  projected cost fits `budget_tokens`; a refused call hands its rows back `budget-exhausted`.
+- `finalize-report.json`: `residue_for_grind`, `budget_exhausted`, `handed_back`, `malformed`, `deferred`,
+  `remaining_budget`, `agent_spawns`. `remaining_budget` is the grind's `budget_tokens`.
+- Exit 0 ok, 1 a phase halted (the report names it), 2 unusable input.
+- No call to the engine `learn_lessons_pipeline` brief or a roots op; discovery reads
+  `R/state/lessons` directly.
 
-One record per lesson id in the synth payloads:
-
-```json
-{"id": "<lesson stem>", "verdict": "<lessons.yaml verdict>", "target": "<path or ''>",
- "markdown": "<text to land, or ''>", "cites": ["path:line"]}
-```
-
-- `verdict` is a value of `verdicts:` in `coordinator/queue-profiles/lessons.yaml`; never
-  `doctrine-edit` or `memory-pointer` (route `doe-escalation`).
-- `cites` is required and names the evidence the verdict rests on; a universal row returns
-  `universal` for route-to-central.
-- The workflow result adds `budget_stop` (bool), `deferred_ids` and `unsent_ids`.
-
-## Fixture and bench
-
-- `make_lesson_queue.py --repo R --count 148 --seed 7` writes a seeded, byte-stable mix under
-  `R/state/lessons`: duplicates, covered rules (verbatim in a wiki page the generator also writes
-  and indexes), domain-tagged and untagged universals, malformed rows, aged rows, genuine residue.
-  It feeds the tests; it is never the measurement.
-- `lessons_bench.py --queue-size N --journal J [--journal J2 ...]` prints `{total_tokens, spawns,
-  budget_stop, deferred, queued, queue_size, runs, bar, unmeasured_agents, under_bar}`.
-  `total_tokens` is the `total` class (cached reads counted with uncached) summed over every
-  journal passed; a Workflow run dir's usage is read from `agent-<agentId>.jsonl` beside
-  `journal.jsonl`, deduped by `message.id`. `deferred` is the last journal's value; `under_bar`
-  needs `total_tokens` under the bar, no budget stop, `deferred` 0 and `unmeasured_agents` 0 (an
-  agent that ran with no readable usage).
-- `distill_bench.py` (artifact-distillation) has the same journal-only reader blind spot; it is
-  outside this plan's footprint.
+Measurement: `lessons_bench.py --journal <run journal>` reports `total_tokens`, `agent_spawns` and
+`unmeasured_agents` against the whole-backlog bar. A Workflow run directory's usage is read from
+`agent-<agentId>.jsonl` beside the journal, deduped by `message.id`, cached reads counted; an agent
+that ran with no readable usage forces `within_bar` false. `make_lesson_queue.py --repo R --count 148
+--seed 7` writes a seeded, byte-stable lesson mix (duplicates, covered, tagged universals, malformed,
+aged, residue) for the tests. Mechanical rules:
+`coordinator/docs/wiki/lesson-triage/learn-lessons-mechanical-dispositions.md`.

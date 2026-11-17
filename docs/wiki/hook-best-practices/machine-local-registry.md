@@ -535,7 +535,7 @@ engine plane's own targeting contract) only selects the provenance (`published-t
 
 **Schema authorship.** Per §5a's ruling (the "Schema authorship" bullet, line ~324) that shared key-namespace schema — what keys exist and what they mean — is coordinator-team-owned, this namespace (its key shape, meaning, and regeneratability class) is authored here in the doctrine repo, the doctrine plane — even though its writers are engine-resident and doctrine-repo-resident installers, and its consumer is currently unimplemented.
 
-### assert-empty runs from the doctrine seat (dated 2026-07-23)
+### assert-empty runs from the doctrine seat
 
 The engine's assert-empty check enumerates peers through resolve_roots, which lists lesson-producing repos. The doctrine repo is the central target, so it is not listed as its own peer. Run from the engine repo, the checked list omits the doctrine repo, and an empty checked list reads as false reassurance. Run it from the doctrine repo, where the engine and rag are both peers and both checked. A non-empty peer plane makes the check FAIL with the peer root and count, and the stop is correct. Do not drain the union expecting clean. One peer held 85 stranded entries, older than anything in the two planes first examined.
 <!-- distilled: batch-2-009-01 -->

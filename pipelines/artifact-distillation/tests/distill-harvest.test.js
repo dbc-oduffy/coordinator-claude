@@ -3472,7 +3472,7 @@ test('synth brief: no pipeline, run or sha prose, additions only, restatements a
 
 test('12h42: absolute or slug replies resolve; an empty reply is retried then reported; NEW declines without retry', async () => {
   const raw = [meaningCluster('embed')];
-  const abs = await meaningExtracted.homeByMeaning(raw, MEANING_WIKI, ['docs/wiki'], async () => ({ home: '/Users/x/repo/docs/wiki/embedding-model-selection.md' }), () => {});
+  const abs = await meaningExtracted.homeByMeaning(raw, MEANING_WIKI, ['docs/wiki'], async () => ({ home: '/srv/x/repo/docs/wiki/embedding-model-selection.md' }), () => {});
   assert.deepEqual(abs.meaningHomes, { embed: 'docs/wiki/embedding-model-selection.md' });
   const bySlug = await meaningExtracted.homeByMeaning(raw, MEANING_WIKI, ['docs/wiki'], async () => ({ home: 'embedding-model-selection' }), () => {});
   assert.deepEqual(bySlug.meaningHomes, { embed: 'docs/wiki/embedding-model-selection.md' });
@@ -4045,4 +4045,99 @@ test('synth brief asks a judge-only nugget stating a durable contract or root ca
   const brief = synthBriefFor({ topics: [{ topic_key: 'nugget-b', judge_only: true, nuggets: [] }] }).replace(/\s+/g, ' ');
   assert.match(brief, /home_suggestion \{wiki_path, kind: 'durable-contract' \| 'root-cause'\}/);
   assert.match(brief, /never dropped as a bare no-op reason/);
+});
+
+test('restorePrepared rebuilds the cluster keys a slug fixes and leaves a prepared that is not clustersPacked alone', () => {
+  const restorePrepared = new Function(['unpackWikiSlugs', 'restoreClusters', 'restorePrepared']
+    .map((name) => extractFunctionSource(SOURCE, name)).join('\n') + '\nreturn restorePrepared;')();
+  const nuggets = [{ id: 'n1', content: 'c', source: 's.md' }];
+  // `odd=Other.md`: a slug whose page file is not `<slug>.md`.
+  const packed = {
+    clustersPacked: true,
+    wikiDirs: ['docs/wiki', 'other'],
+    wikiSlugsPacked: { 'docs/wiki': ['homed-topic', 'odd=Other.md'] },
+    clusters: [
+      { slug: 'homed-topic', nuggets },
+      { slug: 'odd', nuggets },
+      { slug: 'fresh-topic', nuggets },
+      { slug: 'nugget-b-1', nuggets },
+      { slug: 'nugget-topic', per_nugget: false, nuggets },
+      { slug: 'kept', topicKey: 'Kept Key', wikiPath: 'elsewhere/kept.md', homed: false, per_nugget: true, nuggets },
+      { nuggets },
+    ],
+  };
+  const { clustersPacked, ...unflagged } = packed;
+  assert.deepEqual(restorePrepared(unflagged), unflagged);
+  const restored = restorePrepared(packed);
+  assert.equal(restored.clustersPacked, undefined);
+  assert.deepEqual(restored.clusters, [
+    { slug: 'homed-topic', topicKey: 'homed-topic', homed: true, wikiPath: 'docs/wiki/homed-topic.md', nuggets },
+    { slug: 'odd', topicKey: 'odd', homed: true, wikiPath: 'docs/wiki/Other.md', nuggets },
+    { slug: 'fresh-topic', topicKey: 'fresh-topic', homed: false, wikiPath: 'docs/wiki/fresh-topic.md', nuggets },
+    { slug: 'nugget-b-1', topicKey: 'nugget-b-1', homed: false, wikiPath: 'docs/wiki/nugget-b-1.md', per_nugget: true, nuggets },
+    { slug: 'nugget-topic', topicKey: 'nugget-topic', homed: false, wikiPath: 'docs/wiki/nugget-topic.md', per_nugget: false, nuggets },
+    { slug: 'kept', topicKey: 'Kept Key', wikiPath: 'elsewhere/kept.md', homed: false, per_nugget: true, nuggets },
+    { nuggets },
+  ]);
+});
+
+// ---------------------------------------------------------------------------
+// Launch shards: prepared-NN.json carries launchShard {index, count, run_id}; index >= 1 is synth-only.
+// ---------------------------------------------------------------------------
+
+// Runs the whole script as the runtime does (top-level await and return legal) against recording stubs.
+async function runWholeScript(preparedBody, agentImpl) {
+  const src = fs.readFileSync(WORKFLOW_PATH, 'utf8').replace(/^export const meta\b/m, 'const meta');
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+  const phases = [];
+  const calls = [];
+  const agent = async (brief, opts) => { calls.push(opts); return agentImpl(brief, opts); };
+  const parallel = (thunks) => Promise.all(thunks.map((t) => t()));
+  const run = new AsyncFunction('args', 'agent', 'parallel', 'phase', 'log', src);
+  const result = await run({ prepared: preparedBody }, agent, parallel, (p) => phases.push(p), () => {});
+  return { result, phases, calls };
+}
+
+function shardPrepared(shard) {
+  return {
+    runId: 'run-shard', repoRoot: '/repo', wikiDirs: ['docs/wiki'], wikiSlugs: {}, wikiSlugCount: 0,
+    ...(shard ? { launchShard: shard, batch_count: 0, total_file_count: 0 } : {}),
+    clusters: [{ topicKey: 'alpha', slug: 'alpha', homed: false, wikiPath: 'docs/wiki/alpha.md',
+      nuggets: [{ id: 'b1-001-01', type: 'KNOWLEDGE', source: 'a/one.md', content: 'alpha body' }] }],
+    sourceHashes: { alpha: { sha256: 'hash-alpha', unchanged: false } },
+    candidates: [],
+    synth: { schema: { type: 'object' }, deferred_topics: [], payloads: [{ topics: [
+      { topic_key: 'alpha', wiki_path: 'docs/wiki/alpha.md', new_page: true, outline: { headings: [] },
+        nuggets: [{ id: 'b1-001-01', text: 'alpha body', cite: 'a/one.md' }], cite_ids: ['b1-001-01'] }] }] },
+  };
+}
+
+const synthReturnFor = () => ({ topics: [{ topic_key: 'alpha', ops: [
+  { section_heading: 'Alpha', action: 'append', markdown: 'text', cites: ['b1-001-01'] }], decision_records: [] }] });
+
+test('launch shard index 1: synth calls only, promote-ready with the shard on the manifest and no deletion manifest', async () => {
+  const marker = { index: 1, count: 2, run_id: 'run-shard' };
+  const { result, phases, calls } = await runWholeScript(shardPrepared(marker), async () => synthReturnFor());
+  assert.equal(result.phase_reached, 'promote-ready');
+  assert.deepEqual(result.promote_manifest.shard, marker);
+  assert.equal(result.promote_manifest.run_id, 'run-shard');
+  assert.equal(result.promote_manifest.synth_results.length, 1);
+  assert.deepEqual(result.promote_manifest.hashes, { alpha: 'hash-alpha' });
+  assert.deepEqual(calls.map((c) => [c.phase, c.agentType]), [['synth', 'coordinator:distill-synth']]);
+  assert.deepEqual(phases, ['load', 'synth']);
+  assert.equal(result.deletion_manifest, undefined);
+  assert.equal(result.reentry_manifest, undefined);
+});
+
+test('launch shard index 1: a failed synth call halts synth-partial-failure and never reaches promote-ready', async () => {
+  const marker = { index: 1, count: 2, run_id: 'run-shard' };
+  const { result } = await runWholeScript(shardPrepared(marker), async () => null);
+  assert.equal(result.halted, 'synth-partial-failure');
+  assert.deepEqual(result.failed_synth_calls, ['synth-1']);
+});
+
+test('no launchShard: the unsharded path still demands batches, so a batch-less prepared halts empty-input-batches', async () => {
+  const { result, calls } = await runWholeScript(shardPrepared(null), async () => synthReturnFor());
+  assert.equal(result.halted, 'empty-input-batches');
+  assert.equal(calls.length, 0);
 });

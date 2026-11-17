@@ -264,6 +264,10 @@ def _register(payload, peers_file=None, registry_dir=None):
         peers_file = load_sibling("unimatrix-peer-router").default_peers_file()
     if registry_dir is None:
         registry_dir = load_sibling('unimatrix-roster').settings_home() / 'host-sessions' / 'codex'
+    try:  # this hook runs on codex's PATH; the delivery leg may not
+        load_sibling('unimatrix-peer-codex').record_binary(registry_dir)
+    except Exception:  # a hook must never break the session
+        pass
     address = load_sibling('unimatrix-peer-contract').read_codex_address(registry_dir, thread, socket.gethostname())
     if not address:
         return {"systemMessage": f"unimatrix: Codex thread {thread} is unbound: no engine address"}

@@ -156,6 +156,8 @@ AGY_PLUGIN_TREE_DIR = "agy-plugin"
 CODEX_SHELL_MATCHER = ".*"
 GROK_TOOL_MATCHER = ("Bash|bash|shell|run_command|run_shell_command|"
                      "Edit|Write|MultiEdit|NotebookEdit|edit_file|write_file|"
+                     "run_terminal_command|run_terminal_cmd|Shell|search_replace|hashline_edit|"
+                     "StrReplace|EditNotebook|Delete|write|"
                      "read_file|spawn_subagent")
 GROK_HOOKS_FILE = "coordinator.json"
 # agy shell plus every edit tool the engine agy adapter maps to a write guard

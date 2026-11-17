@@ -4,6 +4,11 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.20] — 2026-11-17
+
+- **Distill:** the prepare step's pointer pass is several times faster on incremental runs.
+- **Doctrine:** non-Claude EM path and grinder defaults refreshed.
+
 ## [4.6.19] — 2026-11-16
 
 - **Engine scripts:** `bin/` and `lib/` resynced to the current engine, including the restored `seed-cross-session-inbound` used by uninstall.

@@ -13,11 +13,13 @@
       (one topic's context) for single-turn schema synth calls (SYNTH_SCHEMA). prepared.synth.payloads holds
       the batches inline; topics past the last batch are prepared.synth.deferred_topics.
 
-  finalize --repo-root R --manifest M.json [--run-id ID] [--out-dir D] [--store PATH]
+  finalize --repo-root R --manifest M.json [--manifest M2.json ...] [--run-id ID] [--out-dir D] [--store PATH]
            [--dry-run] [--no-archive] [--no-scratch] [--invoke-bin PATH] [--doc-new-bin PATH]
       manifest: {"run_id", "files": [{"staged", "target", "topic_key", "homed"?}],
       "hashes": {topic_key: sha256}, "deletions": [{"artifact_path", "citation_target"}],
       "archive": [{"src", "dst"}], "synth_results"?: [synth JSON objects or paths], "prepared"?: path}.
+      A sharded prepare takes one --manifest per shard (each carries its `shard` marker); they merge into
+      <out-dir>/merged-manifest.json against <out-dir>/shards.json and splice against the shard files.
       Runs, in order: synth splice into staged pages (cite-checked) and decision_records minted through
       coordinator-doc-new (not with --dry-run; a record whose title or slug matches prepared.drIndex is
       reported under dr_exists, never minted), promote collision check, promote, the leg-2 inputs
@@ -41,7 +43,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 BIN_DIR = Path(__file__).resolve().parents[2] / "bin"
 PROMOTE_SCRIPT = "distill-promote-staged.py"
@@ -49,6 +51,11 @@ CANDIDATES_SCRIPT = "distill-candidates-batch.py"
 DEFAULT_STORE = "state/distillation-source-hashes.json"
 SCRATCH_ROOT = "state/scratch/artifact-distillation"
 INVOKE_NAME = "coordinator-invoke"
+# The Workflow runner's launch cap; the same figure as dispatch_emit/emit.py _WORKFLOW_SCRIPT_BYTE_CAP.
+# Kept local: this pipeline never imports the engine.
+LAUNCH_CAP_BYTES = 524288
+LAUNCH_MARGIN_BYTES = 32768  # headroom a launch keeps under the cap for launch_args and growth
+HARVEST_SCRIPT = Path(__file__).resolve().with_name("distill-harvest.workflow.js")
 _RUN_ID_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._-]*$")
 _GUIDE_ROW = re.compile(r"^\|\s*\[([^\]\n]*)\]\(([^)\n]+\.md)\)\s*\|")
 _GUIDE_SEP = re.compile(r"^\|\s*:?-{3,}:?\s*\|")
@@ -1023,6 +1030,12 @@ def stale_code_stamps(clusters: List[dict], repo: Path) -> Dict[str, bool]:
     return stamps
 
 
+def synth_entry(n: dict) -> dict:
+    """The synth payload's view of a cluster nugget; pack_synth_payloads drops whatever this re-derives."""
+    return {"id": n.get("id"), "text": n.get("content", ""), "cite": n.get("source", ""),
+            **{k: n[k] for k in ("type", "date", "historical") if n.get(k) is not None}}
+
+
 def synth_inputs(clusters: List[dict], repo: Path) -> List[dict]:
     """Per-topic synth input: curated nuggets plus the target page's outline; no source or page text.
 
@@ -1045,8 +1058,7 @@ def synth_inputs(clusters: List[dict], repo: Path) -> List[dict]:
                 part.clear()
 
         for n in nuggets:
-            entry = {"id": n.get("id"), "text": n.get("content", ""), "cite": n.get("source", ""),
-                     **{k: n[k] for k in ("type", "date", "historical") if n.get(k) is not None}}
+            entry = synth_entry(n)
             if n.get("id") in stamps:
                 entry["stale_code_state"] = stamps[n["id"]]
             if estimate_tokens(shaped(part + [entry])) > SYNTH_TOPIC_TOKENS:
@@ -1109,19 +1121,343 @@ def unpack_wiki_slugs(packed: Dict[str, List[str]]) -> Dict[str, str]:
     return slugs
 
 
-def write_prepared(path: Path, prepared: dict) -> None:
+_ABSENT = object()
+
+
+def _nuggets_by_id(clusters: object) -> Dict[str, dict]:
+    by_id: Dict[str, dict] = {}
+    for c in clusters if isinstance(clusters, list) else []:
+        for n in c.get("nuggets") or []:
+            if n.get("id") is not None:
+                by_id.setdefault(n["id"], n)
+    return by_id
+
+
+def pack_synth_payloads(payloads: List[dict], clusters: object) -> List[dict]:
+    """Payload nuggets without what `synth_entry` re-derives from the same prepared's clusters: a clustered
+    nugget's content rode in both, and prepared.json rides inline under the Workflow script cap.
+    A packed entry is `{id, <keys that differ from the derivation>}`; a key the derivation holds and the
+    entry lacks is packed as null (so an explicit None value does not round-trip). `cite_ids` is dropped
+    when it equals the nuggets' ids. Inverse: unpack_synth_payloads; the harvest workflow's loader
+    (restorePrepared) mirrors it."""
+    by_id = _nuggets_by_id(clusters)
+
+    def entry(e: dict) -> dict:
+        n = by_id.get(e.get("id"))
+        if n is None:
+            return e
+        base = synth_entry(n)
+        return {"id": e["id"], **{k: v for k, v in e.items() if k != "id" and base.get(k, _ABSENT) != v},
+                **{k: None for k in base if k not in e}}
+
+    def topic(t: dict) -> dict:
+        nuggets = t.get("nuggets")
+        if not isinstance(nuggets, list):
+            return t
+        packed = {**t, "nuggets": [entry(e) for e in nuggets]}
+        if t.get("cite_ids") == [e.get("id") for e in nuggets]:
+            del packed["cite_ids"]
+        return packed
+
+    return [{**p, "topics": [topic(t) for t in p.get("topics") or []]} for p in payloads]
+
+
+def unpack_synth_payloads(payloads: List[dict], clusters: object) -> List[dict]:
+    by_id = _nuggets_by_id(clusters)
+
+    def entry(e: dict) -> dict:
+        n = by_id.get(e.get("id"))
+        if n is None:
+            return e
+        out = synth_entry(n)
+        for k, v in e.items():
+            if v is None:
+                out.pop(k, None)
+            else:
+                out[k] = v
+        return out
+
+    def topic(t: dict) -> dict:
+        nuggets = t.get("nuggets")
+        if not isinstance(nuggets, list):
+            return t
+        full = [entry(e) for e in nuggets]
+        return {**t, "nuggets": full, **({} if "cite_ids" in t else {"cite_ids": [e.get("id") for e in full]})}
+
+    return [{**p, "topics": [topic(t) for t in p.get("topics") or []]} for p in payloads]
+
+
+UNREAD_NUGGET_KEYS = ("system_tag", "tag_source")
+
+
+def _cluster_derivations(cluster: dict, wiki_slugs: Dict[str, str], wiki_dirs: object) -> dict:
+    """What cluster_nuggets would write for the keys a slug fixes: topicKey, homed, wikiPath and per_nugget."""
+    slug = cluster["slug"]
+    path = wiki_slugs.get(slug)
+    primary = wiki_dirs[0] if isinstance(wiki_dirs, list) and wiki_dirs else "docs/wiki"
+    return {"topicKey": slug, "homed": path is not None, "wikiPath": path or f"{primary}/{slug}.md",
+            "per_nugget": slug.startswith("nugget-")}
+
+
+def pack_clusters(clusters: List[dict], wiki_slugs: Dict[str, str], wiki_dirs: object) -> List[dict]:
+    """Clusters without what their slug re-derives (topicKey, homed, wikiPath, per_nugget, each dropped only
+    where it equals the derivation) and without the nugget keys nothing reads after prepare (system_tag,
+    tag_source: the workflow's scan path reads them, a prepared cluster's nuggets never). prepared.json rides
+    inline under the Workflow launch cap. A cluster carrying no str slug is kept whole. Inverse:
+    unpack_clusters; the harvest workflow's loader (restoreClusters) mirrors it."""
+    def one(c: dict) -> dict:
+        if not isinstance(c.get("slug"), str):
+            return c
+        derived = _cluster_derivations(c, wiki_slugs, wiki_dirs)
+        out = {k: v for k, v in c.items() if k not in derived or c[k] != derived[k]}
+        if derived["per_nugget"] and "per_nugget" not in c:
+            out["per_nugget"] = False
+        out["nuggets"] = [{k: v for k, v in n.items() if k not in UNREAD_NUGGET_KEYS} for n in c.get("nuggets") or []]
+        return out
+
+    return [one(c) if isinstance(c, dict) else c for c in clusters]
+
+
+def unpack_clusters(clusters: List[dict], wiki_slugs: Dict[str, str], wiki_dirs: object) -> List[dict]:
+    """Restores the keys pack_clusters derived; the nugget keys it dropped stay dropped."""
+    def one(c: dict) -> dict:
+        if not isinstance(c.get("slug"), str):
+            return c
+        derived = _cluster_derivations(c, wiki_slugs, wiki_dirs)
+        out = {**{k: v for k, v in derived.items() if k != "per_nugget"}, **c}
+        if "per_nugget" not in c and derived["per_nugget"]:
+            out["per_nugget"] = True
+        return out
+
+    return [one(c) if isinstance(c, dict) else c for c in clusters]
+
+
+def prepared_text(prepared: dict) -> str:
+    """The exact text write_prepared lands: the packed compact JSON, one trailing newline."""
     out = dict(prepared)
+    wiki_slugs = out.get("wikiSlugs") or {}
     if "wikiSlugs" in out:
         out["wikiSlugsPacked"] = pack_wiki_slugs(out.pop("wikiSlugs") or {})
+    synth = out.get("synth")
+    if isinstance(synth, dict) and isinstance(synth.get("payloads"), list) and not synth.get("payloadsPacked"):
+        out["synth"] = {**synth, "payloads": pack_synth_payloads(synth["payloads"], out.get("clusters")),
+                        "payloadsPacked": True}
+    synth = out.get("synth")
+    if isinstance(synth, dict) and isinstance(synth.get("schemas"), list) and not synth.get("schemasDerived"):
+        full = synth["payloads"]
+        if synth.get("payloadsPacked"):
+            full = unpack_synth_payloads(full, out.get("clusters"))
+        if synth["schemas"] == [payload_schema(p) for p in full]:
+            out["synth"] = {**{k: v for k, v in synth.items() if k != "schemas"}, "schemasDerived": True}
+    clusters = out.get("clusters")
+    if (isinstance(clusters, list) and clusters and not out.get("clustersPacked")
+            and all(isinstance(c, dict) and isinstance(c.get("slug"), str) and isinstance(c.get("nuggets"), list)
+                    and all(k in c for k in ("topicKey", "homed", "wikiPath")) for c in clusters)):
+        out["clusters"] = pack_clusters(clusters, wiki_slugs, out.get("wikiDirs"))
+        out["clustersPacked"] = True
     # Compact, not write_json's indent=2: whitespace counts against the launch's script cap too.
+    return json.dumps(out, separators=(",", ":"), sort_keys=True) + "\n"
+
+
+def write_prepared(path: Path, prepared: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(out, separators=(",", ":"), sort_keys=True) + "\n", encoding="utf-8")
+    # newline="\n": the file's byte count is the launch's byte count on every OS.
+    with path.open("w", encoding="utf-8", newline="\n") as fh:
+        fh.write(prepared_text(prepared))
+
+
+SHARD_KEY = "launchShard"
+SHARDS_INDEX = "shards.json"
+_SHARD_LOAD_KEYS = ("runId", "repoRoot", "wikiDirs", "wikiSlugs", "wikiSlugCount", "requiredAgentTypes")
+
+
+def _payload_keys(payload: dict) -> List[str]:
+    return [t["topic_key"] for t in payload.get("topics", []) if isinstance(t, dict) and "topic_key" in t]
+
+
+def _payload_clusters(prepared: dict) -> List[set]:
+    """Per payload, the topicKeys of the clusters it draws on: a homed topic by its key, a per_nugget cluster
+    (batched under a judge-only key) by its nugget ids."""
+    clusters = prepared.get("clusters") or []
+    owner = {n.get("id"): c["topicKey"] for c in clusters for n in c.get("nuggets") or []}
+    known = {c["topicKey"] for c in clusters}
+    out = []
+    for payload in prepared["synth"]["payloads"]:
+        keys = set()
+        for topic in payload.get("topics", []):
+            if topic.get("topic_key") in known:
+                keys.add(topic["topic_key"])
+            keys |= {owner[n.get("id")] for n in topic.get("nuggets") or [] if n.get("id") in owner}
+        out.append(keys)
+    return out
+
+
+def _payload_units(owned: List[set]) -> List[List[int]]:
+    """Payload indices grouped so no cluster spans two groups; a shard never splits a cluster."""
+    units: List[Tuple[List[int], set]] = []
+    for i, keys in enumerate(owned):
+        idx, held = [i], set(keys)
+        for unit in [u for u in units if u[1] & held]:
+            units.remove(unit)
+            idx, held = unit[0] + idx, held | unit[1]
+        units.append((sorted(idx), held))
+    return sorted((u[0] for u in units))
+
+
+def _shard_slice(prepared: dict, idx: List[int], primary: bool, owned: List[set], count: int) -> dict:
+    synth = prepared["synth"]
+    payloads = [synth["payloads"][i] for i in idx]
+    topic_keys = {k for p in payloads for k in _payload_keys(p)}
+    all_topic_keys = {k for p in synth["payloads"] for k in _payload_keys(p)}
+    mine = set().union(*(owned[i] for i in idx))
+    claimed = set().union(*owned)
+    deferred = list(synth.get("deferred_topics") or []) if primary else []
+    # Shard 0 also holds every entry no payload draws on (unchanged, deferred, pointer-covered topics).
+    keep = (lambda k: k in mine or k not in claimed) if primary else (lambda k: k in mine)
+    keep_file = (lambda k: k in topic_keys or k not in all_topic_keys) if primary else (lambda k: k in topic_keys)
+    block = {**synth, "payloads": payloads, "deferred_topics": deferred}
+    for name in ("schemas", "batches"):
+        if isinstance(synth.get(name), list) and len(synth[name]) == len(synth["payloads"]):
+            block[name] = [synth[name][i] for i in idx]
+    if isinstance(synth.get("topic_files"), dict):
+        block["topic_files"] = {k: v for k, v in synth["topic_files"].items() if keep_file(k)}
+    block["topics"] = len(topic_keys | set(deferred))
+    base = ({k: v for k, v in prepared.items() if k not in ("clusters", "candidates", "sourceHashes", "synth")}
+            if primary else {k: prepared[k] for k in _SHARD_LOAD_KEYS if k in prepared})
+    if not primary:
+        base.update({k: 0 for k in ("batch_count", "total_file_count") if k in prepared})
+    return {**base, "synth": block,
+            "clusters": [c for c in prepared.get("clusters") or [] if keep(c["topicKey"])],
+            "candidates": [c for c in prepared.get("candidates") or [] if keep(c.get("topic_key"))],
+            "sourceHashes": {k: v for k, v in (prepared.get("sourceHashes") or {}).items() if keep(k)},
+            SHARD_KEY: {"index": 0, "count": count, "run_id": prepared.get("runId")}}
+
+
+def shard_prepared(prepared: dict, script_bytes: int, budget: int) -> List[dict]:
+    """Split one prepared dict into launches, each `script_bytes` plus its write_prepared file within `budget`.
+
+    The partition unit is the synth payload: a shard holds a contiguous run of `synth.payloads` (at most
+    MAX_SYNTH_CALLS) plus exactly the `clusters`, `candidates` and `sourceHashes` entries of those payloads'
+    topics. Greedy fill; a single payload that alone overflows raises DriverError launch-over-cap naming it.
+    One launch fitting returns `[prepared]` unchanged, no SHARD_KEY. Otherwise each returned dict is a prepared
+    dict in write_prepared's input form and carries `SHARD_KEY: {"index": i, "count": n, "run_id": runId}`.
+    Shard 0 is primary: it alone carries the run context the non-synth phases read (batches, declared counts,
+    file_fates, judgmentPrecheck, drIndex, curated, classified residue). Shards 1..n-1 carry the keys the
+    workflow load phase asserts (runId, repoRoot, wikiDirs, wikiSlugs, requiredAgentTypes) and run synth only,
+    with declared counts recomputed per shard. Each topic rides exactly one shard."""
+    def size(shard: dict) -> int:
+        return script_bytes + len(prepared_text(shard).encode("utf-8"))
+
+    if size(prepared) <= budget:
+        return [prepared]
+    payloads = (prepared.get("synth") or {}).get("payloads") or []
+    if not payloads:
+        raise DriverError("launch-over-cap", f"the harvest launch is {size(prepared)} bytes over the {budget}-byte "
+                                             "budget and holds no synth payload to split across launches")
+    owned = _payload_clusters(prepared)
+    groups: List[List[int]] = []
+    current: List[int] = []
+    for unit in _payload_units(owned):
+        for attempt in (0, 1):
+            trial = sorted(current + unit)
+            primary = not groups
+            # count=99 keeps the marker's width above any real shard count while the partition is unsettled.
+            fits = (len(trial) <= MAX_SYNTH_CALLS
+                    and size(_shard_slice(prepared, trial, primary, owned, 99)) <= budget)
+            if fits:
+                current = trial
+                break
+            if not current or attempt:
+                lone = size(_shard_slice(prepared, unit, primary, owned, 99))
+                raise DriverError("launch-over-cap",
+                                  f"synth payload {unit[0]} (topics {', '.join(_payload_keys(payloads[unit[0]]))}) alone "
+                                  f"makes a {lone}-byte launch, over the {budget}-byte budget; it cannot be split")
+            groups.append(current)
+            current = []
+    groups.append(current)
+    shards = []
+    for i, idx in enumerate(groups):
+        shard = _shard_slice(prepared, idx, i == 0, owned, len(groups))
+        shard[SHARD_KEY]["index"] = i
+        shards.append(shard)
+    return shards
+
+
+def merge_shard_manifests(manifests: List[dict], shards_index: dict) -> dict:
+    """One promote manifest from the per-shard manifests of a sharded run.
+
+    `shards_index` is the SHARDS_INDEX content: `{run_id, budget, script_bytes, shards: [{path, index,
+    launch_bytes, payloads, topics}]}`; each manifest carries its shard marker as `shard` (`{index, count,
+    run_id}`). Requires every index in `shards_index` exactly once, else DriverError shard-index-missing or
+    shard-index-duplicate. Returns `{run_id, files, synth_results, hashes}`: `files` and `synth_results`
+    concatenated in shard index order, `hashes` unioned; two shards hashing one topic_key differently raise
+    DriverError shard-merge-conflict. Shard 0's other keys (deletions, archive, wikiDirs) ride through; a
+    manifest whose run_id differs from the index's, or whose index the index does not list, raises
+    shard-merge-conflict."""
+    run_id = shards_index.get("run_id")
+    wanted = {s["index"] for s in shards_index.get("shards") or []}
+    by_index: Dict[int, dict] = {}
+    for m in manifests:
+        marker = m.get("shard")
+        if not isinstance(marker, dict) or not isinstance(marker.get("index"), int):
+            raise DriverError("shard-index-missing", "a shard manifest carries no `shard` marker with an integer index")
+        i = marker["index"]
+        if i in by_index:
+            raise DriverError("shard-index-duplicate", f"shard index {i} appears in more than one manifest")
+        if i not in wanted:
+            raise DriverError("shard-merge-conflict", f"shard index {i} is not in the shards index {sorted(wanted)}")
+        if m.get("run_id", run_id) != run_id:
+            raise DriverError("shard-merge-conflict", f"shard {i} manifest run_id {m.get('run_id')!r} is not {run_id!r}")
+        by_index[i] = m
+    absent = sorted(wanted - set(by_index))
+    if absent:
+        raise DriverError("shard-index-missing", f"no manifest for shard index {absent} of {sorted(wanted)}")
+    merged: dict = {k: v for k, v in by_index[min(wanted)].items()
+                    if k not in ("shard", "prepared", "files", "synth_results", "hashes", "run_id")}
+    merged.update({"run_id": run_id, "files": [], "synth_results": [], "hashes": {}})
+    for i in sorted(by_index):
+        m = by_index[i]
+        merged["files"] += list(m.get("files") or [])
+        merged["synth_results"] += list(m.get("synth_results") or [])
+        for key, value in (m.get("hashes") or {}).items():
+            if key in merged["hashes"] and merged["hashes"][key] != value:
+                raise DriverError("shard-merge-conflict", f"topic {key!r} has different hashes across shards")
+            merged["hashes"][key] = value
+    return merged
+
+
+def read_sharded_prepared(shards_index: dict, base: Path) -> dict:
+    """The shards' prepared files read back (each unpacked against its own clusters) and joined into one
+    dict: every shard's clusters and synth payloads, shard 0's run context. Relative shard paths resolve
+    against `base`."""
+    parts = []
+    for entry in sorted(shards_index.get("shards") or [], key=lambda s: s["index"]):
+        path = Path(entry["path"])
+        parts.append(read_prepared(path if path.is_absolute() else base / path))
+    if not parts:
+        raise DriverError("unusable-input", "the shards index lists no shard")
+    synth = {**(parts[0].get("synth") or {}),
+             "payloads": [p for part in parts for p in (part.get("synth") or {}).get("payloads") or []]}
+    return {**parts[0], "clusters": [c for part in parts for c in part.get("clusters") or []], "synth": synth}
+
+
+def launch_bytes(prepared_path: Path, script_path: Path) -> int:
+    """Bytes the harvest Workflow launch carries: the inline prepared.json plus the workflow script."""
+    return Path(prepared_path).stat().st_size + Path(script_path).stat().st_size
 
 
 def read_prepared(path: Path) -> dict:
     prepared = read_json(path)
     if "wikiSlugsPacked" in prepared:
         prepared["wikiSlugs"] = unpack_wiki_slugs(prepared.pop("wikiSlugsPacked"))
+    if prepared.pop("clustersPacked", False):
+        prepared["clusters"] = unpack_clusters(prepared["clusters"], prepared.get("wikiSlugs") or {},
+                                               prepared.get("wikiDirs"))
+    synth = prepared.get("synth")
+    if isinstance(synth, dict) and synth.pop("payloadsPacked", False):
+        synth["payloads"] = unpack_synth_payloads(synth["payloads"], prepared.get("clusters"))
+    if isinstance(synth, dict) and synth.pop("schemasDerived", False):
+        synth["schemas"] = [payload_schema(p) for p in synth.get("payloads") or []]
     return prepared
 
 
@@ -1801,11 +2137,37 @@ def prepare(repo: Path, input_file: Path, nuggets_file: Optional[Path], verdicts
                                  for k in ("judgmentClusters", "contradictionClusters")
                                  if isinstance(curated.get(k), list)}}
         prepared["curated"] = curated
+    for stale in [*out_dir.glob("prepared-[0-9][0-9].json"), out_dir / SHARDS_INDEX]:
+        stale.unlink(missing_ok=True)
     write_prepared(out_dir / "prepared.json", prepared)
-    return {"status": "ok", "prepared": (out_dir / "prepared.json").as_posix(), "run_id": run_id,
-            "clusters": len(clusters), "unchanged": len(unchanged), "agent_spawns": 0,
-            "judgmentPrecheck": precheck,
-            "timings": prepared["timings"]}
+    launch = launch_bytes(out_dir / "prepared.json", HARVEST_SCRIPT)
+    budget = LAUNCH_CAP_BYTES - LAUNCH_MARGIN_BYTES
+    report = {"status": "ok", "run_id": run_id,
+              "clusters": len(clusters), "unchanged": len(unchanged), "agent_spawns": 0,
+              "judgmentPrecheck": precheck,
+              "timings": prepared["timings"]}
+    if launch <= budget:
+        return {**report, "prepared": (out_dir / "prepared.json").as_posix()}
+    script_bytes = HARVEST_SCRIPT.stat().st_size
+    entries = []
+    for shard in shard_prepared(prepared, script_bytes, budget):
+        path = out_dir / f"prepared-{shard[SHARD_KEY]['index']:02d}.json"
+        write_prepared(path, shard)
+        entries.append({"path": path.as_posix(), "index": shard[SHARD_KEY]["index"],
+                        "launch_bytes": launch_bytes(path, HARVEST_SCRIPT),
+                        "payloads": len(shard["synth"]["payloads"]),
+                        "topics": sorted({k for p in shard["synth"]["payloads"] for k in _payload_keys(p)})})
+    over = [e for e in entries if e["launch_bytes"] > budget]
+    if over:
+        for e in entries:
+            Path(e["path"]).unlink(missing_ok=True)
+        raise DriverError("launch-over-cap", f"shard {over[0]['path']} is {over[0]['launch_bytes']} bytes, over the "
+                                             f"{budget}-byte budget ({LAUNCH_CAP_BYTES} cap less a "
+                                             f"{LAUNCH_MARGIN_BYTES}-byte margin); the Workflow tool refuses the launch")
+    (out_dir / "prepared.json").unlink()
+    write_json(out_dir / SHARDS_INDEX, {"run_id": run_id, "budget": budget, "script_bytes": script_bytes,
+                                        "shards": entries})
+    return {**report, "shards": entries, "shards_index": (out_dir / SHARDS_INDEX).as_posix()}
 
 
 # --------------------------------------------------------------------------- finalize
@@ -2084,15 +2446,32 @@ def promote_watermark(repo: Path, run_id: str) -> dict:
     return {"status": "promoted", "path": Path(promoted).as_posix()}
 
 
-def finalize(repo: Path, manifest_file: Path, run_id: Optional[str], out_dir: Optional[Path], store: str,
-             dry_run: bool, no_archive: bool, no_scratch: bool, invoke_bin: Optional[str],
+def finalize(repo: Path, manifest_file: Union[Path, List[Path]], run_id: Optional[str], out_dir: Optional[Path],
+             store: str, dry_run: bool, no_archive: bool, no_scratch: bool, invoke_bin: Optional[str],
              doc_new_bin: Optional[str] = None) -> dict:
-    manifest = read_json(manifest_file)
-    if not isinstance(manifest, dict):
+    """Promote one run. `manifest_file` is one promote manifest, or one per shard of a sharded prepare: the
+    shard manifests merge against <out-dir>/shards.json into <out-dir>/merged-manifest.json, which the run
+    then treats as its one manifest. A lone manifest stamped as one shard of several is refused."""
+    paths = manifest_file if isinstance(manifest_file, list) else [manifest_file]
+    loaded = [read_json(p) for p in paths]
+    if not all(isinstance(m, dict) for m in loaded):
         raise DriverError("unusable-input", "manifest must be an object")
+    stamp = loaded[0].get("shard")
+    stamp_count = stamp.get("count", 1) if isinstance(stamp, dict) else 1
+    if isinstance(stamp_count, bool) or not isinstance(stamp_count, int):
+        raise DriverError("unusable-input", f"manifest shard count must be an integer, got {stamp_count!r}")
+    sharded = len(loaded) > 1 or stamp_count > 1
+    manifest = loaded[0]
     run_id = check_run_id(run_id or manifest.get("run_id") or new_run_id())
     out_dir = out_dir or repo / SCRATCH_ROOT / run_id
     out_dir.mkdir(parents=True, exist_ok=True)
+    shards_index: Optional[dict] = None
+    if sharded:
+        shards_index = read_json(out_dir / SHARDS_INDEX)
+        if not isinstance(shards_index, dict):
+            raise DriverError("unusable-input", f"{out_dir / SHARDS_INDEX} must be an object")
+        manifest = merge_shard_manifests(loaded, shards_index)
+        write_json(out_dir / "merged-manifest.json", manifest)
     rows = list(manifest.get("files") or [])
     timings: Dict[str, float] = {}
     report: dict = {"run_id": run_id, "agent_spawns": 0, "dry_run": dry_run, "halted": None, "phases": {}}
@@ -2107,7 +2486,8 @@ def finalize(repo: Path, manifest_file: Path, run_id: Optional[str], out_dir: Op
         results = [p if isinstance(p, dict) else read_json(inside(repo, p) if not Path(p).is_absolute() else Path(p))
                    for p in manifest["synth_results"]]
         prepared_path = manifest.get("prepared")
-        prepared = read_prepared(Path(prepared_path) if prepared_path else out_dir / "prepared.json")
+        prepared = (read_sharded_prepared(shards_index, out_dir) if shards_index is not None
+                    else read_prepared(Path(prepared_path) if prepared_path else out_dir / "prepared.json"))
         spliced_rows, synth_report = apply_synth(results, prepared, repo, out_dir, run_id,
                                                  _resolve_bin("coordinator-doc-new", doc_new_bin), not dry_run)
         have = {r["target"] for r in rows}
@@ -2213,7 +2593,7 @@ def main(argv: List[str]) -> int:
             p.add_argument("--verdicts")
             p.add_argument("--pointer-index")
         else:
-            p.add_argument("--manifest", required=True)
+            p.add_argument("--manifest", required=True, action="append")
             p.add_argument("--dry-run", action="store_true")
             p.add_argument("--no-archive", action="store_true")
             p.add_argument("--no-scratch", action="store_true")
@@ -2230,7 +2610,8 @@ def main(argv: List[str]) -> int:
                              ns.run_id, out_dir, ns.store,
                              Path(ns.pointer_index).resolve() if ns.pointer_index else None)
         else:
-            result = finalize(repo, Path(ns.manifest).resolve(), ns.run_id, out_dir, ns.store,
+            manifests = [Path(m).resolve() for m in ns.manifest]
+            result = finalize(repo, manifests if len(manifests) > 1 else manifests[0], ns.run_id, out_dir, ns.store,
                               ns.dry_run, ns.no_archive, ns.no_scratch, ns.invoke_bin, ns.doc_new_bin)
     except DriverError as exc:
         print(json.dumps({"status": "error", "halted": exc.code, "detail": exc.detail}))

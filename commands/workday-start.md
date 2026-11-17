@@ -32,7 +32,7 @@ PowerShell, the POSIX launcher form otherwise) and run, solo:
 
 Route on its exit code and print the receipt either way:
 
-- **0 with a `Workflow(` line** — run `python "${CLAUDE_PLUGIN_ROOT}/scripts/workday_start_argv_run.py" run --digest <receipt digest path>`
+- **0 with a `Workflow(` line** — run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workday_start_argv_run.py" run --digest <receipt digest path>`
   first; `workflow_needed: false` skips the line. Else fire it verbatim, render the returned `briefing`. On
   `scripted_finish: true`, Write the returned object to `workflow-results.json` beside the digest, run the
   script's `finish --digest <path>`, render the `finish` action's `briefing`.
@@ -91,9 +91,9 @@ loudly in the briefing. It never starts embedding work; a re-embed is a human as
 ## Adopt a klabauter push (this box only)
 
 If the copies banner reads `engine-mirror currency=behind origin by N`, this box's claude-klabauter
-trails origin/candidate (the cached probe; run no new one). Only when the box is quiet (no other live Claude session), offer
-`git pull --ff-only` in `repos.claude_klabauter`, then `python scripts/setup.py`; else report N. Never
-drive another box (`coordinator/docs/wiki/coordinator-tripwires/a-box-adopts-an-engine-push-on-its-own-terms.md`).
+trails origin/candidate (the cached probe; run no new one). Adopt it now: `git pull --ff-only` in
+`repos.claude_klabauter`, then `python scripts/setup.py`. Live sessions are no reason to wait; drain
+only in-flight legs. Never drive another box (`coordinator/docs/wiki/coordinator-tripwires/a-box-adopts-an-engine-push-on-its-own-terms.md`).
 
 ## What This Does NOT Do
 

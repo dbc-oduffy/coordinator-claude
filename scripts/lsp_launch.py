@@ -140,6 +140,7 @@ def _serve(name: str, repo_root: Path, argv: "list[str]") -> int:
         # Replace the wrapper so the host's kill reaches the server instead of orphaning it.
         try:
             os.chdir(repo_root)
+            # guard-allow: no-bare-python-spawn posix-only exec replaces this process; no console window exists to suppress
             os.execv(exe, [exe, *argv[1:]])
         except OSError as exc:
             print(f"lsp_launch: cannot start {name}: {exc}", file=sys.stderr)

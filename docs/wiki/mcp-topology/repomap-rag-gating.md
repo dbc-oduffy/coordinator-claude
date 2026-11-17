@@ -166,18 +166,11 @@ block in a guard that exits 0 on any failure:
 
 ## Determining RAG Freshness
 
-`check-rag-state.py` probes two bash-readable signals in order:
-
-1. **`RAG_STATE` env var** — injectable in tests and by the W1 session-init hook.
-2. **`tasks/.rag-state` marker file** — written by `hooks/project-rag-detect.*` (W1 hook)
-   at session start. Content is one of `absent | stale | fresh`.
-
-If neither signal is present, the script prints `unknown` and exits non-zero.
-
-**Rationale for marker-file approach:** MCP tool availability cannot be probed from bash.
-The W1 hook (which runs in agent context where MCP is visible) writes the marker; subsequent
-bash scripts read it. This separates detection (agent-side, once) from consumption (bash,
-multiple callers).
+`check-rag-state.py` reads the `RAG_STATE` env var, then the `tasks/.rag-state` marker under the
+plugin root (`CLAUDE_RAG_STATE_FILE` overrides the path). No hook writes that marker: the project-rag
+freshness verdict lives in `.coordinator-local/index-freshness-verdict.json`. Without `RAG_STATE`
+set, the gate reads `unknown` and repomap runs as the fallback. The engine owns the read
+(`coordinator_core/ops/check_rag_state.py`); a stale verdict (`behind_head`) falls back too.
 
 ---
 
@@ -192,13 +185,3 @@ it appends an audit log entry to `state/repomap-audit.log`:
 
 After two consecutive `no` entries, `/update-docs` surfaces a retirement recommendation.
 The generator script itself does not audit — auditing is an `/update-docs` concern.
-
----
-
-## RAG-State Detection Sync Note
-
-The detection logic in `check-rag-state.py` and the marker written by
-`hooks/project-rag-detect.*` (W1 hook) must stay in sync. If you change the marker
-file path or content format in one, update the other. The marker file path is
-`tasks/.rag-state` relative to the plugin root (or overridden by
-`CLAUDE_RAG_STATE_FILE` env var).

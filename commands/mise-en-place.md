@@ -207,7 +207,7 @@ spec path is itself a plan carrying a `` ```yaml plan-tasks `` spine expands int
 chunk DAG — `<item-id>.<chunk-id>` per chunk — inside this SAME emitted Workflow, never a second
 `--plan` emit; a plain row with no such spine stays one executor.
 
-Grinder defaults (`coordinator/docs/wiki/grinder-efficiency-defaults.md`): the default budget is
+Grinder defaults: the default budget is
 `--row-budget 100`, never omitted; script-first triage (the Pre-Dispatch Verification and dedupe
 checks) closes rows already green at HEAD before an executor is dispatched; the EM reads 25/50/75%
 checkpoints of the row budget at its next turn; each green row lands as a scoped commit per green row.

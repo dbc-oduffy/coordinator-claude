@@ -730,6 +730,23 @@ def regenerate_portable(repo_root: Path, pending: Tuple[str, ...] = ()) -> str:
     return "".join(lines)
 
 
+def _fill_commit_clone() -> None:
+    """Run from a commit clone (a publish round), this tree holds only the publisher seed, while
+    the derivation reads module files and contract roots from disk: write the rest from the commit."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("_allowlist_commit_clone", _REPO_ROOT / "coordinator" / "bin" / "lib" / "commit_clone.py")
+    if spec is None or spec.loader is None:
+        return
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except OSError:
+        return
+    if module.is_commit_clone(_REPO_ROOT):
+        module.fill_tree(_REPO_ROOT, ("coordinator_core", "coordinator/bin", "coordinator/lib"))
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -767,6 +784,7 @@ def main(argv=None) -> int:
         parser.error("--ref requires --check")
     global _SOURCE_REF
     _SOURCE_REF = args.ref
+    _fill_commit_clone()
     pending = tuple(p.replace("\\", "/") for p in args.pending)
 
     if args.verify_bin_deny:

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Govern the stock pyright-lsp / typescript-lsp plugins and check the pinned front binaries.
 
 The stock plugins spawn their own pyright and typescript-language-server per session, so a

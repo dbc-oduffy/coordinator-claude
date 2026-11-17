@@ -49,9 +49,11 @@ Under catch-up, name each missed week archived and state the in-progress week le
 (`period_mode.missed`, `period_mode.in_progress`); surface the brief's leading `Catch-up run:`
 narration verbatim.
 
-**Missed-week cross-check.** Any week holding a `/workday-complete` Step 6 backfill gap row
-(`archive/daily-summaries/` gap days) is missed even when `period_mode.missed` is empty; name the
-disagreement in the gate. The brief's missed-week computation is the engine's, not this command's.
+**Missed-week reconciliation.** `period_mode.missed` is not the whole list: every week holding a
+`/workday-complete` Step 6 gap row (a `-backfill.md` block or `daily-doc-rollup.py --backfilled`
+date) is missed too, even when the brief says none
+(`week_changelog_bucket.py --missed-weeks` lists them). Name each week the union adds and state the
+disagreement in the gate. Each such week is archived at Step 18.
 
 Surface: week span, commit count/range, workstreams, blockers, priorities met. Priorities-met:
 `state/goals/*.yaml` (`period: week`, ISO-week match) canonical, read `status` directly.
@@ -247,7 +249,7 @@ gate; PM may promote an entry to Highlights at Step 12.
 ## Step 12: Editorial Bucketing + Release Notes Draft — PM Review Gate
 
 `mkdir -p state/week-changelog/`. No `HEADER.md`, or any missed week from Step 1's cross-check with
-no `WEEK-SUMMARY.md`: run `python coordinator/scripts/week_changelog_bucket.py --backfill` (writes
+no `WEEK-SUMMARY.md`: run `python3 coordinator/scripts/week_changelog_bucket.py --backfill` (writes
 one per committed week, never overwrites) before bucketing. Query `pending-release` entries since
 HEADER's week-start: completion
 entries since the week start that are named in no `archive/releases/*.yaml` (the release index
@@ -262,7 +264,7 @@ catch-up target; what matters is coverage in a *prior* release's notes
 `reconcile-completion-commits.py` are retired; their launchers exit 127. A missing `commits:` SHA is caught,
 if at all, by the editorial pass below. Restore only when a successor CLI ships.
 
-**Editorial bucketing:** script first, no agent. Run `python coordinator/scripts/week_changelog_bucket.py --since <week-start> --verdict-file <Step 7 verdict>`;
+**Editorial bucketing:** script first, no agent. Run `python3 coordinator/scripts/week_changelog_bucket.py --since <week-start> --verdict-file <Step 7 verdict>`;
 it writes `state/week-changelog/YYYY-MM-DD-pending-release.md`, bucketing by `nature`+`loe.tshirt`
 (roadmap L/XL/XXL → Highlights; roadmap S/M → Notable; roadmap XS → Other; user-visible bugfix (any) or
 bugfix XL → Notable; bugfix S/M/L → Other; tech-debt/infra non-XL → Other; tech-debt/infra XL →
@@ -273,7 +275,10 @@ with `--override <entry-path-suffix>=<Bucket>` and stated at the PM gate. Verify
 non-trivial before proceeding. Input to those calls: `project_rag_cli.py plans-completed --project-root . --since <HEADER week-start>`
 (the project-rag `plans-completed` door), with `plan-preview <plan_path>@<sha>` opened only for impactful
 rows (`size_class` L or XL), at most ~10k chars per plan; door missing or exit 3: the `no-producer` rule of
-workday-complete Step 6b-7. Never a fan-out over the whole corpus. The one agent in this ceremony is Step 7b's strategic observer.
+workday-complete Step 6b-7. Never a fan-out over the whole corpus. **Headerless repo (no `HEADER.md`) or missed weeks:** run
+`python3 coordinator/scripts/week_changelog_bucket.py --backfill` once; it writes
+`archive/week-changelogs/<week-start>/WEEK-SUMMARY.md` (`backfilled: true`) for every past week with
+commits and none, never overwriting an existing one. Never hand-write those summaries. The one agent in this ceremony is Step 7b's strategic observer.
 
 Read the pending-release file, write `archive/release-notes/YYYY-MM-DD-vX.Y.Z.md` as a thin
 formatting wrapper — do NOT re-author. Version is a placeholder until Step 13.
@@ -372,7 +377,7 @@ review-trail JSON to `archive/review-trail/<week-starting>/` (`.gitkeep` and
 pushes. Run `workweek-complete-close archive --version vX.Y.Z --merge-sha <merge-sha>`
 (`--no-push`/`--no-git` exist). **Must run AFTER Step 7 consumes the trail.**
 
-**Headerless repo.** No `HEADER.md`: run `python coordinator/scripts/week_changelog_bucket.py --backfill`
+**Headerless repo.** No `HEADER.md`: run `python3 coordinator/scripts/week_changelog_bucket.py --backfill`
 first so each committed week has its `WEEK-SUMMARY.md`; never hand-write one.
 
 **Multi-week precondition.** Default archive is unbounded by date — destructive if a week was
@@ -383,6 +388,10 @@ mismatch means multi-week — use `archive --week-only`, one run per week (pair 
 `--week-only`, the `HEADER.md` rewrite is conditional on `derive_week_start(HEADER.md) ==
 week_starting` and is silently skipped if HEADER still carries
 the "(not yet set …)" sentinel; known behavior.
+
+**Headerless or catch-up:** before archiving, run `python3 coordinator/scripts/week_changelog_bucket.py --backfill`
+so each missed week (Step 1's union) ends with a `WEEK-SUMMARY.md`; `archive` does nothing for a week with no
+HEADER.md and no entries.
 
 **Negative spec:** the daily matcher `^\d{4}-\d{2}-\d{2}.*\.md$` also matches
 `YYYY-MM-DD-pending-release.md` (Step 12's live editorial corpus) — an unbounded sweep archives

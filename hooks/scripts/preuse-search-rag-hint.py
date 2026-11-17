@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """PreToolUse(Grep|Glob) non-blocking hint: a symbol-style search in a project-rag-indexed repo draws one
 `additionalContext` line naming the tier-1 project-rag tools.
 

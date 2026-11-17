@@ -1,43 +1,79 @@
-#!/usr/bin/env python3
-"""Bench for /learn-lessons: tokens one default run (or several) cost over a lesson queue.
+"""Bench harness for the /learn-lessons phases.
 
-Reads one or more Workflow run journals (--journal, repeatable) and prints
-{total_tokens, spawns, budget_stop, deferred, queued, queue_size, bar, under_bar}.
+Materializes the seeded 148-lesson fixture into a scratch repo, then reports wall seconds,
+agent() spawns per phase label and total tokens (plus tokens per phase) for either a Workflow
+run journal (--journal) or a timed driver run (argv after `--`). `--baseline` records the
+engine emitter's projection for the fixture queue at the checked-out base without firing it.
+Phases: prepare, synth, finalize, grind. The report's `within_bar` compares measured
+total_tokens to the whole-backlog token bar in contract/ceremony-budget.json; a run with no
+token measurement (driver-only) carries no total_tokens or within_bar; an agent that ran with no readable usage is never under the bar. `--enforce` turns any run
+not measured under the bar into exit code 3.
+
+Journal shape accepted (JSONL, a JSON list, or {"events": [...]}): one record per agent()
+call, or a start/end pair sharing an `id`, carrying `phase`, `label`, optional `model` /
+`agentType`, token usage (`usage.input_tokens` + `usage.output_tokens`, or `total_tokens` /
+`tokens`) and `start`/`end` (epoch seconds, epoch ms, or ISO-8601). Records with no agent
+marker are ignored, so non-agent runtime events do not inflate counts.
 
 A real Workflow run directory holds journal.jsonl (launched/started/result events keyed by
-`agentId`, no usage) beside agent-<agentId>.jsonl transcripts whose `message.usage` is the
-usage, repeated per content block and deduped by `message.id`. An agent with no usage from the
-journal or its transcript is counted in `unmeasured_agents` and forces under_bar false.
-
-Journal shape (JSONL, a JSON list, or {"events": [...]}): one record per agent() call, or a
-start/end pair sharing an `id`, carrying token usage (`usage.input_tokens` + `output_tokens` +
-cache classes, or `total_tokens` / `tokens`). Records with no agent marker add no tokens or spawns.
-Any record may also carry the run result fields `budget_stop` (bool), `deferred` (int) or
-`deferred_ids` (list) and `queued` (int) or `queued_ids` (list).
-
-total_tokens is the `total` class: cached reads and cache writes count with uncached input and
-output, summed over every journal so a queue that needs several runs is measured whole.
-budget_stop is true if any run stopped on budget; deferred is the last journal's remaining count
-(a later run clears an earlier run's deferral); queued sums across journals.
+`agentId`, no usage) beside agent-<agentId>.jsonl transcripts whose `message.usage` is the usage,
+repeated per content block and deduped by `message.id`; cached reads and cache writes count. An
+agent with no usage from the journal or its transcript is counted in `unmeasured_agents` and
+forces `within_bar` false.
 """
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
+import subprocess
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
+from types import ModuleType
 
 SCHEMA = "lessons-bench-report/1"
+PHASES = ("prepare", "synth", "finalize", "grind")
 AGENT_KEYS = ("agentType", "agent_type", "agent", "agentId")
-AGENT_KINDS = ("agent_start", "agent-start", "agent_spawn", "agent_call", "agent",
-               "agent_end", "agent-end", "agent_result", "agent_done")
 TOKEN_KEYS = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
-CONTRACT = Path(__file__).resolve().parents[2] / "contract" / "ceremony-budget.json"
+START_KINDS = ("agent_start", "agent-start", "agent_spawn", "agent_call", "agent")
+END_KINDS = ("agent_end", "agent-end", "agent_result", "agent_done")
+
+HERE = Path(__file__).resolve().parent
+COORDINATOR = HERE.parents[1]
+FIXTURE_SCRIPT = HERE / "tests" / "fixtures" / "bench-148" / "make_fixture.py"
+EMITTER = COORDINATOR / "bin" / "emit-dispatch-workflow.py"
+BUDGET_CONTRACT = COORDINATOR / "contract" / "ceremony-budget.json"
+
+# example-store-repo: 3 of 148 lessons closed for ~278k tokens, the observed per-lesson rate.
+EXAMPLE_STUDIO_OBSERVATION = {"tokens": 278000, "lessons_closed": 3, "queue_lessons": 148}
 
 
-def whole_backlog_bar(contract: Path = CONTRACT) -> int:
-    """The whole-backlog token bar from the ceremony-budget contract."""
-    return int(json.loads(contract.read_text(encoding="utf-8"))["whole_backlog_token_bar"])
+def _no_console() -> int:
+    return getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
+def whole_backlog_bar() -> int:
+    """The whole-backlog token bar every ceremony slice must fit under."""
+    return int(json.loads(BUDGET_CONTRACT.read_text(encoding="utf-8"))["whole_backlog_token_bar"])
+
+
+def _fixture_module() -> ModuleType:
+    spec = importlib.util.spec_from_file_location("lessons_bench_make_fixture", FIXTURE_SCRIPT)
+    if spec is None or spec.loader is None:
+        raise SystemExit(f"cannot load {FIXTURE_SCRIPT}")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def materialize(workdir: Path, count: int | None = None, seed: int | None = None) -> list[str]:
+    """Write the seeded lesson queue and wiki pages under workdir; return repo-relative lesson paths."""
+    fx = _fixture_module()
+    paths = fx.write_repo(workdir, count or fx.DEFAULT_COUNT, seed if seed is not None else fx.DEFAULT_SEED)
+    return [p.relative_to(workdir).as_posix() for p in paths]
 
 
 def _records(path: Path) -> list[dict]:
@@ -50,37 +86,33 @@ def _records(path: Path) -> list[dict]:
             data = data.get("events", data.get("journal", [data]))
         return [r for r in data if isinstance(r, dict)]
     except json.JSONDecodeError:
-        return [r for r in (json.loads(ln) for ln in text.splitlines() if ln.strip()) if isinstance(r, dict)]
+        return [r for r in (json.loads(l) for l in text.splitlines() if l.strip()) if isinstance(r, dict)]
+
+
+def _ts(value) -> float | None:
+    if isinstance(value, (int, float)):
+        return value / 1000.0 if value > 1e11 else float(value)
+    if isinstance(value, str) and value:
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            return None
+    return None
 
 
 def _tokens(rec: dict) -> int:
-    usage = rec.get("usage") if isinstance(rec.get("usage"), dict) else rec
+    """Input plus output (plus cache) tokens of one record; never output alone."""
+    raw = rec.get("usage")
+    usage: dict = raw if isinstance(raw, dict) else rec
     for key in ("total_tokens", "tokens"):
         if isinstance(usage.get(key), (int, float)):
             return int(usage[key])
     return sum(int(usage.get(k) or 0) for k in TOKEN_KEYS)
 
 
-def _is_agent(rec: dict) -> bool:
-    kind = str(rec.get("type") or rec.get("event") or rec.get("kind") or "")
-    return kind in AGENT_KINDS or any(k in rec for k in AGENT_KEYS)
-
-
-def _count(rec: dict, count_key: str, ids_key: str) -> int | None:
-    if isinstance(rec.get(count_key), (int, float)) and not isinstance(rec.get(count_key), bool):
-        return int(rec[count_key])
-    if isinstance(rec.get(ids_key), list):
-        return len(rec[ids_key])
-    return None
-
-
 def transcript_tokens(path: Path) -> int | None:
-    """Total of `message.usage` over one agent transcript, each `message.id` counted once.
-
-    A message's usage repeats on every content block of that message, so the largest
-    sighting of an id stands, as in distill_bench. Returns None when the file is absent or carries no usage.
-    artifact-distillation/distill_bench.py keeps a parallel reader with the same dedupe; keep the two in step.
-    """
+    """Total of `message.usage` over one agent transcript, each `message.id` counted once at its largest;
+    None when the file is absent or carries no usage."""
     if not path.is_file():
         return None
     seen: dict[str, int] = {}
@@ -93,76 +125,157 @@ def transcript_tokens(path: Path) -> int | None:
     return sum(seen.values()) if seen else None
 
 
+def _is_agent(rec: dict) -> bool:
+    kind = str(rec.get("type") or rec.get("event") or rec.get("kind") or "")
+    return kind in START_KINDS + END_KINDS or any(k in rec for k in AGENT_KEYS)
+
+
 def parse_journal(path: Path) -> dict:
-    """Fold one journal into token, spawn and run-result totals.
-
-    An agent keyed by `agentId` also reads `agent-<agentId>.jsonl` beside the journal; its
-    transcript total replaces a smaller inline figure. An agent with no usage from either
-    source is `unmeasured`.
-    """
-    agents: dict[str, int] = {}
-    stop, deferred, queued = False, 0, 0
+    """Fold a Workflow journal into spawn, per-phase token and wall-clock totals."""
+    agents: dict[str, dict] = {}
+    stamps: list[float] = []
     for n, rec in enumerate(_records(path)):
-        if rec.get("budget_stop") is True:
-            stop = True
-        d = _count(rec, "deferred", "deferred_ids")
-        if d is not None:
-            deferred = d
-        q = _count(rec, "queued", "queued_ids")
-        if q is not None:
-            queued = q
-        if _is_agent(rec):
-            key = str(rec.get("agentId") or rec.get("id", f"#{n}"))
-            agents[key] = max(agents.get(key, 0), _tokens(rec))
-    for key in agents:
-        if Path(key).name != key:
+        for key in ("ts", "timestamp", "start", "end", "started_at", "ended_at"):
+            t = _ts(rec.get(key))
+            if t is not None:
+                stamps.append(t)
+        if not _is_agent(rec):
             continue
-        read = transcript_tokens(path.parent / f"agent-{key}.jsonl")
-        if read is not None:
-            agents[key] = max(agents[key], read)
-    return {"tokens": sum(agents.values()), "spawns": len(agents),
-            "unmeasured": sum(1 for v in agents.values() if v == 0),
-            "budget_stop": stop, "deferred": deferred, "queued": queued}
-
-
-def build_report(journals: list[Path], queue_size: int | None, bar: int | None = None) -> dict:
-    """Sum every journal; under_bar needs tokens below the bar, no budget stop and nothing deferred."""
-    folded = [parse_journal(p) for p in journals]
-    bar = whole_backlog_bar() if bar is None else bar
-    total = sum(f["tokens"] for f in folded)
-    stop = any(f["budget_stop"] for f in folded)
-    unmeasured = sum(f["unmeasured"] for f in folded)
-    deferred = folded[-1]["deferred"] if folded else 0
+        slot = agents.setdefault(str(rec.get("agentId") or rec.get("id", f"#{n}")), {"tokens": 0})
+        for key in ("phase", "label", "model"):
+            if rec.get(key):
+                slot[key] = rec[key]
+        slot["tokens"] = max(slot["tokens"], _tokens(rec))
+    for key, slot in agents.items():
+        if Path(key).name == key:
+            read = transcript_tokens(path.parent / f"agent-{key}.jsonl")
+            if read is not None:
+                slot["tokens"] = max(slot["tokens"], read)
+    spawns: dict[str, int] = {p: 0 for p in PHASES}
+    tokens: dict[str, int] = {p: 0 for p in PHASES}
+    labels: dict[str, list[str]] = {}
+    for slot in agents.values():
+        phase = slot.get("phase", "unlabeled")
+        spawns[phase] = spawns.get(phase, 0) + 1
+        tokens[phase] = tokens.get(phase, 0) + slot["tokens"]
+        labels.setdefault(phase, []).append(slot.get("label", ""))
+    wall = round(max(stamps) - min(stamps), 3) if len(stamps) > 1 else None
     return {
-        "schema": SCHEMA,
-        "total_tokens": total,
-        "spawns": sum(f["spawns"] for f in folded),
-        "budget_stop": stop,
-        "deferred": deferred,
-        "queued": sum(f["queued"] for f in folded),
-        "queue_size": queue_size,
-        "runs": len(folded),
-        "bar": bar,
-        "unmeasured_agents": unmeasured,
-        "under_bar": total < bar and not stop and deferred == 0 and unmeasured == 0,
+        "agent_spawns_by_phase": spawns,
+        "tokens_by_phase": tokens,
+        "agent_labels_by_phase": {p: sorted(l) for p, l in sorted(labels.items())},
+        "agent_spawns": len(agents),
+        "unmeasured_agents": sum(1 for s in agents.values() if s["tokens"] == 0),
+        "total_tokens": sum(s["tokens"] for s in agents.values()),
+        "journal_wall_seconds": wall,
     }
 
 
+def emitter_projection(workdir: Path, appetite: str = "standard") -> dict:
+    """The engine emitter's projection for the queue in workdir; emits a script, never fires it."""
+    out = workdir / "scratch" / "bench.workflow.mjs"
+    argv = [sys.executable, str(EMITTER), "--queue", "state/lessons", "--profile", "lessons",
+            "--appetite", appetite, "--repo", str(workdir), "--repo-root", str(workdir),
+            "--out", str(out), "--force"]
+    proc = subprocess.run(argv, capture_output=True, text=True, creationflags=_no_console())
+    start = proc.stdout.find("{\n")
+    if proc.returncode != 0 or start < 0:
+        raise SystemExit(f"emitter refused (rc={proc.returncode}): {(proc.stderr or proc.stdout)[-800:]}")
+    result, _ = json.JSONDecoder().raw_decode(proc.stdout[start:])
+    fan = result.get("fanout") or {}
+    startup = int(fan.get("startupTokensTotal") or 0)
+    row_out = int(fan.get("rowOutputTokensTotal") or 0)
+    receipt: dict = json.loads(Path(result["receipt"]).read_text(encoding="utf-8")) if result.get("receipt") else {}
+    return {
+        "source": "emit-dispatch-workflow --queue state/lessons --profile lessons --appetite " + appetite,
+        "expected_agents": int(fan.get("expectedAgents") or 0),
+        "startup_tokens_total": startup,
+        "row_output_tokens_total": row_out,
+        "projected_tokens": startup + row_out,
+        "admitted_count": receipt.get("admitted_count"),
+        "deferred": receipt.get("deferred"),
+        "admitted_slice_projected_tokens": (receipt.get("budget") or {}).get("projected", {}).get("tokens"),
+    }
+
+
+def run_driver(argv: list[str], cwd: Path) -> dict:
+    """Time one driver invocation; argv is a list, never a shell string."""
+    start = time.perf_counter()
+    proc = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, creationflags=_no_console())
+    return {
+        "driver_argv": argv,
+        "driver_exit_code": proc.returncode,
+        "driver_wall_seconds": round(time.perf_counter() - start, 3),
+        "driver_stdout_tail": proc.stdout[-2000:],
+        "driver_stderr_tail": proc.stderr[-2000:],
+    }
+
+
+def build_report(args: argparse.Namespace, driver_argv: list[str]) -> dict:
+    workdir = Path(args.workdir or Path(args.report).parent / "bench-repo").resolve()
+    workdir.mkdir(parents=True, exist_ok=True)
+    lessons = materialize(workdir, args.count, args.seed)
+    bar = args.budget_tokens or whole_backlog_bar()
+    report: dict = {
+        "schema": SCHEMA, "label": args.label, "workdir": str(workdir),
+        "lesson_count": len(lessons), "phases": list(PHASES), "budget_tokens": bar,
+        "example_studio_observation": dict(EXAMPLE_STUDIO_OBSERVATION),
+    }
+    if args.baseline:
+        report["emitter_projection"] = emitter_projection(workdir, args.appetite)
+        report["total_tokens"] = report["emitter_projection"]["projected_tokens"]
+        report["agent_spawns"] = report["emitter_projection"]["expected_agents"]
+        report["token_source"] = "emitter-projection"
+    if driver_argv:
+        argv = [a.replace("{workdir}", str(workdir)) for a in driver_argv]
+        report.update(run_driver(argv, workdir))
+        report["wall_seconds"] = report["driver_wall_seconds"]
+    if args.journal:
+        journal = parse_journal(Path(args.journal))
+        report.update(journal)
+        report["token_source"] = "journal"
+        report.setdefault("wall_seconds", args.wall_seconds if args.wall_seconds is not None
+                          else journal["journal_wall_seconds"])
+    elif driver_argv:
+        report.update({"agent_spawns_by_phase": {p: 0 for p in PHASES}, "agent_spawns": 0,
+                       "token_source": "driver-by-construction"})
+    elif not (args.baseline or args.materialize_only):
+        raise SystemExit("give --journal, --baseline, a driver argv after `--`, or --materialize-only")
+    if "total_tokens" in report:
+        report["within_bar"] = report["total_tokens"] < bar and not report.get("unmeasured_agents")
+        grind = (report.get("tokens_by_phase") or {}).get("grind")
+        if grind is not None and lessons:
+            report["grind_tokens_per_row"] = round(grind / len(lessons), 1)
+    return report
+
+
 def main(argv: list[str] | None = None) -> int:
+    raw = list(sys.argv[1:] if argv is None else argv)
+    driver_argv: list[str] = []
+    if "--" in raw:
+        cut = raw.index("--")
+        raw, driver_argv = raw[:cut], raw[cut + 1:]
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--queue-size", type=int, help="lessons in the queue being cleared")
-    ap.add_argument("--journal", action="append", required=True, type=Path,
-                    help="run journal; repeat for every run the queue needed")
-    ap.add_argument("--bar", type=int, help="override the ceremony-budget whole_backlog_token_bar")
-    ap.add_argument("--report", type=Path, help="also write the report JSON here")
-    ap.add_argument("--require-bar", action="store_true", help="exit 1 unless under_bar")
-    args = ap.parse_args(argv)
-    report = build_report(args.journal, args.queue_size, args.bar)
-    if args.report:
-        args.report.parent.mkdir(parents=True, exist_ok=True)
-        args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8", newline="\n")
-    print(json.dumps(report))
-    return 1 if args.require_bar and not report["under_bar"] else 0
+    ap.add_argument("--report", required=True, help="bench report JSON output path")
+    ap.add_argument("--workdir", help="scratch repo the fixture is written into (default: <report dir>/bench-repo)")
+    ap.add_argument("--journal", help="Workflow run journal to fold into the report")
+    ap.add_argument("--baseline", action="store_true", help="record the emitter projection for the fixture queue")
+    ap.add_argument("--appetite", default="standard", choices=("hunt", "standard", "sweep"))
+    ap.add_argument("--count", type=int, help="lessons to generate (default 148)")
+    ap.add_argument("--seed", type=int, help="fixture seed")
+    ap.add_argument("--budget-tokens", type=int, help="token bar (default: whole_backlog_token_bar)")
+    ap.add_argument("--wall-seconds", type=float, help="wall seconds when the journal carries no timestamps")
+    ap.add_argument("--label", default="run", help="before | after | free text")
+    ap.add_argument("--materialize-only", action="store_true")
+    ap.add_argument("--enforce", action="store_true", help="exit 3 when total_tokens is not under the bar")
+    args = ap.parse_args(raw)
+    report = build_report(args, driver_argv)
+    out = Path(args.report)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8", newline="\n")
+    print(json.dumps({k: report.get(k) for k in (
+        "label", "wall_seconds", "agent_spawns", "total_tokens", "unmeasured_agents", "within_bar")}))
+    return 3 if args.enforce and report.get("within_bar") is not True else 0
 
 
 if __name__ == "__main__":

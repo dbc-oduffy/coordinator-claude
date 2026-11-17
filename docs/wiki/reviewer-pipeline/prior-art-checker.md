@@ -58,7 +58,7 @@ The ratified `docs/decisions/` DR corpus is first-class prior art, so a plan tha
 The corpus is named by one durable phrase, "the coordinator's accumulated internal doctrine and decision corpus", never by an enumerated list. The guard keys on the phrase's presence at two named sites, not on the absence of the old seed. Do not glob the corpus.
 
 - A snippet edit and the `export-catering-resolution.py` regeneration land in one commit (a hash pin in `test_compose_review_wave.py` fails otherwise).
-- `verify-prior-art-sync.sh` no longer exists. The registry row has `consumers = []` and `delivery = inject`, which supersedes the sync-verifier wording in § Distribution below.
+- `verify-prior-art-sync.sh` does not exist. The registry row has `consumers = []` and `delivery = inject`, which supersedes the sync-verifier wording in § Distribution below.
 
 ## Role in the review pipeline
 

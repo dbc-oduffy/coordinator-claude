@@ -248,7 +248,9 @@ def _check_candidate_pushed(
 ) -> Tuple[Optional[str], Optional[str]]:
     """Predicate 5 — origin/candidate equals the local candidate tip. One
     `for-each-ref` spawn; an absent ref is missing from its output, so
-    absent and lagging both refuse. Returns `(refusal, local_candidate_sha)`;
+    absent and lagging both refuse. A refusal with both refs present adds one
+    `rev-list --left-right --count` spawn to name the remedy (push when ahead,
+    ff-only merge when behind, hand reconcile when diverged). Returns `(refusal, local_candidate_sha)`;
     the sha is the one the post-push remote read is compared against."""
     _bootstrap_engine()
     prefix = "klabauter-promote: predicate 5 (candidate pushed)"
@@ -272,11 +274,32 @@ def _check_candidate_pushed(
     seen = f"origin/{candidate_branch} at {remote_sha[:12]}" if remote_sha else (
         f"origin/{candidate_branch} absent"
     )
-    return (
+    head = (
         f"{prefix} FAILED — candidate unpushed: local '{candidate_branch}' "
         f"{(local_sha or 'unresolved')[:12]} but {seen} in {dest}. Refusing: "
-        f"run `git -C {dest} push origin {candidate_branch}`, then re-run."
-    ), local_sha
+    )
+    push_advice = f"run `git -C {dest} push origin {candidate_branch}`, then re-run."
+    if not (local_sha and remote_sha):
+        return head + push_advice, local_sha
+    counts = _run([
+        "git", "-C", dest, "rev-list", "--left-right", "--count",
+        f"{local_ref}...{remote_ref}",
+    ])
+    parts = (counts.stdout or "").split()
+    if counts.returncode != 0 or len(parts) != 2 or not all(p.isdigit() for p in parts):
+        return head + push_advice, local_sha
+    ahead, behind = int(parts[0]), int(parts[1])
+    if ahead and behind:
+        return (
+            f"{head}local and origin have diverged (ahead {ahead}, behind "
+            f"{behind}); reconcile by hand, then re-run."
+        ), local_sha
+    if behind:
+        return (
+            f"{head}local is behind origin by {behind}; run "
+            f"`git -C {dest} merge --ff-only origin/{candidate_branch}`, then re-run."
+        ), local_sha
+    return head + push_advice, local_sha
 
 
 def _wrong_channel_refusal(dest: str, branch_head: Optional[str], candidate_branch: str) -> str:

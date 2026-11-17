@@ -22,6 +22,7 @@ import os
 import re
 import signal
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -594,14 +595,27 @@ def main(argv=None) -> None:
             say(f"stopped by signal {signum}; mirrors drop until relaunched")
             sys.exit(128 + signum)
         signal.signal(signal.SIGTERM, stopped)
-    _roster().stamp_supervisor(cfg.remote)
+    _roster().stamp_supervisor(cfg.remote, "inbox")
+    try:
+        own_start = _roster().proc_start(os.getpid())
+    except (OSError, subprocess.SubprocessError):
+        own_start = None  # no identity to address: the supervisor runs, but is not stop-requestable
     clients = {}
     try:
         boot_prune(os.path.dirname(os.path.abspath(cfg.log)), live_sessions(skip), say)
         while True:
+            if own_start is not None and _roster().stop_requested(own_start):
+                say("STOPPED-BY-REQUEST")
+                _roster().clear_stop(os.getpid())
+                break
             ensure_router(say)
             sync(clients, live_sessions(skip), cfg, say)
-            time.sleep(POLL_SECONDS)
+            if own_start is None:
+                time.sleep(POLL_SECONDS)
+            elif _roster().wait_or_stop(POLL_SECONDS, own_start):
+                say("STOPPED-BY-REQUEST")
+                _roster().clear_stop(os.getpid())
+                break
     finally:
         pids = {p.pid for _, p in clients.values()}
         pids |= {m["proc"].pid for m in _STATE["mux"].values() if m["proc"] is not None}

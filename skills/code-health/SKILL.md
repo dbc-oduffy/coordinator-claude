@@ -120,7 +120,7 @@ completion entries [date]`, pathspec exactly `state/health-ledger.md` and
 
 ## Grinder defaults
 
-Contract: `coordinator/docs/wiki/grinder-efficiency-defaults.md`; a finding is the row. **script-first triage**: Step 1's completion query, Step 2's frozen diff and Step 4.5's commenting sweep settle scope and lint findings before the reviewer sees a row. **default budget**: one Sonnet `code-reviewer` dispatch per run, the EM's stated cap on the pass. **25/50/75% checkpoints**: the EM reads the reviewer's ledger against those marks of that cap. **scoped commit per green row**: each applied finding commits on its own pathspec; Step 8 carries only the ledger and summary.
+Contract: a finding is the row. **script-first triage**: Step 1's completion query, Step 2's frozen diff and Step 4.5's commenting sweep settle scope and lint findings before the reviewer sees a row. **default budget**: one Sonnet `code-reviewer` dispatch per run, the EM's stated cap on the pass. **25/50/75% checkpoints**: the EM reads the reviewer's ledger against those marks of that cap. **scoped commit per green row**: each applied finding commits on its own pathspec; Step 8 carries only the ledger and summary.
 
 ## Relationship to Other Commands
 

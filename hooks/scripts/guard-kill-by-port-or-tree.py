@@ -40,9 +40,12 @@ _SCRIPT_MAX_BYTES = 262144
 _PREFILTER = re.compile(r"kill|stop-process|spps|fuser|\.(?:sh|bash|ps1|py)\b", re.I)
 _HEREDOC = re.compile(r"<<-?\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?")
 _BODY_RUNS = re.compile(
-    r">>?\s*\S*\.(?:sh|bash|ps1|py)\b|\b(?:bash|sh|zsh|pwsh|powershell|python3?|py|tee)\b", re.I)
+    # The interpreter must stand as a word, not a file extension: "-- guard.py <<EOF" feeds git, not python.
+    r">>?\s*\S*\.(?:sh|bash|ps1|py)\b|(?<![\w./\\-])(?:bash|sh|zsh|pwsh|powershell|python3?|py|tee)\b", re.I)
 _EXEC_BODY = re.compile(
     r"(?:\s-(?:c|command)|\beval|\bcmd(?:\.exe)?\s+/[ck])\s+[\"']?", re.I)
+_PS_BLOCK_COMMENT = re.compile(r"<#.*?#>", re.S)
+_COMMENT_LINE = re.compile(r"^[ \t]*#.*$", re.M)
 _SPLIT = re.compile(r"\r?\n|;|&&|\|\||\||&|\$\(|[(){}`]")
 _ENV = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _WRAP = {"sudo", "env", "nohup", "time", "command", "exec", "xargs", "timeout", "nice", "call",
@@ -150,7 +153,10 @@ def _script_arg(name: str, raw: str, args: list[str]) -> str | None:
 
 def _scan_shell(text: str) -> tuple[str | None, list[str]]:
     """(deny label, script paths the statements run) for shell or PowerShell text."""
-    text = _EXEC_BODY.sub(" ; ", _strip_heredocs(text))
+    # Comments go before the split: it breaks on ( ) and ;, so a "# ... (taskkill /T)" line would
+    # otherwise yield a bare "taskkill /T" statement.
+    text = _COMMENT_LINE.sub("", _PS_BLOCK_COMMENT.sub("", _strip_heredocs(text)))
+    text = _EXEC_BODY.sub(" ; ", text)
     plain = False
     scripts: list[str] = []
     for stmt in _SPLIT.split(text):

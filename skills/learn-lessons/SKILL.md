@@ -14,7 +14,7 @@ metric: did doctrine and queues evolve, not did the file shrink. **Supersedes
 `coordinator:lesson-triage`.** Taxonomy, change-kind apply dispatch, promotion-sprint procedure and
 phase mechanics: wiki.
 
-**Grinder defaults** (`coordinator/docs/wiki/grinder-efficiency-defaults.md`): script-first triage
+**Grinder defaults**: script-first triage
 folds duplicate lessons and closes already-applied ones before an agent sees a lesson; every run
 carries a default budget passed as `budget_tokens`; the EM reads 25/50/75% checkpoints at its next
 turn; each applied lesson lands as a scoped commit per green row.
@@ -66,11 +66,11 @@ reindex).
 
 ## Phase Flow (invocation pointers — mechanics: wiki)
 
-`coordinator_core.learn_lessons_pipeline`'s `brief`/`apply` entrypoints emit the Phase 4.5 cutoff
-derivation and the Phase 8 `COMPLETE` stamp as engine directives — read them from the fired decision
-object, never derive them by hand.
+Central flows: `coordinator_core.learn_lessons_pipeline`'s `apply` entrypoint emits the Phase 8
+`COMPLETE` stamp as an engine directive — read it from the fired decision object, never derive it by
+hand. The local flow reads no engine brief and no roots op.
 
-Discovery roots: `learn-lessons-roots` (machine-registry-derived). **Candidates come from the
+Discovery: the target repo's own `state/lessons`. **Candidates come from the
 changelog-first triage `/distill` runs, never a whole-queue model read:** the weekly changelog,
 then the condensed daily logs for changes flagged impactful; only the batons joined to those
 changes' plans by `deliverable_id` are lifted, each `## What I Learned` bullet a candidate lesson,
@@ -81,16 +81,23 @@ Script first, bounded previews (at most ~10k chars per plan), never a fan-out ov
 One flow per run kind, each `pre-run directives → emit → fire → consume hand-back → post-run
 directive`:
 
-- **local:** script-first, pipeline `coordinator/pipelines/learn-lessons/PIPELINE.md`: (1)
-  `lessons_mechanical.py prepare --repo <target repo>` runs the age-sweep and closes the
-  mechanical dispositions per
-  `coordinator/docs/wiki/lesson-triage/learn-lessons-mechanical-dispositions.md`, with no agent,
-  and writes `prepared.json`; it never calls the engine `brief` or `apply_mechanical` ops.
-  (2) Empty residue: go to the Phase 8 report. Non-empty: fire the `lessons-synth` Workflow over
-  `prepared.json` with `budget_tokens` from `whole_backlog_token_bar`; at most 3 single-turn
-  `coordinator:lesson-synth` calls. (3) `lessons_mechanical.py finalize --repo <target repo>`
-  applies the verdicts; deferred ids wait for a further run. Never write routing records under
-  `state/lessons/`.
+- **local:** `prepare -> triage workflow -> finalize -> bounded grind`; the driver is
+  `coordinator/pipelines/learn-lessons/lessons_mechanical.py`, contract and CLI in
+  `coordinator/pipelines/learn-lessons/PIPELINE.md`, no agent before the triage workflow.
+  (1) `lessons_mechanical.py prepare --repo-root <repo> --run-dir <run_dir>` runs the age-sweep and
+  mechanical dispositions (rows missing a required field are reported `malformed`, never triaged), packs the residue into `<run_dir>/prepared.json`. (2) Fire
+  `Workflow({scriptPath: coordinator/pipelines/learn-lessons/lessons-triage.workflow.js, args:
+  {prepared, budget_tokens}})` with the parsed `prepared.json` and the default budget; save its
+  `synth_results` and `budget_ledger` as `<run_dir>/synth-results.json` and
+  `<run_dir>/budget-ledger.json`. (3) `lessons_mechanical.py finalize --run-dir <run_dir>` applies
+  refute-upheld verdicts and reports `residue_for_grind` and `remaining_budget`. Empty residue: skip
+  the grind, go to the Phase 8 report. Non-empty: emit `emit-dispatch-workflow --queue state/lessons
+  --profile lessons --appetite standard --out <repo scratch dir>/<run>.workflow.mjs --repo
+  <target repo>` over that residue only and fire with the `Workflow({scriptPath, args})` call it
+  prints, never `--fire`, passing `budget_tokens: <remaining_budget>` in args: a hard cap on
+  measured spend, never the default again. Never write routing records under
+  `state/lessons/`; records land under `<run_dir>/records/`. Mechanical rules:
+  `coordinator/docs/wiki/lesson-triage/learn-lessons-mechanical-dispositions.md`.
 - **central route:** drain the outbox, then assert cross-plane emptiness first (a FAIL stops the
   run; the EM repairs the plane split). Emit `--queue state/lessons-outbox --profile lessons-central-route`,
   fire, then the EM writes `pm_decision` per row from the verify verdict (see Hard Rules) and commits. `defer` rows go to `coordinator-queue-append --schema

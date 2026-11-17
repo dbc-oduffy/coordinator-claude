@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Write a deterministic N-lesson queue under a repo's state/lessons for tests and the bench.
 
 The mix is seeded: duplicates, covered rules (verbatim in an index-reachable wiki page the

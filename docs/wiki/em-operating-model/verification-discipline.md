@@ -561,6 +561,7 @@ example type errors on test files under a tsconfig whose `types` excludes `node`
 project's own compile is clean) is a configuration divergence and reports the same errors forever
 on correct code. Read which config the editor resolved for that path; never edit correct code to
 satisfy it.
+
 ## Related
 
 - CLAUDE.md § Verification Before Done — boot-context rules (shipped-on-main, concurrent-sweep verify, smoke-test dispatch).

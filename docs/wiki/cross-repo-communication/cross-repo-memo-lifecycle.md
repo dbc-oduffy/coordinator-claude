@@ -441,6 +441,10 @@ every earlier read is stale by the time you act on it:
   reply, and two contradictory memos can then reach the recipient from the same nominal sender
   with no way to know which one governs. "Is this still mine to answer?" is part of the premise
   check, not a separate step.
+- **Before firing engine-asks from inbox memos**, read each memo's `status:` and fire only `open`
+  ones. `cross-repo/inbox/` also holds actioned-but-unarchived memos, most of all right after
+  merging another box's branch; an ask fired on one re-does finished work at full token cost.
+  Hand-action FYIs; never batch-fire the directory.
 - **Before dispatching a memo in a many-session repo**, check the outbound record you are about to
   send against what has already gone out on this event. Two complementary memos about the same
   thing, sent moments apart by different sessions, still cost the receiver a reconciliation pass
