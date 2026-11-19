@@ -151,6 +151,7 @@ triage_policy: |
   reachable_target:
     - "A wiki-append/wiki-new target must be reachable from a surface an agent traverses (a wiki index, a skill step, a dispatch preamble)."
     - "An orphaned target is linked from its index in the same fix, or the row is rerouted to a linked wiki."
+    - "finalize writes a refute-upheld wiki-new (page, index link, register row) by script; a wiki-new reaching the grind is overturned or unappliable, and its grind_seeds verdict (finalize-report.json) is the verdict a grind row may enter with."
     - "A wiki-new page also gets its classified row in state/audits/2026-09-06-doctrine-rule-class-register.yaml in the same fix; test_doctrine_rule_class_register.py fails on an unregistered wiki file."
 
   scope_routing:

@@ -105,8 +105,9 @@ class Message:
 #: the very start of the token, still followed by a separator. It does not
 #: admit a colon anywhere else in the token (a mid-token colon, or a
 #: trailing prose colon, still fail), so a genuinely malformed alternative
-#: block is no more likely to pass than before.
-_COMMAND_TOKEN_RE = re.compile(r"^(?:[A-Za-z]:[\\/])?[A-Za-z0-9_./\\-]+$")
+#: block is no more likely to pass than before. `~` is admitted because
+#: Windows 8.3 short names (`ODUFFY~1`) appear in TEMP-derived paths.
+_COMMAND_TOKEN_RE = re.compile(r"^(?:[A-Za-z]:[\\/])?[A-Za-z0-9_./\\~-]+$")
 _SHELL_VAR_TOKEN_RE = re.compile(r"^[A-Za-z0-9_./\\${}:=,@%+~-]+$")
 _SENTENCE_END_RE = re.compile(r"[.!?]\s*$")
 #: A comma/semicolon/em-dash, or a colon that is not part of a

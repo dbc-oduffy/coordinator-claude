@@ -123,6 +123,7 @@ def _parse_input(raw: str) -> dict:
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
+from _win_portability import no_console_spawn_kwargs, noninteractive_git_env  # noqa: E402
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
@@ -229,7 +230,8 @@ def _git_toplevel(cwd: str | None) -> str | None:
         # blows past this hook's 15s hooks.json timeout. Same reasoning as
         # the runtime-tripwire-em-check 10->3 fix. (A-F1, P1 C8)
         proc = subprocess.run(  # popup-intentional-last-resort
-            args, capture_output=True, text=True, timeout=2
+            args, capture_output=True, text=True, timeout=2,
+            env=noninteractive_git_env(), **no_console_spawn_kwargs(),
         )
     except Exception:
         return None
@@ -494,6 +496,7 @@ def _routed_persist(plan_content: str, plans_git_root: str) -> dict | None:
             capture_output=True,
             text=True,
             timeout=_PERSIST_CAPTURE_TIMEOUT_S,
+            **no_console_spawn_kwargs(),
         )
     except Exception:
         return None

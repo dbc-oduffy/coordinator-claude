@@ -35,12 +35,12 @@ with its `dispositions[]`, pick, drop none. Don't hand-run what these compute.
 
 **Do NOT load, summarize, or act on any handoff the orient output surfaces** — a `ready-to-fire`
 directive naming one is not implicit selection. When the PM asks for one, read the full file and
-set `HANDOFF_LOADED=true` for Engage (or the PM uses `/pickup`). A markdown in `state/handoffs/`,
+set `HANDOFF_LOADED=true` for Engage (or the PM uses `/pickup`). A markdown in `state/handoffs/YYYY-MM/`,
 `tasks/`, or `archive/` may already be addressed by later commits: verify.
 <!-- engine-gap: field=handoffs.stale_advisory_reconcile producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
 
 **Route-to-baton default:** a memo/finding/triage item inside an active handoff's scope
-(`state/handoffs/*.md`, `status: open|claimed`) gets a dated `## Routed from inbox triage
+(`state/handoffs/YYYY-MM/*.md`, `status: open|claimed`) gets a dated `## Routed from inbox triage
 (<YYYY-MM-DD>)` note, committed with pathspec, then `archive-stamp-cli resolve-memo <memo>
 --decision accepted` with the baton as decision-note, `--realized-by` and `--in-repo-capture` (memo stays open if the capture didn't land). **`tasks/`/`archive/` gitignored?** Warn — must track.
 

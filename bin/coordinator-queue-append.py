@@ -143,7 +143,6 @@ _BOOTSTRAPPED_NAMES = (
     "resolve_checked_repo_root",
     "_MACHINE_LOCAL_IMPL_ENV",
     "_CLAUDE_HOME_ENV",
-    "_CLAUDE_KLABAUTER_ROOT_ENV",
     "_claude_home",
     "_claude_klabauter_root",
     "_claude_klabauter_data_home",
@@ -208,7 +207,7 @@ def _bootstrap_imports() -> None:
         return
     global yaml, _REPO_KEY_ALIASES, _repo_key_to_em_id, _same_path
     global _cc_route, cli_shared, resolve_checked_repo_root
-    global _MACHINE_LOCAL_IMPL_ENV, _CLAUDE_HOME_ENV, _CLAUDE_KLABAUTER_ROOT_ENV
+    global _MACHINE_LOCAL_IMPL_ENV, _CLAUDE_HOME_ENV
     global _claude_home, _claude_klabauter_root, _claude_klabauter_data_home, _machine_local_impl, _resolve_python
     global _machine_local_get, _machine_local_repos_keys, _resolve_from_repo
 
@@ -235,11 +234,6 @@ def _bootstrap_imports() -> None:
     # doc/error-message references in this file don't need a rename.
     _MACHINE_LOCAL_IMPL_ENV = cli_shared.MACHINE_LOCAL_IMPL_ENV
     _CLAUDE_HOME_ENV = cli_shared.CLAUDE_HOME_ENV
-
-    # Env var for CLAUDE_KLABAUTER_ROOT override — mirrors coordinator-claude-klabauter-root.sh §4b
-    # idempotency gate. Set to the claude-klabauter repo root to bypass machine-local resolution.
-    # Spec backlink: pln-stop-the-rot-claude-klabauter-state-home-placement-4cc787 § AC1 / AC13
-    _CLAUDE_KLABAUTER_ROOT_ENV = cli_shared.CLAUDE_KLABAUTER_ROOT_ENV
 
     # _claude_home / _claude_klabauter_root / _machine_local_impl / _resolve_python /
     # _machine_local_get / _machine_local_repos_keys / _current_repo_root: extracted
@@ -448,7 +442,7 @@ _SLUG_MAX_CHARS = 40
 # bin/lib/cli_shared.py (T2-g2a consolidation) — aliased here so existing
 # doc/error-message references in this file don't need a rename. Bound in
 # _bootstrap_imports() (C6d import-motion): _MACHINE_LOCAL_IMPL_ENV,
-# _CLAUDE_HOME_ENV, _CLAUDE_KLABAUTER_ROOT_ENV.
+# _CLAUDE_HOME_ENV.
 _QUEUE_APPEND_OUTPUT_ROOT_ENV = "QUEUE_APPEND_OUTPUT_ROOT"
 
 

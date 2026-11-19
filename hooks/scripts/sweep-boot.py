@@ -157,6 +157,7 @@ from typing import Any, Optional
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
+from _win_portability import no_console_spawn_kwargs, noninteractive_git_env  # noqa: E402
 _FM_LIB_DIR = str(Path(__file__).resolve().parents[2] / "lib")
 if _FM_LIB_DIR not in sys.path:
     sys.path.insert(0, _FM_LIB_DIR)
@@ -194,9 +195,6 @@ except Exception:
         return None
 
 
-# Windows: suppresses the console popup a subprocess.run(...) would otherwise
-# trigger under the headless Claude Code Bash-tool parent. No-op (0) elsewhere.
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 #: Bound on the engine sweep child so a hang cannot block SessionStart.
 _ENGINE_SWEEP_TIMEOUT_S = 60
 
@@ -433,7 +431,8 @@ def _read_current_head(repo_root: str) -> Optional[str]:
             capture_output=True,
             text=True,
             timeout=5.0,
-            creationflags=_NO_WINDOW,
+            env=noninteractive_git_env(),
+            **no_console_spawn_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -496,7 +495,7 @@ def _invoke_regenerator(cmd: list, repo_root: str, timeout: float) -> subprocess
     its own process-group leader on POSIX so `os.killpg` can reach the whole tree; it
     is guarded by `_CAN_KILL_PROCESS_GROUP` because Windows has no equivalent concept
     reachable from here, and this is layered on top of (not a replacement for) the
-    existing `_NO_WINDOW` creationflag handling, which stays untouched.
+    hidden-spawn kwargs from `no_console_spawn_kwargs`, which stay untouched.
 
     `cmd` is passed in fully-formed by the caller (which owns the `sys.executable`
     prefix decision) so this stays a thin, directly-monkeypatchable spawn seam rather
@@ -507,12 +506,11 @@ def _invoke_regenerator(cmd: list, repo_root: str, timeout: float) -> subprocess
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        creationflags=_NO_WINDOW,
     )
     if _CAN_KILL_PROCESS_GROUP:
         popen_kwargs["start_new_session"] = True
 
-    process = subprocess.Popen(cmd, **popen_kwargs)
+    process = subprocess.Popen(cmd, **no_console_spawn_kwargs(), **popen_kwargs)
     try:
         stdout, stderr = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -675,8 +673,8 @@ def _run_boot_sweep(root: Optional[str]) -> None:
     try:
         result = subprocess.run(
             [sys.executable, target] + sys.argv[1:],
-            creationflags=_NO_WINDOW,
             timeout=_ENGINE_SWEEP_TIMEOUT_S,
+            **no_console_spawn_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         print(
@@ -836,7 +834,7 @@ def _reap_sessions(root: Optional[str]) -> None:
             capture_output=True,
             text=True,
             timeout=_SESSION_REAP_TIMEOUT_SECONDS,
-            creationflags=_NO_WINDOW,
+            **no_console_spawn_kwargs(),
         )
     except subprocess.TimeoutExpired:
         print(

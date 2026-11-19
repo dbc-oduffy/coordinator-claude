@@ -133,7 +133,6 @@ _BOOTSTRAPPED_NAMES = (
     "_TARGET_WIKI_PREFIX",
     "_MACHINE_LOCAL_IMPL_ENV",
     "_CLAUDE_HOME_ENV",
-    "_CLAUDE_KLABAUTER_ROOT_ENV",
     "_claude_home",
     "_claude_klabauter_root",
     "_machine_local_impl",
@@ -194,11 +193,6 @@ def _bootstrap_engine() -> None:
 
         # Env var for CLAUDE_HOME override (mirrors cross-repo-memo pattern).
         _CLAUDE_HOME_ENV = cli_shared.CLAUDE_HOME_ENV
-
-        # Env var for CLAUDE_KLABAUTER_ROOT override — mirrors coordinator-claude-klabauter-root.sh §4b
-        # idempotency gate. Set to the claude-klabauter repo root to bypass machine-local resolution.
-        # Spec backlink: pln-stop-the-rot-claude-klabauter-state-home-placement-4cc787 § AC1 / AC13
-        _CLAUDE_KLABAUTER_ROOT_ENV = cli_shared.CLAUDE_KLABAUTER_ROOT_ENV
 
         _claude_home = cli_shared.claude_home
         _claude_klabauter_root = cli_shared.claude_klabauter_root

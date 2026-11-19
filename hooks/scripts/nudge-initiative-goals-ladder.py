@@ -46,11 +46,13 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
+from _win_portability import (  # noqa: E402
+    no_console_spawn_kwargs,
+    noninteractive_git_env,
+)
 try:
     from _engine_root import (  # noqa: E402
         resolve_claude_klabauter_root as _resolve_claude_klabauter_root,
@@ -133,7 +135,8 @@ def _git_toplevel(cwd: str) -> str:
             capture_output=True,
             text=True,
             timeout=2.0,
-            creationflags=_NO_WINDOW,
+            env=noninteractive_git_env(),
+            **no_console_spawn_kwargs(),
         )
     except Exception:
         return ""

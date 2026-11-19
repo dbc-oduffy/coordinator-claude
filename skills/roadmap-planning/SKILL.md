@@ -90,7 +90,7 @@ MERGE-target cluster owes retirement at Phase 2 close.
 
 Bins below resolve per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (Shape W on PowerShell, the POSIX form otherwise).
 
-2.1. Scaffold each stub: `coordinator-doc-new --type roadmap-baton --title "<title>" --roadmap-id <run-id> --stub-id <slug>-<N> --out state/handoffs/<date>_<HHMMSS>_roadmap-<slug>-<N>.md`;
+2.1. Scaffold each stub: `coordinator-doc-new --type roadmap-baton --title "<title>" --roadmap-id <run-id> --stub-id <slug>-<N> --out state/handoffs/YYYY-MM/<date>_<HHMMSS>_roadmap-<slug>-<N>.md`;
    then mint the id (`bin/mint-deliverable-id --stub-id "<slug>-<N>"` → `deliverable_id:`), fill the rest
    from 2.1.5's output. **Read `residue/stub-frontmatter-schema-and-field-notes.md` first.**
 

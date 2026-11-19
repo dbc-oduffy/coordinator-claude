@@ -1,6 +1,6 @@
 """check-provisional-expiry.py — outstanding provisional-decision detector.
 
-Purpose: scans docs/plans/*.md frontmatter for a `provisional_until:` /
+Purpose: scans docs/plans/*.md and docs/plans/<YYYY-MM>/*.md frontmatter for a `provisional_until:` /
 `revisit_by:` date (see coordinator/schemas/plan.schema.json and
 coordinator/docs/wiki/doctrine-authoring/provisional-decision-expiry.md) and surfaces any whose
 date has passed while the owning plan is still in a non-terminal `status:`.
@@ -36,12 +36,14 @@ Spec backlink: docs/plans/2026-07-26-push-side-write-discipline.md § D1b
 from __future__ import annotations
 
 import datetime
-import glob
 import os
+import re
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from frontmatter_scan import read_text, scan_frontmatter  # noqa: E402
+from output_tree_layout import iter_tree_entries, trees  # noqa: E402
 
 # Question answered (C8b, 2026-07-27, plan-line-item-resolution-model): "is
 # this plan no longer actively being executed, so an expired
@@ -65,7 +67,7 @@ from frontmatter_scan import read_text, scan_frontmatter  # noqa: E402
 # instead of regex-matching the old literal name — the rename no longer
 # silently breaks that test's parity check. See that test module's docstring
 # (AC-doe-2) for the loader approach.
-_NOT_ACTIVELY_EXECUTING_STATUSES = {"implemented", "deferred", "abandoned", "superseded"}
+_NOT_ACTIVELY_EXECUTING_STATUSES = {"implemented", "closed", "deferred", "abandoned", "superseded"}
 
 _FRONTMATTER_KEYS = ("status", "provisional_until", "revisit_by")
 
@@ -125,6 +127,23 @@ def find_expired(paths, today: datetime.date | None = None):
     return expired
 
 
+def _directory_plans(target: str) -> list[str]:
+    """Return the *.md plans at `target` and in each `<YYYY-MM>/` shard under it.
+
+    A directory that is a LAYOUT tree (e.g. `<repo>/docs/plans`) enumerates through
+    iter_tree_entries; any other directory gets the same root-plus-shards scan.
+    """
+    norm = os.path.abspath(target).replace(os.sep, "/")
+    for tree in trees():
+        if norm.endswith("/" + tree):
+            repo_root = norm[: -len(tree) - 1]
+            return [str(p) for p in iter_tree_entries(repo_root, tree, "*.md")]
+    base = Path(target)
+    shard = "[0-9][0-9][0-9][0-9]-[0-9][0-9]"
+    out = [str(p) for pat in ("*.md", f"{shard}/*.md") for p in base.glob(pat) if p.is_file()]
+    return sorted(out)
+
+
 def _resolve_targets(argv):
     # No argv-less cwd-relative default: a silent empty-glob no-op on the
     # wrong cwd would be indistinguishable from "nothing expired", which
@@ -133,7 +152,7 @@ def _resolve_targets(argv):
         raise ValueError("no target path given (expected a file or directory argument)")
     target = argv[0]
     if os.path.isdir(target):
-        return sorted(glob.glob(os.path.join(target, "*.md")))
+        return _directory_plans(target)
     return [target]
 
 

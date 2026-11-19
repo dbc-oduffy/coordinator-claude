@@ -5,6 +5,9 @@ commit whose STAGED blobs add a concrete machine path (drive letter, POSIX
 home, UNC) that the shared detector flags and no carve-out or
 `abs-path-ok: <reason>` marker covers.
 
+On a merge (MERGE_HEAD present) the merged-in parents' blobs join HEAD as the
+baseline, so a citation already landed on any parent is never re-flagged.
+
 Detect-only. Reads the HEAD and index blobs of every added/copied/modified
 file and reports only the citations the commit INTRODUCES
 (`new_violations`), so a pre-existing citation in an untouched line never
@@ -80,6 +83,25 @@ def _read_blobs(cwd: str, specs: list) -> dict:
     return result
 
 
+def _merge_parents(cwd: str) -> list:
+    """Merged-in parent shas from MERGE_HEAD (no git spawn); empty off a merge."""
+    dot_git = Path(cwd) / ".git"
+    try:
+        if dot_git.is_file():
+            text = dot_git.read_text(encoding="utf-8", errors="replace").strip()
+            if not text.startswith("gitdir:"):
+                return []
+            gitdir = Path(text[len("gitdir:"):].strip())
+            if not gitdir.is_absolute():
+                gitdir = Path(cwd) / gitdir
+        else:
+            gitdir = dot_git
+        head = (gitdir / "MERGE_HEAD").read_text(encoding="ascii", errors="replace")
+    except OSError:
+        return []
+    return [s for s in head.split() if len(s) >= 40]
+
+
 def _text(blob) -> str:
     if blob is None or len(blob) > _MAX_BLOB_BYTES or b"\0" in blob:
         return ""
@@ -107,7 +129,9 @@ def main() -> int:
     paths = [p for p in paths if p != CARVE_OUTS_FILENAME]
     if not paths:
         return 0
+    parents = _merge_parents(cwd)
     specs = [f"HEAD:{p}" for p in paths] + [f":{p}" for p in paths]
+    specs += [f"{sha}:{p}" for sha in parents for p in paths]
     blobs = _read_blobs(cwd, specs)
     carve_outs = load_carve_outs(Path(cwd))
 
@@ -117,7 +141,8 @@ def main() -> int:
         after = _text(blobs.get(f":{rel}"))
         if not any(m in after for m in _CHEAP_MARKERS):
             continue
-        before = _text(blobs.get(f"HEAD:{rel}"))
+        baseline = [f"HEAD:{rel}"] + [f"{sha}:{rel}" for sha in parents]
+        before = "\n".join(_text(blobs.get(spec)) for spec in baseline)
         found = new_violations(before, after, rel, carve_outs)
         if found:
             hit_files.append(rel)

@@ -41,8 +41,8 @@ Work its output top to bottom ([computed-skills](../../docs/wiki/skills-corpus/c
 - **Stop the session's own watchers — MANDATORY.** `coordinator-invoke workstream_complete.stand_down_watchers '{"session_id":"<sid>"}'` stops this session's, never a peer's. Render `stopped` (name each), each `survivors` entry as **not verified**, `expires_on_its_own` (`notify_when_idle`, no action), and every `unattributed` entry and `warnings` line. A Group EM holder relays the returned `notice`. `A-CLOSED-SESSION-LEAVES-NO-WATCHER-RUNNING`.
 - **Terminal-baton drain — MANDATORY, and the last thing this ceremony does.**
   1. Hand-stamp `deployment_state`/`shipped_in` on **only** the two batons § Apply's carve-out omits from the payload; **never re-stamp one the payload already stamped.**
-  2. **After** `apply`'s disposal read, run `sweep-terminal-handoffs`.
-  3. **Close condition: `state/handoffs/` holds no record carrying a terminal `deployment_state`** (`shipped`/`continued`/`closed`) **when this ceremony reports complete.**
+  2. **After** `apply`'s disposal read, run `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/sweep-terminal-handoffs"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\sweep-terminal-handoffs.exe"`). Terminal batons land at `archive/handoffs/YYYY-MM/<file>.md`, month keyed on the filename's leading date, never the stamp date.
+  3. **Close condition: `state/handoffs/` holds no record carrying a terminal `deployment_state`** (`shipped`/`continued`/`closed`) **when this ceremony reports complete.** Live batons sit only at `state/handoffs/YYYY-MM/<file>.md`.
      <!-- enum-prose: schema=handoff field=deployment_state omit=awaiting_gate,ready_to_fire,in_flight -->
 
   `[[terminal-batons-are-swept-at-close-not-left-to-the-next-ceremony]]`

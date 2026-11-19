@@ -1,21 +1,31 @@
 # coordinator-claude — Agent Entry Point
 
-> **You are an AI agent reading this file.** A human pointed you at this repo. Your job is to install the coordinator-claude plugin into their Claude Code environment — not just run a script, but follow the full playbook so the install is verified and the post-restart continuation is staged correctly.
+> **You are an AI agent reading this file.** A human pointed you at this repo. Your job is to install the coordinator-claude plugin into their agent environment — not just run a script, but follow the full playbook so the install is verified and the post-restart continuation is staged correctly.
 >
 > **This is a two-leg install, and both legs are yours.** coordinator-claude is the doctrine; the coordinator engine (`claude-klabauter`) is a **hard co-requisite** that most state-mutating flows fail without. Leg 2 is described in [§ Leg 2: the engine](#leg-2-the-engine-a-hard-co-requisite) below. An install that stops after leg 1 is incomplete — do not report it as done.
 
 ## Start here: the install playbook
 
-Read and follow **`INSTALL.md`** — the root sibling of this file — that is the authoritative,
-step-by-step playbook written for you.
+Read **`INSTALL.md`** — the root sibling of this file — then follow the per-agent playbook it
+links for the agent type you are. The route is by agent type; do not run another agent's commands.
 
-It tells you:
+| You are | Follow |
+|---|---|
+| Claude Code | [`install/claude-code.md`](install/claude-code.md) |
+| Codex | [`install/codex.md`](install/codex.md) |
+| agy (Gemini / Antigravity) | [`install/agy.md`](install/agy.md) |
+| Grok | [`install/grok.md`](install/grok.md) |
+
+The native `claude plugin` CLI path (`claude plugin marketplace add dbc-oduffy/coordinator-claude` +
+`claude plugin install coordinator@coordinator-claude`) is the Claude Code route only; it lives in
+`install/claude-code.md`, not here.
+
+The playbook for your agent type tells you:
 - What you are installing and why the order of steps matters
-- The recommended path — the native `claude plugin` CLI (`claude plugin marketplace add dbc-oduffy/coordinator-claude` + `claude plugin install coordinator@coordinator-claude`, registering the public GitHub repo so the install is self-contained under `~/.claude`) — and what it does
 - How to validate the result
-- What to tell the user before they restart Claude Code
-- The one command to run after the restart — `/coordinator:install` in a fresh session (it finishes the environment wiring; no `/pickup` baton)
-- Step 4 — installing the required engine, `claude-klabauter`, from its own public repo, **after** the restart and `/coordinator:setup`, never before
+- What to tell the user before they restart
+- The command to run after the restart, if your agent type has one (Claude Code: `/coordinator:install` in a fresh session)
+- The engine step — installing the required engine, `claude-klabauter`, from its own public repo, **after** the restart and setup, never before
 
 ## Why this file exists
 
@@ -25,7 +35,7 @@ It tells you:
 
 - Do not improvise the install steps from memory or inference — the playbook handles platform-specific traps (path translation, JSON-merge edge cases, the Windows Python App Execution Alias stub) that you will get wrong without it.
 - Do not skip the validation pass after install — an install that looks done but isn't validated will fail silently at SessionStart hooks.
-- Do not skip the restart — plugin/marketplace registration and the Agent Teams env var need a fresh session. The post-restart step is `/coordinator:install` (it finishes the environment wiring and records its own completion receipt — there is no `/pickup` baton in the CLI-install flow).
+- Do not skip the restart your agent's playbook names — registration needs a fresh session. For Claude Code the post-restart step is `/coordinator:install`; other agents follow their own `install/<agent>.md`.
 - Do not skip leg 2, and do not present leg 1 alone as the whole job — see below.
 
 ## Leg 2: the engine (a hard co-requisite)

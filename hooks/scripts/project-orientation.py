@@ -140,7 +140,9 @@ def _pending_handoffs(state_root) -> list[str]:
     return [str(p) for p in iter_tree_entries(Path(state_root).parent, "state/handoffs", "*.md")]
 
 
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+if _SCRIPTS_DIR_STR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR_STR)
+from _win_portability import no_console_spawn_kwargs, noninteractive_git_env  # noqa: E402
 
 
 def _run(cmd: list, cwd: Optional[Path] = None, timeout: float = 5.0) -> subprocess.CompletedProcess:
@@ -158,7 +160,8 @@ def _run(cmd: list, cwd: Optional[Path] = None, timeout: float = 5.0) -> subproc
             capture_output=True,
             text=True,
             timeout=timeout,
-            creationflags=_NO_WINDOW,
+            env=noninteractive_git_env(),
+            **no_console_spawn_kwargs(),
         )
     except Exception:
         return subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr="")

@@ -243,11 +243,34 @@ def worker_pointer(env=None):
     return WORKER_POINTER if str(env.get(worker_env_name(), "")).strip() else None
 
 
-def run(payload, peers_file=None, registry_dir=None):
+def allocate_engine_address(payload, engine_root) -> None:
+    """Run the published engine's registration for a root thread so its address exists before publishing.
+
+    Idempotent: a thread with a retained address keeps it. Never raises; the reader then reports
+    the thread unbound as before. Subagent starts and a missing/unstamped engine do nothing.
+    """
+    try:
+        root = Path(engine_root)
+        if payload.get("agent_id") or not root.is_absolute():
+            return
+        if not (root / "coordinator_core" / "_engine_stamp").read_bytes():
+            return
+        if str(root) not in sys.path:
+            sys.path.insert(0, str(root))
+        from coordinator_core.session import external_registry
+        external_registry.register_current({**payload, "hook_event_name": "SessionStart"})
+    except Exception:  # a hook must never break the session
+        pass
+
+
+def run(payload, peers_file=None, registry_dir=None, engine_root=None) -> "dict | None":
     """Register the payload's thread; return the hook's stdout object, or None when nothing applies.
 
     A set worker env marker adds the doctrine pointer as hookSpecificOutput.additionalContext.
+    With engine_root the engine allocates the thread's address first, so publishing is never unbound.
     """
+    if engine_root and isinstance(payload, dict):
+        allocate_engine_address(payload, engine_root)
     out = _register(payload, peers_file, registry_dir)
     pointer = worker_pointer()
     if pointer:
@@ -284,7 +307,9 @@ def _register(payload, peers_file=None, registry_dir=None):
 def main() -> int:
     try:
         payload = json.load(sys.stdin)
-        out = run(payload) if isinstance(payload, dict) else None
+        argv = sys.argv[1:]
+        root = argv[argv.index("--engine-root") + 1] if "--engine-root" in argv[:-1] else None
+        out = run(payload, engine_root=root) if isinstance(payload, dict) else None
         if out:
             print(json.dumps(out))
     except Exception as exc:  # a hook must never break the session

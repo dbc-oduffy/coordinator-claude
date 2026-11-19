@@ -167,7 +167,6 @@ import contextlib
 import faulthandler
 import io
 import json
-import locale
 import os
 import re
 import shutil
@@ -365,8 +364,11 @@ def _spooled_run(
     `subprocess.TimeoutExpired` with the output captured so far; `text` selects str over bytes.
     """
     kwargs.setdefault("creationflags", getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    if text and isinstance(kwargs.get("input"), str):
-        kwargs["input"] = kwargs["input"].encode(locale.getpreferredencoding(False))
+    if text:
+        # Python children emit UTF-8 whatever the console codepage; every text decode here is UTF-8.
+        kwargs["env"] = {**(kwargs.get("env") or os.environ), "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
+        if isinstance(kwargs.get("input"), str):
+            kwargs["input"] = kwargs["input"].encode("utf-8")
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
         def _spooled() -> Tuple[Any, Any]:
             out.seek(0)
@@ -374,8 +376,7 @@ def _spooled_run(
             raw = (out.read(), err.read())
             if not text:
                 return raw
-            enc = locale.getpreferredencoding(False)
-            return tuple(b.decode(enc, "replace").replace("\r\n", "\n") for b in raw)
+            return tuple(b.decode("utf-8", "replace").replace("\r\n", "\n") for b in raw)
 
         try:
             done = subprocess.run(cmd, stdout=out, stderr=err, timeout=timeout, **kwargs)
@@ -397,10 +398,19 @@ def _resolve_clone_sha(repo_root: Path, source_ref: Optional[str]) -> str:
     """The commit the round's code runs from: `source_ref`, else HEAD. A ref this repo does not
     hold falls back to HEAD (the round's own preflight still judges the ref against its source).
     Raises RuntimeError when HEAD itself does not resolve."""
-    for ref in ([source_ref] if source_ref else []) + ["HEAD"]:
-        rev = _git_bytes(repo_root, "rev-parse", "--verify", f"{ref}^{{commit}}")
-        if rev.returncode == 0:
-            return rev.stdout.decode().strip()
+    refs = [r for r in ([source_ref] if source_ref else []) if "\n" not in r and "\r" not in r] + ["HEAD"]
+    # One `cat-file --batch-check` answers every ref, in order; a missing ref prints `<name> missing`.
+    done = _spooled_run(
+        ["git", "-C", str(repo_root), "cat-file", "--batch-check=%(objecttype) %(objectname)"],
+        timeout=None,
+        text=False,
+        input="".join(f"{ref}^{{commit}}\n" for ref in refs).encode("utf-8"),
+    )
+    if done.returncode == 0:
+        for line in done.stdout.decode("utf-8", "replace").splitlines():
+            kind, _, sha = line.partition(" ")
+            if kind == "commit" and sha:
+                return sha.strip()
     raise RuntimeError("HEAD does not resolve to a commit")
 
 
@@ -2743,6 +2753,10 @@ _REFUSED_LABEL_RE = re.compile(r"^\s*\[timing\]\s+(.+?):\s+(REFUSED:.+?):\s+[\d.
 # publish.py `_main`'s own refusal prefix; the line is returned whole (never truncated) because
 # it names the dirty paths and the remedy.
 _PUBLISH_REFUSAL_RE = re.compile(r"^\s*publish: refused --\s")
+# A publish gate's own refusal (`... gate FAILED for <target>: ...`) outranks every other Error line.
+_GATE_REFUSAL_RE = re.compile(r"\bgate FAILED\b")
+# Interpreter startup chatter, never a row's cause; reported only when nothing else matched.
+_INTERPRETER_NOISE_RE = re.compile(r"^\s*Error in (?:sitecustomize|usercustomize)\b", re.IGNORECASE)
 _CAUSE_MAX_CHARS = 300
 
 
@@ -2762,16 +2776,25 @@ def _extract_failure_cause(stdout: str, stderr: str) -> Optional[str]:
         for line in text.splitlines():
             if _PUBLISH_REFUSAL_RE.match(line):
                 return line.strip()
+    first_error = noise = None
     for text in (stderr, stdout):
         for line in text.splitlines():
-            if _CAUSE_LINE_RE.match(line):
+            if not _CAUSE_LINE_RE.match(line):
+                continue
+            if _GATE_REFUSAL_RE.search(line):
                 return line.strip()[:_CAUSE_MAX_CHARS]
+            if _INTERPRETER_NOISE_RE.match(line):
+                noise = noise or line
+            else:
+                first_error = first_error or line
+    if first_error:
+        return first_error.strip()[:_CAUSE_MAX_CHARS]
     for text in (stdout, stderr):
         for line in text.splitlines():
             match = _REFUSED_LABEL_RE.match(line)
             if match:
                 return f"{match.group(1)}: {match.group(2)}"[:_CAUSE_MAX_CHARS]
-    return None
+    return noise.strip()[:_CAUSE_MAX_CHARS] if noise else None
 
 
 def _print_step_failure(step: str, cmd: List[str], stderr: str) -> None:
@@ -3433,6 +3456,26 @@ def _confirm_round_slot(slot: _RoundSlot) -> bool:
 # Main sequence
 # ---------------------------------------------------------------------------
 
+_DRIVER_PROGRESS_WRITER = "percolate-round"
+
+
+def _write_driver_progress(path: Path, record: Dict[str, Any], *, only_if_driver_owned: bool = False) -> None:
+    """Write the driver's own `--progress-file` record; a record the publish child wrote is never overwritten.
+
+    Best-effort: a progress sidecar failure never fails the round.
+    """
+    try:
+        if only_if_driver_owned and path.exists():
+            existing = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(existing, dict) or existing.get("writer") != _DRIVER_PROGRESS_WRITER:
+                return
+        path.write_text(
+            json.dumps({"writer": _DRIVER_PROGRESS_WRITER, **record}), encoding="utf-8", newline="\n"
+        )
+    except (OSError, ValueError):
+        return
+
+
 def _cmd_round_default(
     args: argparse.Namespace,
     target: str,
@@ -3548,7 +3591,17 @@ def _cmd_round_default(
                 "releases on process death); do not delete it.",
                 flush=True,
             )
-            real = _run(real_cmd, timeout=_PUBLISH_LEG_TIMEOUT_SECS, env=real_env)
+            _write_driver_progress(progress_path, {"phase": "publish-running", "driver_pid": _os.getpid()})
+            try:
+                real = _run(real_cmd, timeout=_PUBLISH_LEG_TIMEOUT_SECS, env=real_env)
+            except BaseException as exc:
+                _write_driver_progress(
+                    progress_path, {"phase": "publish-failed", "error": type(exc).__name__}, only_if_driver_owned=True
+                )
+                raise
+            _write_driver_progress(
+                progress_path, {"phase": "publish-finished", "returncode": real.returncode}, only_if_driver_owned=True
+            )
             print(real.stdout)
             _real_row_failure_text = (
                 "Rows FAILED:" in real.stderr or "STATUS: PARTIAL" in real.stderr
@@ -4236,9 +4289,17 @@ def _field7_preflight(target: str, source_ref: str = "") -> Optional[str]:
     """Refusal text when the field-7 declaration validator is red for a round
     that publishes a generator-owned row, else None. Judged at the source
     repo's HEAD, the commit the round ships; an unknown owned set refuses.
-    Memoised by publish.py, so the generator runs once per process."""
+    Memoised by publish.py, so the generator runs once per process.
+
+    The validator reads this repo's declarations, so it is judged at a commit of this repo: `source_ref`
+    when it resolves here, else HEAD. A ref naming a commit of the target's source repo never pins it."""
     publish = _sibling_cli(_PUBLISH)
-    publish._source_ref_override = source_ref
+    publish._source_ref_override = ""
+    if source_ref:
+        try:
+            publish._source_ref_override = publish._resolve_round_commit(_live_repo_root(), source_ref)
+        except RuntimeError:
+            pass
     try:
         pinned = publish._round_pin_source_sha(_live_repo_root(), {})
     except Exception:  # an unresolvable HEAD falls back to the checkout; the validator still judges it
@@ -4646,7 +4707,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # destination lock; static tracing found no unbounded wait. A healthy round
     # finishes well inside this window, so a dump here names the blocked frame
     # the next time it recurs instead of leaving a silent lock-holder.
-    faulthandler.dump_traceback_later(_HANG_DUMP_SECONDS, repeat=True)
+    faulthandler.dump_traceback_later(_HANG_DUMP_SECONDS, repeat=False)
     return args.func(args)
 
 

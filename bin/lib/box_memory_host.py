@@ -183,7 +183,9 @@ def _host_sampler(repo_root: Path | None = None) -> types.ModuleType:
     """Import `coordinator_core.telemetry.host_sampler`, falling back to this checkout's root.
 
     A bare system interpreter has no installed coordinator_core; the checkout root (resolved from
-    this file) is tried before giving up. Raises OSError naming the missing module.
+    this file) is tried before giving up. An ambient coordinator_core lacking `telemetry` stays
+    cached in `sys.modules` after the first miss and shadows the checkout, so the miss evicts it
+    before the retry (restored if the retry fails too). Raises OSError naming the missing module.
     """
     name = "coordinator_core.telemetry.host_sampler"
     try:
@@ -193,9 +195,17 @@ def _host_sampler(repo_root: Path | None = None) -> types.ModuleType:
     root = repo_root if repo_root is not None else Path(__file__).resolve().parents[3]
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
+    evicted: dict[str, types.ModuleType] = {}
+    if (root / "coordinator_core").is_dir():
+        for mod in [m for m in sys.modules if m == "coordinator_core" or m.startswith("coordinator_core.")]:
+            evicted[mod] = sys.modules.pop(mod)
+    importlib.invalidate_caches()
     try:
         return importlib.import_module(name)
     except ModuleNotFoundError as exc:
+        for mod in [m for m in sys.modules if m == "coordinator_core" or m.startswith("coordinator_core.")]:
+            del sys.modules[mod]
+        sys.modules.update(evicted)
         raise OSError(f"cannot import {name} (missing module {exc.name!r}; looked in {root})") from exc
 
 

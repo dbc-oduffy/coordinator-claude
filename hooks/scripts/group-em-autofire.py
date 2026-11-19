@@ -424,11 +424,12 @@ def _spawn_box_specs_refresher() -> None:
     script = Path(__file__).resolve().parents[2] / "bin" / "group-em-box-specs-refresh.py"
     if not script.is_file():
         return
-    flags = 0
+    from _win_portability import no_console_spawn_kwargs
+
+    spawn_kwargs = no_console_spawn_kwargs()
     if sys.platform == "win32":
-        flags = (
-            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        spawn_kwargs["creationflags"] = spawn_kwargs.get("creationflags", 0) | getattr(
+            subprocess, "CREATE_NEW_PROCESS_GROUP", 0
         )
     subprocess.Popen(
         [sys.executable, str(script)],
@@ -437,7 +438,7 @@ def _spawn_box_specs_refresher() -> None:
         stderr=subprocess.DEVNULL,
         close_fds=True,
         start_new_session=sys.platform != "win32",
-        creationflags=flags,
+        **spawn_kwargs,
     )
 
 

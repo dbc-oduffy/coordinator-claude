@@ -148,6 +148,10 @@ _LIB_DIR = str(Path(__file__).resolve().parents[2] / "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
+from _win_portability import (  # noqa: E402
+    no_console_spawn_kwargs,
+    noninteractive_git_env,
+)
 from _claude_md_ledger import (  # noqa: E402
     GOVERNED_AUTHORING_SURFACES,
     admission_check_for_surface,
@@ -215,11 +219,6 @@ _ACCUMULATOR_KEY_BY_SCOPE = {
 }
 
 
-#: git.exe is a console-subsystem child on Windows and is not exempt from
-#: the pop-window discipline even under redirected capture_output.
-_NO_CONSOLE_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
-
 #: A hung git (index lock, network FS) must not hang the commit.
 _GIT_TIMEOUT_S = 30
 
@@ -230,7 +229,8 @@ def _run_git(args: "list[str]") -> str:
         cwd=str(REPO_ROOT),
         capture_output=True,
         check=True,
-        creationflags=_NO_CONSOLE_WINDOW,
+        env=noninteractive_git_env(),
+        **no_console_spawn_kwargs(),
         timeout=_GIT_TIMEOUT_S,
     )
     return result.stdout.decode("utf-8", errors="replace")
@@ -243,7 +243,8 @@ def _blob_size(oid: str) -> int:
         ["git", "cat-file", "-s", oid],
         cwd=str(REPO_ROOT),
         capture_output=True,
-        creationflags=_NO_CONSOLE_WINDOW,
+        env=noninteractive_git_env(),
+        **no_console_spawn_kwargs(),
         timeout=_GIT_TIMEOUT_S,
     )
     if result.returncode != 0:
@@ -274,7 +275,8 @@ def _blob_sizes_batch(oids: "set[str]") -> "dict[str, int]":
         input="\n".join(real_oids) + "\n",
         capture_output=True,
         text=True,
-        creationflags=_NO_CONSOLE_WINDOW,
+        env=noninteractive_git_env(),
+        **no_console_spawn_kwargs(),
         timeout=_GIT_TIMEOUT_S,
     )
     for line in result.stdout.splitlines():
@@ -347,7 +349,8 @@ def _cat_file_content(oid: str) -> bytes:
         ["git", "cat-file", "-p", oid],
         cwd=str(REPO_ROOT),
         capture_output=True,
-        creationflags=_NO_CONSOLE_WINDOW,
+        env=noninteractive_git_env(),
+        **no_console_spawn_kwargs(),
         timeout=_GIT_TIMEOUT_S,
     )
     if result.returncode != 0:
@@ -373,7 +376,8 @@ def _cat_file_contents_batch(oids: "set[str]") -> "dict[str, bytes]":
         cwd=str(REPO_ROOT),
         input=("\n".join(real_oids) + "\n").encode("utf-8"),
         capture_output=True,
-        creationflags=_NO_CONSOLE_WINDOW,
+        env=noninteractive_git_env(),
+        **no_console_spawn_kwargs(),
         timeout=_GIT_TIMEOUT_S,
     )
     data = result.stdout

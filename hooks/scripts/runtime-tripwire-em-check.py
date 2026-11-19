@@ -213,6 +213,7 @@ _TIMING_LOG_NAME = "hook-timings.log"
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
+from _win_portability import no_console_spawn_kwargs, noninteractive_git_env  # noqa: E402
 try:
     # Fail-open: a deploy missing its sibling _git_common_dir.py must still fail
     # open (empty common dir -> callers skip) rather than crash on import.
@@ -552,7 +553,8 @@ def _unpushed_commit_count(git_root: str, session_id: str | None = None) -> int 
             capture_output=True,
             text=True,
             timeout=3,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            env=noninteractive_git_env(),
+            **no_console_spawn_kwargs(),
         )
         if result.returncode != 0:
             return None
@@ -584,7 +586,8 @@ def _own_session_unpushed_commit_count(git_root: str, session_id: str) -> int | 
             capture_output=True,
             text=True,
             timeout=3,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            env=noninteractive_git_env(),
+            **no_console_spawn_kwargs(),
         )
         if result.returncode != 0:
             return None

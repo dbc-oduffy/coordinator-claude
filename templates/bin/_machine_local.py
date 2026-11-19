@@ -38,6 +38,8 @@ tripping the version guard, and rc=1 was read as "key absent"). Codes:
   0  — success (value found / has: present)
   1  — clean absence (get: key not found; has: key not set)
   2  — operational failure (Python < 3.11 version guard, malformed TOML)
+  3  — require: key not set; a typed refusal, never a fallback
+  4  — timeout: a read or child outlived the deadline; never an absence
 The write commands (set / array-*) have no "absent" concept; they keep the
 simpler 0 = success / non-zero = refused-or-failed convention.
 
@@ -47,37 +49,38 @@ Negative-spec: no regex fallback, no PyYAML, no tomli — stdlib tomllib only.
 Negative-spec: reader is read-only for GET path; bare SET writes only registry.local.toml
               (or registry.toml with --global) and never touches concern files — UNLESS
               --concern <name> is passed, the explicit concern-file write path
-              (cmd_set_concern: per-key [provenance.<key>], type-AND-table-preserving
-              read-merge-write into <name>.local.toml). The registry path and the concern
+              (cmd_set_concern: edits only the key's line and its [provenance.<key>] in
+              <name>.local.toml; a co-writer's tables stay byte-identical). The registry path and the concern
               path are disjoint: bare set still refuses concern-namespace keys.
 
 All consumers — including the ergonomic wrapper ``claude_machine_local.py`` —
 shell out to the ``machine-local`` CLI. Direct in-process import is the
-dual-identity anti-pattern (docs/wiki/skills-corpus/dual-identity-module-hazard.md and
-docs/wiki/hook-best-practices/machine-local-registry.md §8(a)); shell-out is the only contract.
+dual-identity anti-pattern (coordinator-content-repo coordinator/docs/wiki/skills-corpus/dual-identity-module-hazard.md and
+Coordinator-content-repo coordinator/docs/wiki/hook-best-practices/machine-local-registry.md §8(a)); shell-out is the only contract.
 """
 
 from __future__ import annotations
 
 import sys
 import os
-import time
 import contextlib
 import json
 import argparse
 import re
+import stat
 import subprocess
 import datetime
 import difflib
-from collections.abc import Iterator
+import threading
+import time
+from collections.abc import Generator
 from pathlib import Path
 
-# Read-path exit-code contract: an operational failure must be distinguishable
-# from a cleanly-absent key, so a consumer swallowing non-zero does not mask a
-# broken reader as "key not found".
 EXIT_OK = 0
 EXIT_NOT_FOUND = 1
 EXIT_OPERATIONAL = 2
+EXIT_KEY_REQUIRED = 3
+EXIT_TIMEOUT = 4
 
 # Hard requirement: fail loud on Python < 3.11 rather than silently degrade.
 # coordinator requires Python 3.11+ for TOML parsing via stdlib tomllib.
@@ -92,11 +95,60 @@ if sys.version_info < (3, 11):
 
 import tomllib
 
-# A console-subsystem child with no console of its own allocates a fresh conhost
-# on Windows, with a visible window -- every git spawn below is short-lived and
-# output-captured, so without this each one flashes. 0 on POSIX, where the flag
-# does not exist.
 _NO_CONSOLE = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
+# Armed only by the CLI entry point (never when main() is driven in-process).
+# _SCAN_BUDGET_S bounds autodiscovery (listings + git) only, never declared rungs
+# whose target stat may legitimately be slow; _BACKSTOP_S is the process-wide
+# watchdog, kept under callers' 10s timeouts. MACHINE_LOCAL_DEADLINE_S overrides
+# the backstop; 0 disables it.
+_SCAN_BUDGET_S = 0.8
+_BACKSTOP_S = 8.0
+_scan_budget_s: float | None = None
+_GIT_SPAWN_CAP_S = 5.0
+_MAX_TOML_BYTES = 16 * 1024 * 1024
+_deadline_at: float | None = None
+_toml_memo: dict | None = None
+
+
+class ResolutionDeadlineExceeded(Exception):
+    pass
+
+
+def _remaining(cap: float) -> float:
+    """Seconds a blocking step may still take: `cap`, clipped to the overall deadline."""
+    if _deadline_at is None:
+        return cap
+    left = _deadline_at - time.monotonic()
+    if left <= 0:
+        raise ResolutionDeadlineExceeded(
+            "machine-local: resolution deadline exceeded while scanning search-roots / "
+            "spawning git (the drive or git is stalled). Declare the key to skip the scan: "
+            "`machine-local set repos.<slug> <path>` or set REPO_<SLUG>."
+        )
+    return min(cap, left)
+
+
+def _arm_deadline(seconds: float) -> None:
+    """Arm a watchdog that exits EXIT_TIMEOUT with a typed `machine-local-timeout:`
+    error if a blocking syscall (stalled drive read) outlives `seconds`."""
+    if seconds <= 0:
+        return
+
+    def _expire() -> None:
+        try:
+            sys.stderr.write(
+                f"machine-local-timeout: deadline of {seconds:g}s exceeded -- a registry/file read "
+                "or child process is blocked (stalled drive). Retry; if it persists check "
+                "disk health. Override: MACHINE_LOCAL_DEADLINE_S.\n"
+            )
+            sys.stderr.flush()
+        finally:
+            os._exit(EXIT_TIMEOUT)
+
+    timer = threading.Timer(seconds, _expire)
+    timer.daemon = True
+    timer.start()
 
 SCHEMA_EXPECTED = 1
 
@@ -138,9 +190,6 @@ def _settings_home() -> str:
 
 
 class AmbiguousRepoMatch(Exception):
-    """Raised when marker-autodiscovery finds >=2 distinct directories for the
-    same slug. The operator must set REPO_<SLUG> (rung 1 env override) to
-    resolve the ambiguity."""
     pass
 
 
@@ -155,7 +204,8 @@ def _registry_dir() -> str:
          it MUST remain as the highest-priority rung.
       2. <settings-home>/machine-local — resolved via _settings_home() (the C1
          settings-home seam inline mirror), which itself follows:
-             COORDINATOR_SETTINGS_HOME > ${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings
+             COORDINATOR_SETTINGS_HOME, else <home>/.coordinator-claude-settings
+             (<home> being CLAUDE_HOME when set, else the user home)
 
     Spec backlink: docs/plans/2026-07-06-durable-substrate-to-settings-home.md § C2a
                    project-rag/docs/wiki/cross-machine-path-resolution-contract.md
@@ -167,19 +217,29 @@ def _registry_dir() -> str:
     return os.path.join(_settings_home(), "machine-local")
 
 
+def _read_toml_bytes_bounded(path: str) -> bytes:
+    size = os.path.getsize(path)
+    if size > _MAX_TOML_BYTES:
+        print(
+            f"machine-local: {path} is {size} bytes (> {_MAX_TOML_BYTES}); refusing to load.\n"
+            "Remediation: truncate or repair the file.",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_OPERATIONAL)
+    return _read_bytes_shared(path)
+
+
 def _load_toml(path: str) -> dict:
-    """Load a TOML file and return its contents as a dict. Errors loudly on
-    malformed TOML -- no silent degradation. Returns {} when the file is
-    absent. This is the default for every caller that is the root namespace
-    itself or feeds a write path that must fail loud; concern-file reads
-    during layer-building are the one exception -- see _load_toml_isolated."""
+    if _toml_memo is not None and path in _toml_memo:
+        return _toml_memo[path]
     if not os.path.exists(path):
         return {}
     try:
-        with open(path, "rb") as f:
-            return tomllib.load(f)
+        data = tomllib.loads(_read_toml_bytes_bounded(path).decode("utf-8"))
+        if _toml_memo is not None:
+            _toml_memo[path] = data
+        return data
     except tomllib.TOMLDecodeError as exc:
-        # Operational failure, not absence: the reader could not parse its input.
         print(
             f"machine-local: malformed TOML in {path}: {exc}\n"
             "Remediation: fix the TOML syntax in the file above.",
@@ -189,21 +249,10 @@ def _load_toml(path: str) -> dict:
 
 
 def _load_toml_isolated(path: str) -> dict | None:
-    """Fail-soft counterpart to _load_toml, scoped only to concern-file reads
-    in _build_resolution_layers. Returns {} when the file is absent (same as
-    _load_toml), the parsed dict on success, or None on a TOMLDecodeError --
-    None is the drop-this-layer sentinel, distinct from {} (absent/empty), so
-    the caller can tell "nothing here" from "something here I couldn't read".
-    One malformed concern file must not take down every other concern's keys
-    or the registry layers. Registry files (registry.toml/registry.local.toml)
-    deliberately do NOT route through this function -- they stay on the fatal
-    _load_toml path, since they ARE the root namespace and degrading them
-    would silently produce a reader that answers with a partial registry."""
     if not os.path.exists(path):
         return {}
     try:
-        with open(path, "rb") as f:
-            return tomllib.load(f)
+        return tomllib.loads(_read_toml_bytes_bounded(path).decode("utf-8"))
     except tomllib.TOMLDecodeError as exc:
         print(
             f"machine-local: malformed TOML in {path}: {exc}\n"
@@ -263,13 +312,6 @@ def _scan_marketplace_marker(candidate_dir: str) -> str | None:
 
 
 def _scan_dev_repo_marker(candidate_dir: str) -> str | None:
-    """Scan a candidate directory for its .coordinator-dev-repo identity marker
-    (the doctrine-repo authoring clone shape: no marketplace manifest). Reads a
-    non-comment `slug: <value>` line and returns it with `-` replaced by `_`,
-    matching the marketplace-name convention. Returns None if the file is
-    absent, unreadable, or carries no `slug:` key -- a keyless sentinel is a
-    valid marker for other, presence-only readers, but this leg needs the key
-    and must not guess."""
     marker_path = os.path.join(candidate_dir, ".coordinator-dev-repo")
     if not os.path.isfile(marker_path):
         return None
@@ -288,12 +330,6 @@ def _scan_dev_repo_marker(candidate_dir: str) -> str | None:
 
 
 def _scan_marker(candidate_dir: str) -> str | None:
-    """Collapse the two first-class, mutually-exclusive marker shapes
-    (marketplace and dev-repo) into a single slug. A candidate carrying BOTH
-    marker kinds is an identity contradiction, not a precedence question: this
-    returns None, the same as an unreadable or slug-less marker of either
-    single kind -- never a silent pick of one shape over the other. Does NOT
-    infer a slug from the directory basename in either shape."""
     marketplace_slug = _scan_marketplace_marker(candidate_dir)
     dev_repo_slug = _scan_dev_repo_marker(candidate_dir)
 
@@ -370,6 +406,7 @@ def _autodiscover_repo(slug: str, reg_dir: str) -> str | None:
         except OSError:
             continue
         for child in sorted(child_names):
+            _remaining(_GIT_SPAWN_CAP_S)
             child_path = os.path.join(expanded_root, child)
             if not os.path.isdir(child_path):
                 continue
@@ -431,18 +468,17 @@ def _autodiscover_repo(slug: str, reg_dir: str) -> str | None:
 
 
 def _git_common_dir(cand: str) -> str | None:
-    """Resolve <cand>'s git common-dir to an absolute realpath, or None if
-    <cand> is not inside a git repository (or git is unavailable/errors/times
-    out). The common-dir is shared by a primary working tree and all of its
-    linked worktrees, making it the correct grouping key for worktree-collapse."""
     try:
         proc = subprocess.run(
             ["git", "-C", cand, "rev-parse", "--git-common-dir"],
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=_remaining(_GIT_SPAWN_CAP_S),
             **_NO_CONSOLE,
         )
+    except subprocess.TimeoutExpired:
+        _remaining(0.0)
+        return None
     except (OSError, subprocess.SubprocessError):
         return None
     if proc.returncode != 0:
@@ -456,14 +492,6 @@ def _git_common_dir(cand: str) -> str | None:
 
 
 def _collapse_git_worktree_duplicates(distinct: list[str]) -> list[str]:
-    """Collapse realpath-distinct candidates that are actually the same
-    underlying git repository (a primary working tree plus one or more linked
-    worktrees) into one representative -- the primary working tree. A linked
-    worktree's marker-bearing directory shares its parent repo's marketplace
-    slug, so without this step it counts as a second, spuriously-distinct
-    candidate and triggers a false AmbiguousRepoMatch. Non-git candidates are
-    never collapsed; genuinely-distinct git repos (different common-dirs) are
-    likewise preserved as distinct."""
     groups: dict[str, list[str]] = {}
     order: list[str] = []
     for cand in distinct:
@@ -510,13 +538,6 @@ def _load_path_exceptions(reg_dir: str) -> dict:
 
 
 def _to_native_drive_path(s: str) -> str:
-    """Convert an MSYS/Cygwin mount-form path ('/x/...' or '/cygdrive/x/...') to
-    native Windows drive form so native-Windows consumers (node, py.exe,
-    claude.exe, Path.exists) resolve it. No-op on POSIX and on paths already
-    in native drive form. Companion to the as_posix() backslash-drive fix,
-    which repairs a backslashed native drive path but does not touch
-    '/x/...', which a native-Windows process resolves as drive-relative
-    (doubled drive, drive-letter directory repeated)."""
     if os.name != "nt":
         return s
     m = re.match(r"^/(?:cygdrive/)?([A-Za-z])(/.*)?$", s)
@@ -526,55 +547,27 @@ def _to_native_drive_path(s: str) -> str:
 
 
 class SiblingRepoNotFoundError(Exception):
-    """Raised when resolve_sibling_repo_required cannot locate a sibling repo.
-    This exact name is pinned by the cross-machine path-resolution contract;
-    conformers catching this error must import or mirror it by this name."""
     pass
 
 
 def resolve_sibling_repo(name: str) -> "Path | None":
-    """Walk the 4-rung cross-machine resolution ladder; return first resolved
-    path or None. Never raises on absence; AmbiguousRepoMatch propagates
-    through (a misconfig, not absence) but only after the whole ladder has
-    been walked. A rung-1 set-but-nonexistent env var also propagates
-    (EnvironmentError), since it too is a misconfig. Does NOT fall through to
-    the generic _resolve_key/_build_resolution_layers stack: that stack's
-    lowest layer (registry.toml) carries `repos.x = ""` sentinel placeholders
-    it would return as hits, silently defeating fail-loud -- rung 4 reads only
-    registry.local.toml directly and treats empty-string as not-found."""
     slug = name
     env_var = f"REPO_{slug.upper()}"
     reg_dir = _registry_dir()
 
-    # Rung 1 -- explicit env override
     env_val = os.environ.get(env_var)
     if env_val is not None:
         p = Path(env_val)
         if p.exists():
             return p
-        # Set but absent: this is a misconfig (not a clean absence) -- hard error.
         raise EnvironmentError(
             f"{env_var} is set to {env_val!r} but that path does not exist. "
             f"Fix or unset {env_var} to allow autodiscovery to proceed."
         )
 
-    # Rung 2 — search-roots autodiscovery. An ambiguous scan is a rung-2 NON-RESULT,
-    # not a ladder-terminating error: the contract says stop at the first rung that
-    # produces a result, and two candidates produce none. Hold the exception and keep
-    # walking so an explicit operator declaration at rung 3/4 stays reachable; re-raise
-    # only if nothing further resolves. Letting it propagate here made a correct,
-    # unambiguous registry.local.toml pin unreachable whenever any stray copy of the
-    # repo appeared under a search root.
-    deferred_ambiguity: AmbiguousRepoMatch | None = None
-    try:
-        discovered = _autodiscover_repo(slug, reg_dir)
-    except AmbiguousRepoMatch as exc:
-        deferred_ambiguity = exc
-        discovered = None
-    if discovered is not None:
-        return Path(discovered)
-
-    # Rung 3 -- path-exceptions.toml OS-keyed table
+    # Explicit declarations (path-exceptions, registry.local.toml) resolve before any
+    # directory scan or git spawn: a declared key must not pay for, or be blocked by,
+    # autodiscovery.
     exceptions = _load_path_exceptions(reg_dir)
     platform_exc = exceptions.get(sys.platform, {})
     if isinstance(platform_exc, dict):
@@ -584,7 +577,6 @@ def resolve_sibling_repo(name: str) -> "Path | None":
             if exc_path.exists():
                 return exc_path
 
-    # Rung 4 -- registry.local.toml direct read; empty-string is not a hit
     reg_local_path = os.path.join(reg_dir, "registry.local.toml")
     reg_local_data = _load_toml(reg_local_path)
     if reg_local_data:
@@ -593,6 +585,20 @@ def resolve_sibling_repo(name: str) -> "Path | None":
         val = flat.get(key)
         if val is not None and str(val) != "":
             return Path(str(val))
+
+    # Search-roots autodiscovery: the only rung that scans directories and spawns git.
+    # An ambiguous scan is a non-result; it is re-raised only if nothing resolved.
+    global _deadline_at
+    if _scan_budget_s is not None:
+        _deadline_at = time.monotonic() + _scan_budget_s
+    deferred_ambiguity: AmbiguousRepoMatch | None = None
+    try:
+        discovered = _autodiscover_repo(slug, reg_dir)
+    except AmbiguousRepoMatch as exc:
+        deferred_ambiguity = exc
+        discovered = None
+    if discovered is not None:
+        return Path(discovered)
 
     if deferred_ambiguity is not None:
         raise deferred_ambiguity
@@ -663,7 +669,8 @@ def _build_resolution_layers(
     shadowed: list | None = None,
 ) -> list[dict]:
     """Build the resolution layers. Registry keys under a concern namespace are
-    dropped silently; pass `shadowed` to collect them as (key, source, namespace)."""
+    dropped; pass `shadowed` to collect them as (key, source, namespace). The
+    unprovisioned-concern stderr warning is opt-in via `warn_unprovisioned`."""
     reg_path = os.path.join(reg_dir, "registry.toml")
     reg_local_path = os.path.join(reg_dir, "registry.local.toml")
 
@@ -818,12 +825,30 @@ def _print_key_miss(key: str, layers: list[dict]) -> None:
         print(f"  did you mean one of: {joined}?", file=sys.stderr)
 
 
+# compat-fallback: the content-root key and its pre-rename name answer for each other,
+# mirroring coordinator_core.machine_resolver._CONTENT_ROOT_KEY_PAIR.
+_CONTENT_ROOT_KEY_PAIR = {
+    "repos.content_root": "repos.doe_claude",  # private-name-ok: compat-fallback
+    "repos.doe_claude": "repos.content_root",  # private-name-ok: compat-fallback
+}
+
+
 def resolve_one(key: str, layers: list[dict] | None = None) -> tuple[int, str | None]:
+    rc, val = _resolve_one_exact(key, layers)
+    if rc == EXIT_NOT_FOUND and key in _CONTENT_ROOT_KEY_PAIR:
+        return _resolve_one_exact(_CONTENT_ROOT_KEY_PAIR[key], layers)
+    return rc, val
+
+
+def _resolve_one_exact(key: str, layers: list[dict] | None = None) -> tuple[int, str | None]:
     key_parts = key.split(".")
     if len(key_parts) == 2 and key_parts[0] == "repos":
         slug = key_parts[1]
         try:
             resolved = resolve_sibling_repo(slug)
+        except ResolutionDeadlineExceeded as exc:
+            # The only bound that fires in-process: a stall, never an absence.
+            return EXIT_TIMEOUT, f"machine-local-timeout: {exc}"
         except (AmbiguousRepoMatch, EnvironmentError) as exc:
             # AmbiguousRepoMatch = detect-then-silently-pick footgun (misconfig).
             # EnvironmentError   = REPO_<SLUG> set but path absent (misconfig).
@@ -876,9 +901,9 @@ def cmd_get(args: argparse.Namespace) -> int:
 
     rc, val = resolve_one(key, layers=layers)
 
-    if rc == EXIT_OPERATIONAL:
+    if rc in (EXIT_OPERATIONAL, EXIT_TIMEOUT):
         print(val, file=sys.stderr)
-        return EXIT_OPERATIONAL
+        return rc
 
     if rc == EXIT_OK:
         print(val)
@@ -892,6 +917,34 @@ def cmd_get(args: argparse.Namespace) -> int:
         layers = _build_resolution_layers(reg_dir)
     _print_key_miss(key, layers)
     return EXIT_NOT_FOUND
+
+
+def cmd_require(args: argparse.Namespace) -> int:
+    """Implement: machine-local require <key>
+
+    Same resolution as `get`, with no `--default`: a miss is the typed refusal
+    EXIT_KEY_REQUIRED (stdout empty, stderr `settings-key-missing: <key>`), distinct
+    from `get`'s absence code so a caller can tell a required key from an optional one.
+    """
+    key = args.key
+    reg_dir = _registry_dir()
+    key_parts = key.split(".")
+    is_repos_key = len(key_parts) == 2 and key_parts[0] == "repos"
+    layers = None if is_repos_key else _build_resolution_layers(reg_dir)
+
+    rc, val = resolve_one(key, layers=layers)
+    if rc in (EXIT_OPERATIONAL, EXIT_TIMEOUT):
+        print(val, file=sys.stderr)
+        return rc
+    if rc == EXIT_OK:
+        print(val)
+        return EXIT_OK
+
+    print(f"settings-key-missing: {key}", file=sys.stderr)
+    if layers is None:
+        layers = _build_resolution_layers(reg_dir)
+    _print_key_miss(key, layers)
+    return EXIT_KEY_REQUIRED
 
 
 def _repos_shell_var_name(key: str) -> str | None:
@@ -958,9 +1011,10 @@ def cmd_dump(args: argparse.Namespace) -> int:
     exporters' sole consumer. (`claude-machine-local.ps1` deliberately stays
     on the JSON path instead: PowerShell cannot safely `eval` shell export
     syntax, and it re-implements the idempotency guard itself via
-    `[Environment]::GetEnvironmentVariable`.) It reproduces the JSON path's four per-key
+    `[Environment]::GetEnvironmentVariable`. -- Review: coordinator:code-reviewer,
+    slice4) It reproduces the JSON path's four per-key
     states, moved to the stream a shell `eval` can tolerate:
-      - resolved, non-empty            -> `[ -n "${VAR:-}" ] || export VAR='...'`
+      - resolved, non-empty            -> `[ -n "${VAR:-}" ] || export VAR='...'` (shell-doc-ok: the emitted bash line)
         (the guard preserves the caller's own idempotency contract: a
         pre-set, non-empty $VAR is a deliberate operator override and must
         keep winning over the ladder -- see DR-087. `dump` cannot see the
@@ -989,6 +1043,14 @@ def cmd_dump(args: argparse.Namespace) -> int:
         )
         return 2
 
+    show_origin = getattr(args, "show_origin", False)
+    if fmt == "sh" and show_origin:
+        print("machine-local dump: --format sh --show-origin is a usage error -- "
+              "the sh emitter has no field to carry the layer.", file=sys.stderr)
+        return 2
+
+    global _toml_memo
+    _toml_memo = {}
     reg_dir = _registry_dir()
     layers = _build_resolution_layers(reg_dir)
     all_keys = _all_keys(layers)
@@ -1025,7 +1087,7 @@ def cmd_dump(args: argparse.Namespace) -> int:
                         f'[ -n "${{{var}:-}}" ] || export {var}='
                         f'{_shell_single_quote(val)}'
                     )
-            elif rc == EXIT_OPERATIONAL:
+            elif rc in (EXIT_OPERATIONAL, EXIT_TIMEOUT):
                 failures.append(f"  {k}: {val}")
                 print(
                     f"claude-machine-local: error: machine-local reader failed "
@@ -1041,8 +1103,8 @@ def cmd_dump(args: argparse.Namespace) -> int:
             continue
 
         if rc == EXIT_OK and val is not None:
-            values[k] = val
-        elif rc == EXIT_OPERATIONAL:
+            values[k] = {"value": val, "layer": _origin_layer(k, layers)} if show_origin else val
+        elif rc in (EXIT_OPERATIONAL, EXIT_TIMEOUT):
             failures.append(f"  {k}: {val}")
         elif args.include_unset:
             values[k] = None
@@ -1068,6 +1130,23 @@ def cmd_dump(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _origin_layer(key: str, layers: list[dict]) -> str:
+    """Name the layer `resolve_one` answered `key` from. Layer order is
+    `_build_resolution_layers`'s: concern layers, then registry.local.toml,
+    then registry.toml (the tracked defaults) last."""
+    parts = key.split(".")
+    if len(parts) == 2 and parts[0] == "repos":
+        return "repos-ladder"
+    for i, layer in enumerate(layers):
+        if key in layer:
+            if i == len(layers) - 1:
+                return "registry.toml (defaults)"
+            if i == len(layers) - 2:
+                return "registry.local.toml"
+            return "concern"
+    return "env"
+
+
 def cmd_has(args: argparse.Namespace) -> int:
     reg_dir = _registry_dir()
     layers = _build_resolution_layers(reg_dir)
@@ -1088,10 +1167,14 @@ def cmd_keys(args: argparse.Namespace) -> int:
     empty declarations (`repos.foo = ""`) that `get` reports not-found — callers
     (cross-repo-memo's publish-mirror guard among them) depend on that full set.
 
-    Negative-spec: `keys` does not annotate declared-but-unset keys. That asymmetry
-    is explained where it bites — `get` on such a key names it as declared but not
-    set (see _print_key_miss) — not on every enumeration, where it was per-call noise
-    in every agent loop that lists `repos.*`.
+    Negative-spec: the default listing does not annotate declared-but-unset keys.
+    That asymmetry is explained where it bites — `get` on such a key names it as
+    declared but not set (see _print_key_miss) — not on every enumeration, where it
+    was per-call noise in every agent loop that lists `repos.*`.
+
+    `--set-only` (optional) narrows the listing to keys `get` would answer with a
+    non-empty value (same resolution as `get`): declared-but-unset keys are absent.
+    The default listing is unchanged; callers asking "is X registered?" use this.
 
     `--prefix` (optional) filters the listing to keys equal to, or nested under
     (dot-separated), the given prefix -- the one-step "what lives under `repos.`?"
@@ -1105,6 +1188,16 @@ def cmd_keys(args: argparse.Namespace) -> int:
     prefix = args.prefix
     if prefix:
         all_keys = [k for k in all_keys if k == prefix or k.startswith(f"{prefix}.")]
+    if getattr(args, "set_only", False):
+        kept = []
+        for k in all_keys:
+            rc, val = resolve_one(k, layers)
+            if rc == EXIT_TIMEOUT:
+                print(val, file=sys.stderr)
+                return EXIT_TIMEOUT
+            if rc == EXIT_OK and val:
+                kept.append(k)
+        all_keys = kept
     for k in all_keys:
         print(k)
     return 0
@@ -1236,8 +1329,150 @@ def _store_containing(path: str, entries: dict[str, dict]) -> str | None:
     return best[1] if best else None
 
 
+_REPARSE_ALLOWLIST_KEY = "reparse_allowlist"
+# Windows constants spelled literally: `stat.IO_REPARSE_TAG_*` exists only on nt CPython, and a
+# forced-nt test on POSIX must still reach the classifier.
+_FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+_TAG_MOUNT_POINT = 0xA0000003
+_TAG_SYMLINK = 0xA000000C
+_REPARSE_SKIP_DIRS = frozenset({".git"})
+
+#: Test-injectable platform predicate for the nt-vs-POSIX branch of the reparse classifier.
+_host_is_nt_override = None
+
+
+def _host_is_nt() -> bool:
+    return _host_is_nt_override() if _host_is_nt_override is not None else os.name == "nt"
+
+
+def _classify_stat(st, path: str) -> "tuple[str | None, str]":
+    """(kind, target) for an lstat result: kind is "volume-mount" | "junction" | "symlink" | None.
+    nt keys on `st_reparse_tag` (never islink(): a junction reads as a plain directory), the same
+    discriminator as coordinator_core/install/junction.py `is_junction`. A `\\??\\Volume{` target
+    is a volume mount (Dev Drive, folder-mounted volume) and shares the junction tag."""
+    if _host_is_nt():
+        if not getattr(st, "st_file_attributes", 0) & _FILE_ATTRIBUTE_REPARSE_POINT:
+            return None, ""
+        tag = getattr(st, "st_reparse_tag", 0)
+        if tag not in (_TAG_MOUNT_POINT, _TAG_SYMLINK):
+            return None, ""
+    elif not stat.S_ISLNK(st.st_mode):
+        return None, ""
+    else:
+        tag = _TAG_SYMLINK
+    try:
+        target = os.readlink(path)
+    except OSError:
+        target = ""
+    if tag == _TAG_MOUNT_POINT:
+        is_volume = target.lower().lstrip("\\?.").startswith("volume{")
+        return ("volume-mount" if is_volume else "junction"), target
+    return "symlink", target
+
+
+def classify_reparse(path: str) -> "str | None":
+    """"volume-mount" | "junction" | "symlink" for a reparse point at `path`, else None
+    (absent, ordinary, or an nt reparse tag this guard does not govern)."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return None
+    return _classify_stat(st, path)[0]
+
+
+def _norm_link(p: str) -> str:
+    """Normalized `p` with the final component left unresolved."""
+    if p.startswith("\\\\?\\"):
+        p = p[4:]
+    return os.path.normcase(os.path.abspath(p))
+
+
+def _reparse_builtin_pass(path: str, kind: str, target: str) -> bool:
+    """True for a generation-swap link the engine creates on purpose
+    (install/ensure_venv.py `_swap_in_new_venv`, fleet env publication): `X` -> sibling `X.gen-*`."""
+    link = Path(_norm_link(path))
+    if kind in ("junction", "symlink") and target:
+        t = Path(_norm_link(target if os.path.isabs(target) else os.path.join(os.path.dirname(path), target)))
+        if t.parent == link.parent and t.name.startswith(link.name + ".gen-"):
+            return True
+    return False
+
+
+def _reparse_allowlist(layers: list[dict]) -> "set[str]":
+    raw = _resolve_key(_REPARSE_ALLOWLIST_KEY, layers) or ""
+    return {_norm_link(line.strip()) for line in raw.split("\n") if line.strip()}
+
+
+def scan_reparse_points(roots, allowlist, skip_relpaths=frozenset(), judge_roots=False) -> "list[tuple[str, str]]":
+    """(path, target) for every junction or symlink under `roots` that is neither a volume mount,
+    a built-in engine link, nor in `allowlist` (paths). os.scandir only, no spawn; a reparse point
+    is judged and never descended into; `.git` is skipped, as is any directory whose
+    forward-slash path relative to its root is in `skip_relpaths`. The roots themselves are judged
+    only when `judge_roots` (a flagged root is reported and not walked). Only directory and
+    symlink entries are stat'ed."""
+    allowed = {_norm_link(a) for a in allowlist}
+    skip_names = {r.rsplit("/", 1)[-1] for r in skip_relpaths}  # relpath only for a basename that can match
+    found: list[tuple[str, str]] = []
+    stack = []
+    for r in roots:
+        r = str(r)
+        if judge_roots:
+            try:
+                kind, target = _classify_stat(os.lstat(r), r)
+            except OSError:
+                continue
+            if kind is not None and not (
+                    kind == "volume-mount" or _norm_link(r) in allowed
+                    or _reparse_builtin_pass(r, kind, target)):
+                found.append((r, target))
+                continue
+        stack.append((r, r))
+    while stack:
+        cur, root = stack.pop()
+        try:
+            it = os.scandir(cur)
+        except OSError:
+            continue
+        with it:
+            for entry in it:
+                try:
+                    if not (entry.is_dir(follow_symlinks=False) or entry.is_symlink()):
+                        continue
+                    st = entry.stat(follow_symlinks=False)
+                except OSError:
+                    continue
+                kind, target = _classify_stat(st, entry.path)
+                if kind is None:
+                    if entry.name in _REPARSE_SKIP_DIRS or not stat.S_ISDIR(st.st_mode):
+                        continue
+                    if entry.name in skip_names and os.path.relpath(entry.path, root).replace("\\", "/") in skip_relpaths:
+                        continue
+                    stack.append((entry.path, root))
+                    continue
+                if (kind == "volume-mount" or _norm_link(entry.path) in allowed
+                        or _reparse_builtin_pass(entry.path, kind, target)):
+                    continue
+                found.append((entry.path, target))
+    return sorted(found)
+
+
+def _reparse_findings(entries: dict[str, dict], layers: list[dict]) -> list[tuple[str, str, str]]:
+    allow = _reparse_allowlist(layers)
+    out: list[tuple[str, str, str]] = []
+    seen: set[str] = set()
+    for name, e in entries.items():
+        eff = e["effective_path"]
+        if not eff or not os.path.isdir(eff):
+            continue
+        for path, target in scan_reparse_points([eff], allow, judge_roots=True):
+            if path not in seen:
+                seen.add(path)
+                out.append(("reparse", name, f"{path} -> {target}"))
+    return out
+
+
 def _store_findings(entries: dict[str, dict], layers: list[dict]) -> list[tuple[str, str, str]]:
-    """(type, name, detail) for every missing / orphan / incomplete / dead-dependent finding."""
+    """(type, name, detail) for every missing / orphan / incomplete / dead-dependent / reparse finding."""
     out: list[tuple[str, str, str]] = []
     for name, e in entries.items():
         if not e["purpose"]:
@@ -1254,6 +1489,7 @@ def _store_findings(entries: dict[str, dict], layers: list[dict]) -> list[tuple[
         for dep in e["dependents"]:
             if not os.path.exists(dep):
                 out.append(("dead-dependent", name, dep))
+    out.extend(_reparse_findings(entries, layers))
     return out
 
 
@@ -1364,14 +1600,14 @@ def cmd_locate(args: argparse.Namespace) -> int:
     url root, `unknown` when `box.id` is unset. Exit 0 found, 1 unknown root, 2
     record missing/malformed or operational failure. Never writes.
     """
+    if not args.list and not args.target:
+        print("machine-local: locate needs <root-name> or --list", file=sys.stderr)
+        return EXIT_OPERATIONAL
     layers = _build_resolution_layers(_registry_dir())
     try:
         roots = _load_storage_record(layers)
     except (OSError, ValueError) as exc:
         print(f"machine-local: locate: {exc}", file=sys.stderr)
-        return EXIT_OPERATIONAL
-    if not args.list and not args.target:
-        print("machine-local: locate needs <root-name> or --list", file=sys.stderr)
         return EXIT_OPERATIONAL
     box_id = (_resolve_key("box.id", layers) or "").strip()
     if not box_id and any(str(r.get("kind", "path")).strip() != "url" for r in roots.values()):
@@ -1403,8 +1639,7 @@ def _stale_dependents(entry: dict, old_path: str) -> list[str]:
     stale: list[str] = []
     for dep in entry["dependents"]:
         try:
-            with open(dep, "r", encoding="utf-8", errors="replace") as f:
-                text = f.read()
+            text = _read_bytes_shared(dep).decode("utf-8", errors="replace")
         except OSError:
             continue
         if fold:
@@ -1539,7 +1774,7 @@ def cmd_dir(args: argparse.Namespace) -> int:
     to bind to, replacing any direct or hardcoded reads of ~/.claude/machine-local/.
 
     Always resolves through the settings-home seam (_settings_home()), which
-    honours COORDINATOR_SETTINGS_HOME > ${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings.
+    honours COORDINATOR_SETTINGS_HOME, else <home>/.coordinator-claude-settings.
     MACHINE_LOCAL_REGISTRY_DIR (test-isolation override) does NOT affect this
     subcommand — it overrides where reads happen (registry dir), not where the
     canonical settings-home-based machine-local directory is.
@@ -1556,7 +1791,7 @@ def cmd_dir(args: argparse.Namespace) -> int:
     return 0
 
 
-def _build_header_pats(prefix_parts) -> tuple[re.Pattern[str], re.Pattern[str]]:
+def _build_header_pats(prefix_parts):
     table_path = ".".join(prefix_parts)
     quoted_segs = r'\s*\.\s*'.join(f'"{re.escape(p)}"' for p in prefix_parts)
     h_pat = re.compile(
@@ -1710,18 +1945,110 @@ def _build_array_content(key: str, elements: list[str], date_tag: str,
     return f'{comment}\n"{key}" = [\n{rows}]\n'
 
 
+def _read_bytes_shared(path: str) -> bytes:
+    """Read a whole file without blocking a concurrent replace of it.
+
+    Trap: CPython open() omits FILE_SHARE_DELETE on Windows, so a reader holding
+    the handle makes every replace of the file fail (WinError 5). Opens with
+    share R|W|D, reads fully and closes before the caller parses. Missing file
+    raises FileNotFoundError like open(). Stays local: this template is
+    stdlib-only and cannot import coordinator_core.
+    """
+    if os.name == "nt":
+        try:
+            import _winapi
+            import msvcrt
+        except ImportError:
+            _winapi = None
+        if _winapi is not None:
+            handle = _winapi.CreateFile(
+                os.fspath(path), 0x80000000, 0x7, 0, 3, 0, 0  # GENERIC_READ, share R|W|D, OPEN_EXISTING
+            )
+            try:
+                fd = msvcrt.open_osfhandle(int(handle), os.O_RDONLY)
+            except BaseException:
+                _winapi.CloseHandle(handle)
+                raise
+            with os.fdopen(fd, "rb") as f:
+                return f.read()
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def _read_text_shared(path: str) -> str:
+    return _read_bytes_shared(path).decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _replace_posix_windows(src: str, dst: str) -> bool:
+    """Rename src over dst with POSIX semantics (lands against open readers).
+
+    Returns False on any failure so the caller falls to the os.replace ladder
+    (non-NTFS, pre-1607, or a reader outside the share-delete chokepoints).
+    """
+    try:
+        import ctypes
+        import struct
+        import _winapi
+    except ImportError:
+        return False
+    try:
+        handle = _winapi.CreateFile(os.path.abspath(src), 0x00010000, 0x7, 0, 3, 0, 0)  # DELETE
+    except OSError:
+        return False
+    try:
+        name = os.path.abspath(dst).encode("utf-16-le")
+        # FILE_RENAME_INFO: Flags(DWORD) pad, RootDirectory(HANDLE), FileNameLength(DWORD), FileName[]
+        # flags 0x1 REPLACE_IF_EXISTS | 0x2 POSIX_SEMANTICS
+        buf = struct.pack("@IPI", 0x3, 0, len(name)) + name + b"\0\0"
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.SetFileInformationByHandle.argtypes = [
+            ctypes.c_void_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint32,
+        ]
+        k32.SetFileInformationByHandle.restype = ctypes.c_int
+        return bool(k32.SetFileInformationByHandle(int(handle), 22, buf, len(buf)))  # FileRenameInfoEx
+    finally:
+        _winapi.CloseHandle(handle)
+
+
+def _replace_with_retry(src: str, dst: str) -> None:
+    """os.replace that survives concurrent readers on Windows.
+
+    Trap: classic os.replace onto a file any other process holds open raises
+    PermissionError (WinError 5/32), FILE_SHARE_DELETE readers included; a
+    bounded backoff cannot converge under polling readers. Tries the
+    POSIX-semantics rename first (lands against share-delete readers), then
+    the bounded ladder (~1s, 11 tries) as the residual for plain-open readers
+    and non-NTFS; the final failure is re-raised for the caller to clean up.
+    Stays local: this template is stdlib-only and cannot import coordinator_core.
+    """
+    import time
+
+    if os.name == "nt" and _replace_posix_windows(src, dst):
+        return
+    delay = 0.01
+    for attempt in range(11):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if os.name != "nt" or attempt == 10:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 0.16)
+
+
 def _write_registry_file(target_path: str, new_content: str, is_new: bool) -> int:
     tmp_path = target_path + f".tmp.{os.getpid()}"
     try:
         os.makedirs(os.path.dirname(target_path), exist_ok=True)
-        with open(tmp_path, "w", encoding="utf-8") as f:
+        with open(tmp_path, "w", encoding="utf-8", newline="\n") as f:
             f.write(new_content)
         if not is_new:
             try:
                 os.chmod(tmp_path, os.stat(target_path).st_mode)
             except OSError:
                 pass
-        os.replace(tmp_path, target_path)
+        _replace_with_retry(tmp_path, target_path)
     except Exception as exc:
         if os.path.exists(tmp_path):
             try:
@@ -1737,8 +2064,7 @@ def _load_registry_target(reg_dir: str, write_global: bool) -> tuple[str, str, s
     target_file = "registry.toml" if write_global else "registry.local.toml"
     target_path = os.path.join(reg_dir, target_file)
     if os.path.exists(target_path):
-        with open(target_path, "r", encoding="utf-8") as f:
-            content = f.read()
+        content = _read_text_shared(target_path)
         is_new = False
     else:
         is_new = True
@@ -2109,8 +2435,8 @@ def _serialize_concern_file(concern_name: str, body: dict, provenance: dict,
     literal-quote, bool → lowercase, int/float → bare) so a co-writer's non-string
     scalar (the DR-CONTRACT-001 ``emit_shape_version`` int) round-trips intact; the
     caller rejects values/keys containing a single quote (literal TOML has no
-    escape). Mirrors the addon ``_write_unreal_concern`` full-reserialize shape
-    rather than surgical edits, because concern files are tool-managed.
+    escape). Only a NEW concern file is built here; an existing one is edited in place by
+    ``_concern_text_edit``, because its co-writer's tables must survive byte-identical.
     """
     def _emit_table(header: str, table: dict) -> str:
         scalars = {k: v for k, v in table.items() if not isinstance(v, dict)}
@@ -2142,6 +2468,134 @@ def _serialize_concern_file(concern_name: str, body: dict, provenance: dict,
                 lines.append(f"{pk} = '{p[pk]}'")
         lines.append("")
     return "\n".join(lines).rstrip("\n") + "\n"
+
+
+_TOML_HEADER_RE = re.compile(r"^[ \t]*(\[\[?)[ \t]*([^\[\]#]*?)[ \t]*\]\]?[ \t]*(?:#.*)?$")
+
+
+def _toml_sections(lines: list) -> list:
+    """[(header, is_array, start, end)] over raw lines; the preamble is ("", False, 0, first header)."""
+    out = []
+    header, is_array, start = "", False, 0
+    for i, raw in enumerate(lines):
+        m = _TOML_HEADER_RE.match(raw.rstrip("\r"))
+        if m:
+            out.append((header, is_array, start, i))
+            header = ".".join(seg.strip().strip("'\"") for seg in m.group(2).split("."))
+            is_array, start = m.group(1) == "[[", i
+    out.append((header, is_array, start, len(lines)))
+    return out
+
+
+def _toml_find_key(lines: list, table: str, key: str) -> tuple:
+    """(line index | None, (start, end) | None) of `key = ...` directly under `[table]`."""
+    k = re.escape(key)
+    rx = re.compile(rf"^[ \t]*(?:{k}|'{k}'|\"{k}\")[ \t]*=")
+    for header, is_array, start, end in _toml_sections(lines):
+        if header == table and not is_array:
+            for i in range(start + 1 if table else start, end):
+                if rx.match(lines[i]):
+                    return i, (start, end)
+            return None, (start, end)
+    return None, None
+
+
+def _toml_set_key(lines: list, table: str, key: str, line: str, cr: str) -> list:
+    lines = list(lines)
+    idx, sect = _toml_find_key(lines, table, key)
+    if idx is not None:
+        lines[idx] = line + cr
+        return lines
+    if sect is None:
+        return _toml_append_section(lines, table, [line], cr)
+    start, end = sect
+    at = start + 1 if table else start
+    for i in range(end - 1, at - 1, -1):
+        text = lines[i].strip()
+        if text and not text.startswith("#"):
+            at = i + 1
+            break
+    lines.insert(at, line + cr)
+    return lines
+
+
+def _toml_drop_section(lines: list, table: str) -> list:
+    for header, is_array, start, end in _toml_sections(lines):
+        if table and header == table and not is_array:
+            return lines[:start] + lines[end:]
+    return list(lines)
+
+
+def _toml_append_section(lines: list, table: str, body: list, cr: str) -> list:
+    lines = list(lines)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return lines + ([cr] if lines else []) + [f"[{table}]{cr}"] + [b + cr for b in body] + [""]
+
+
+def _toml_foreign(parsed: dict, name: str, segs: list) -> dict:
+    """`parsed` minus the one key an edit owns (its concern-table, top-level and provenance
+    homes), empty tables pruned: what an in-place concern edit must leave equal."""
+    import copy
+
+    out = copy.deepcopy(parsed)
+    for path in ([name, *segs], list(segs), ["provenance", *segs]):
+        cur = out
+        for seg in path[:-1]:
+            cur = cur.get(seg) if isinstance(cur, dict) else None
+        if isinstance(cur, dict):
+            cur.pop(path[-1], None)
+
+    def prune(d):
+        if not isinstance(d, dict):
+            return d
+        kept = {k: prune(v) for k, v in d.items()}
+        return {k: v for k, v in kept.items() if v != {}}
+
+    return prune(out)
+
+
+def _concern_text_edit(text: str, parsed: dict, name: str, bare: str, value, prov_row) -> str | None:
+    """Set (`value` a str) or remove (`value` None) one key in an existing concern file IN PLACE.
+
+    Concern files are co-written: project-rag-cli owns the top-level scalars, [env],
+    [provenance] and [bin] of project_rag.local.toml, and its serve reads only data["env"].
+    So only the key's own line and its `[provenance.<bare>]` section change; every other byte
+    stays. None when no in-place edit both resolves as intended and leaves every other key
+    equal -- the caller refuses rather than reserializing the file.
+    """
+    cr = "\r" if "\r\n" in text else ""
+    segs = bare.split(".")
+    leaf = segs[-1]
+    own, top = ".".join([name, *segs[:-1]]), ".".join(segs[:-1])
+    lines = text.split("\n")
+    table = own
+    if _toml_find_key(lines, own, leaf)[0] is None and _toml_find_key(lines, top, leaf)[0] is not None:
+        table = top
+    if value is None:
+        idx, _ = _toml_find_key(lines, table, leaf)
+        if idx is None:
+            return None
+        candidates = ["\n".join(_toml_drop_section(lines[:idx] + lines[idx + 1:], f"provenance.{bare}"))]
+    else:
+        lines = _toml_set_key(lines, table, leaf, _emit_concern_scalar(leaf, value), cr)
+        prov = [f"{k} = '{v}'" for k, v in prov_row.items()]
+        with_prov = _toml_append_section(
+            _toml_drop_section(lines, f"provenance.{bare}"), f"provenance.{bare}", prov, cr
+        )
+        candidates = ["\n".join(with_prov), "\n".join(lines)]
+    key = f"{name}.{bare}"
+    for cand in candidates:
+        try:
+            new = tomllib.loads(cand)
+        except tomllib.TOMLDecodeError:
+            continue
+        got = _flatten_concern(name, new).get(key)
+        if (got is not None) if value is None else (str(got) != str(value)):
+            continue
+        if _toml_foreign(parsed, name, segs) == _toml_foreign(new, name, segs):
+            return cand
+    return None
 
 
 def _cmd_set_concern(args: argparse.Namespace) -> int:
@@ -2231,13 +2685,20 @@ def _cmd_set_concern(args: argparse.Namespace) -> int:
 
     target_path = os.path.join(reg_dir, f"{name}.local.toml")
 
-    schema_val: object = 1
-    body: dict = {}
-    provenance: dict = {}
-    is_new = not os.path.exists(target_path)
-    if not is_new:
-        with open(target_path, "r", encoding="utf-8") as f:
-            existing_content = f.read()
+    date_tag = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    prov_row = {"written_by": "machine-local", "written_at": date_tag, "source": "cli:--concern"}
+    if not os.path.exists(target_path):
+        is_new = True
+        body: dict = {}
+        cursor = body
+        segs = bare.split(".")
+        for seg in segs[:-1]:
+            cursor = cursor.setdefault(seg, {})
+        cursor[segs[-1]] = value
+        new_content = _serialize_concern_file(name, body, {bare: prov_row})
+    else:
+        is_new = False
+        existing_content = _read_bytes_shared(target_path).decode("utf-8")  # keep its newlines
         try:
             existing = tomllib.loads(existing_content)
         except tomllib.TOMLDecodeError as exc:
@@ -2247,45 +2708,14 @@ def _cmd_set_concern(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 1
-        schema_val = existing.get("schema", 1)
-        named = existing.get(name)
-        if isinstance(named, dict):
-            body = dict(named)
-        for k, v in existing.items():
-            if k in ("schema", "provenance", name):
-                continue
-            body[k] = v
-        prov = existing.get("provenance")
-        if isinstance(prov, dict):
-            provenance = dict(prov)
-
-    segs = bare.split(".")
-    cursor = body
-    for seg in segs[:-1]:
-        nxt = cursor.get(seg)
-        if not isinstance(nxt, dict):
-            nxt = {}
-            cursor[seg] = nxt
-        cursor = nxt
-    cursor[segs[-1]] = value
-
-    date_tag = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    provenance[bare] = {
-        "written_by": "machine-local",
-        "written_at": date_tag,
-        "source": "cli:--concern",
-    }
-
-    try:
-        new_content = _serialize_concern_file(name, body, provenance, schema_val)
-    except ValueError as exc:
-        print(
-            f"machine-local: refusing to write — {exc}. "
-            "A co-writer left a value type this writer does not serialize; "
-            "edit the concern file by hand for that key.",
-            file=sys.stderr,
-        )
-        return 1
+        new_content = _concern_text_edit(existing_content, existing, name, bare, value, prov_row)
+        if new_content is None:
+            print(
+                f"machine-local: refusing to write — {target_path} holds {key!r} in a shape "
+                f"this writer cannot edit in place without changing other keys. Set {key!r} by hand.",
+                file=sys.stderr,
+            )
+            return 1
 
     try:
         parsed = tomllib.loads(new_content)
@@ -2314,24 +2744,7 @@ def _cmd_set_concern(args: argparse.Namespace) -> int:
         print(f"[dry-run] would set {key!r} = {value!r} in {target_path}")
         return 0
 
-    tmp_path = target_path + f".tmp.{os.getpid()}"
-    try:
-        os.makedirs(os.path.dirname(target_path), exist_ok=True)
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            f.write(new_content)
-        if not is_new:
-            try:
-                os.chmod(tmp_path, os.stat(target_path).st_mode)
-            except OSError:
-                pass
-        os.replace(tmp_path, target_path)
-    except Exception as exc:
-        if os.path.exists(tmp_path):
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
-        print(f"machine-local: write failed: {exc}", file=sys.stderr)
+    if _write_registry_file(target_path, new_content, is_new) != 0:
         return 1
 
     print(f"machine-local: set {key!r} = {value!r} in {target_path}")
@@ -2370,8 +2783,7 @@ def cmd_set(args: argparse.Namespace) -> int:
         return EXIT_OPERATIONAL
 
     if os.path.exists(target_path):
-        with open(target_path, "r", encoding="utf-8") as f:
-            content = f.read()
+        content = _read_text_shared(target_path)
         is_new = False
     else:
         is_new = True
@@ -2515,24 +2927,7 @@ def cmd_set(args: argparse.Namespace) -> int:
         print(f"[dry-run] would {action} {key!r} = {value!r} in {target_path}")
         return 0
 
-    tmp_path = target_path + f".tmp.{os.getpid()}"
-    try:
-        os.makedirs(os.path.dirname(target_path), exist_ok=True)
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            f.write(new_content)
-        if not is_new:
-            try:
-                os.chmod(tmp_path, os.stat(target_path).st_mode)
-            except OSError:
-                pass
-        os.replace(tmp_path, target_path)
-    except Exception as exc:
-        if os.path.exists(tmp_path):
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
-        print(f"machine-local: write failed: {exc}", file=sys.stderr)
+    if _write_registry_file(target_path, new_content, is_new) != 0:
         return 1
 
     print(f"machine-local: {action} {key!r} = {value!r} in {target_path}")
@@ -2589,27 +2984,100 @@ def _remove_key(content: str, key: str) -> tuple[str, str | None]:
     return content, None
 
 
-def cmd_unset(args: argparse.Namespace) -> int:
-    if getattr(args, "concern", None):
+def _unset_concern_key(name: str, key: str, dry_run: bool, explicit: bool) -> int | None:
+    """Remove `key` from `<name>.local.toml` together with its provenance row (if any).
+
+    Returns None when the concern file does not hold the key and the caller was not
+    explicit, so the registry path can answer; otherwise an exit code, with a named
+    reason and the concern file path on every non-zero return."""
+    reg_dir = _registry_dir()
+    path = os.path.join(reg_dir, f"{name}.local.toml")
+    bare = key[len(name) + 1:] if key.lower().startswith(f"{name}.") else ""
+    if not os.path.exists(path):
+        if not explicit:
+            return None
+        print(f"machine-local: unset: {key!r} not set — concern file {path} does not exist.", file=sys.stderr)
+        return EXIT_NOT_FOUND
+    try:
+        existing_text = _read_bytes_shared(path).decode("utf-8")  # keep its newlines
+        existing = tomllib.loads(existing_text)
+    except tomllib.TOMLDecodeError as exc:
+        if not explicit:
+            return None
         print(
-            "machine-local: unset does not support --concern: the concern-file "
-            "writer (_cmd_set_concern) also writes a per-key [provenance.<key>] "
-            "table that a leaf-only removal would strand, and stranded-provenance "
-            f"removal is unimplemented. Hand-edit {args.concern}.local.toml instead.",
+            f"machine-local: unset: refusing — concern file {path} is malformed TOML: "
+            f"{exc}. Fix the file's syntax before unsetting from it.",
             file=sys.stderr,
         )
         return EXIT_OPERATIONAL
+    key = f"{name}.{bare}" if bare else key
+    held = bool(bare) and _flatten_concern(name, existing).get(key) is not None
+    if not held:
+        if not explicit:
+            return None
+        print(f"machine-local: unset: {key!r} not set in concern file {path}; nothing removed.", file=sys.stderr)
+        return EXIT_NOT_FOUND
 
+    old_value = _flatten_concern(name, existing).get(key)
+    new_content = _concern_text_edit(existing_text, existing, name, bare, None, None)
+    if new_content is None:
+        print(
+            f"machine-local: unset: {key!r} is held in concern file {path} in a shape this "
+            f"writer does not remove in place. Hand-edit {path}.",
+            file=sys.stderr,
+        )
+        return EXIT_OPERATIONAL
+    if dry_run:
+        print(f"[dry-run] would remove {key!r} (was {old_value!r}) from {path}")
+        return EXIT_OK
+    if _write_registry_file(path, new_content, False) != 0:
+        print(f"machine-local: unset: could not write concern file {path}.", file=sys.stderr)
+        return EXIT_OPERATIONAL
+    print(f"machine-local: removed {key!r} (was {old_value!r}) from {path}")
+    _note_other_layer(key, path)
+    return EXIT_OK
+
+
+def cmd_unset(args: argparse.Namespace) -> int:
     reg_dir = _registry_dir()
+    concern = getattr(args, "concern", None)
+    if concern:
+        raw = concern.strip()
+        if raw != raw.lower() or not re.fullmatch(r"[a-z0-9_-]+", raw):
+            print(
+                f"machine-local: unset: concern names must be lowercase names — got "
+                f"'{concern}'. Retry with e.g. --concern {raw.lower()}.",
+                file=sys.stderr,
+            )
+            return EXIT_OPERATIONAL
+        if args.write_global:
+            print("machine-local: unset: --concern and --global are mutually exclusive.", file=sys.stderr)
+            return EXIT_OPERATIONAL
+        if args.key.split(".")[0].lower() != raw:
+            print(
+                f"machine-local: unset: key {args.key!r} is not under concern namespace "
+                f"'{raw}' ({os.path.join(reg_dir, raw + '.local.toml')}). "
+                f"A `--concern {raw}` unset needs a key prefixed '{raw}.'.",
+                file=sys.stderr,
+            )
+            return EXIT_OPERATIONAL
+        return _unset_concern_key(raw, args.key, args.dry_run, True)
+    if not args.write_global:
+        first = args.key.split(".")[0]
+        if "." in args.key and re.fullmatch(r"[a-z0-9_-]+", first):
+            rc = _unset_concern_key(first, args.key, args.dry_run, False)
+            if rc is not None:
+                return rc
     target_file = "registry.toml" if args.write_global else "registry.local.toml"
     target_path = os.path.join(reg_dir, target_file)
     key = args.key
 
     if not os.path.exists(target_path):
+        print(f"machine-local: unset: {key!r} not set — {target_path} does not exist.", file=sys.stderr)
+        _note_other_layer(key, target_path)
         return EXIT_NOT_FOUND
 
-    with open(target_path, "r", encoding="utf-8") as f:
-        content = f.read()
+    content = _read_text_shared(target_path)
 
     try:
         parsed = tomllib.loads(content)
@@ -2624,6 +3092,8 @@ def cmd_unset(args: argparse.Namespace) -> int:
     flat = _flatten_nested(parsed)
     current = flat.get(key)
     if current is None:
+        print(f"machine-local: unset: {key!r} not set in {target_path}; nothing removed.", file=sys.stderr)
+        _note_other_layer(key, target_path)
         return EXIT_NOT_FOUND
 
     if isinstance(current, list):
@@ -2709,6 +3179,115 @@ def cmd_unset(args: argparse.Namespace) -> int:
             f"{target_path} — this is harmless valid TOML; remove it manually "
             "if desired."
         )
+    _note_other_layer(key, target_path)
+    return EXIT_OK
+
+
+def _remove_string_array_key(content: str, key: str) -> tuple[str, str | None]:
+    """Excise a flat string array `key` (`leaf = [ ... ]` under its `[parent]`
+    header, or `parent.leaf = [ ... ]` at the top level). `(content, None)` when
+    the definition is in any other shape — the caller refuses rather than guesses."""
+    parent, _, leaf = key.rpartition(".")
+    candidates = []
+    header = re.search(rf"^\[{re.escape(parent)}\]\s*$", content, re.MULTILINE)
+    if header:
+        nxt = re.search(r"^\[", content[header.end():], re.MULTILINE)
+        end = header.end() + nxt.start() if nxt else len(content)
+        candidates.append((header.end(), end, re.escape(leaf)))
+    first = re.search(r"^\[", content, re.MULTILINE)
+    candidates.append((0, first.start() if first else len(content), re.escape(key)))
+    for start, end, name in candidates:
+        m = re.search(rf"^[ \t]*{name}[ \t]*=[ \t]*\[[^\[\]]*\][ \t]*(#[^\n]*)?\n?",
+                      content[start:end], re.MULTILINE)
+        if m:
+            return content[:start + m.start()] + content[start + m.end():], m.group(0).strip()
+    return content, None
+
+
+def _drop_empty_publisher_headers(content: str) -> str:
+    """Remove `[publish...]` headers whose body is only blank lines. A header
+    whose body holds a comment is kept: the comment may be the operator's."""
+    pattern = re.compile(r"^\[publish(\.[^\]]*)?\][ \t]*(?:\n|\Z)(?:[ \t]*\n)*(?=\[|\Z)", re.MULTILINE)
+    while True:
+        new = pattern.sub("", content)
+        if new == content:
+            return content
+        content = new
+
+
+def _note_other_layer(key: str, target_path: str) -> None:
+    """Name the value `key` still resolves to after an unset of `target_path`.
+
+    Trap: unset is target-file-scoped; a lower layer (registry.toml defaults, a
+    concern file, an env override) can still answer `get`/`dump`, which reads as
+    if the unset did not take."""
+    try:
+        rc, value = resolve_one(key)
+    except Exception:  # noqa: BLE001 - advisory only
+        return
+    if rc == EXIT_OK and value is not None:
+        print(
+            f"machine-local: note: {key!r} still resolves to {value!r} from another "
+            f"layer (not {target_path}); `get`/`dump` show that value. "
+            "Use --global to unset it from registry.toml.",
+            file=sys.stderr,
+        )
+
+
+#: Publisher-only namespace; a consumer box carries none of it.
+_PUBLISHER_KEY_PREFIX = "publish."
+
+
+def cmd_retire_publisher(args: argparse.Namespace) -> int:
+    """Implement: machine-local retire-publisher [--global] [--dry-run] — remove
+    every `publish.*` key from one registry file in one write."""
+    reg_dir = _registry_dir()
+    target_path = os.path.join(reg_dir, "registry.toml" if args.write_global else "registry.local.toml")
+    if not os.path.exists(target_path):
+        print(f"machine-local: retire-publisher: {target_path} does not exist; no publisher config to retire.")
+        return EXIT_OK
+    content = _read_text_shared(target_path)
+    try:
+        parsed = tomllib.loads(content)
+    except tomllib.TOMLDecodeError as exc:
+        print(f"machine-local: retire-publisher: refusing — {target_path} is malformed TOML: {exc}.", file=sys.stderr)
+        return EXIT_OPERATIONAL
+    keys = sorted(k for k in _flatten_nested(parsed) if k.startswith(_PUBLISHER_KEY_PREFIX))
+    if not keys:
+        print(f"machine-local: retire-publisher: no publish.* keys in {target_path}; nothing to retire.")
+        return EXIT_OK
+    removed: list[str] = []
+    for key in keys:
+        new_content, old_value = _remove_key(content, key)
+        if old_value is None:
+            new_content, old_value = _remove_string_array_key(content, key)
+        if old_value is None:
+            print(
+                f"machine-local: retire-publisher: {key!r} is not surgically removable; "
+                f"hand-edit {target_path}. Nothing written.",
+                file=sys.stderr,
+            )
+            return EXIT_OPERATIONAL
+        content = new_content
+        removed.append(key)
+    content = _drop_empty_publisher_headers(content)
+    try:
+        leftover = [k for k in _flatten_nested(tomllib.loads(content)) if k.startswith(_PUBLISHER_KEY_PREFIX)]
+    except tomllib.TOMLDecodeError as exc:
+        print(f"machine-local: retire-publisher: refusing to write — post-removal TOML is malformed: {exc}.", file=sys.stderr)
+        return EXIT_OPERATIONAL
+    if leftover:
+        print(f"machine-local: retire-publisher: refusing to write — {leftover} still resolve after removal.", file=sys.stderr)
+        return EXIT_OPERATIONAL
+    if args.dry_run:
+        for key in removed:
+            print(f"[dry-run] would remove {key!r} from {target_path}")
+        return EXIT_OK
+    if _write_registry_file(target_path, content, False) != 0:
+        return EXIT_OPERATIONAL
+    for key in removed:
+        print(f"machine-local: removed {key!r} from {target_path}")
+    print(f"machine-local: retired publisher config ({len(removed)} key(s)).")
     return EXIT_OK
 
 
@@ -2791,8 +3370,7 @@ def cmd_migrate_publish_mirrors(args: argparse.Namespace) -> int:
         print("machine-local migrate-publish-mirrors: registry.local.toml absent — nothing to migrate.")
         return EXIT_OK
 
-    with open(local_path, "r", encoding="utf-8") as f:
-        content = f.read()
+    content = _read_text_shared(local_path)
 
     if not content.strip():
         print("machine-local migrate-publish-mirrors: registry.local.toml is empty — nothing to migrate.")
@@ -2965,17 +3543,18 @@ def cmd_migrate_publish_mirrors(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-_MUTATING_COMMANDS = frozenset({"set", "unset", "array-append", "array-set", "migrate-publish-mirrors", "relocate-store"})
+_MUTATING_COMMANDS = frozenset({"set", "unset", "retire-publisher", "array-append", "array-set", "migrate-publish-mirrors", "relocate-store"})
 
 
 @contextlib.contextmanager
-def _registry_write_lock(timeout_s: float = 10.0) -> Iterator[None]:
+def _registry_write_lock(timeout_s: float = 10.0) -> Generator[None, None, None]:
     """Serialize registry read-modify-write across processes.
 
     Trap: every mutating verb reads the whole file, edits, and os.replace()s it. Two sessions
     setting different keys at once each write a copy lacking the other's key, so one entry
     silently vanishes. An O_EXCL lock file is portable (no fcntl on Windows); a lock older than
-    60 s is a crashed writer's and is broken.
+    60 s is a crashed writer's and is broken. Residual race: two waiters breaking the same stale
+    lock can remove each other's fresh lock; accepted because breaks follow a crash, not contention.
     """
     lock_path = os.path.join(_registry_dir(), ".registry-write.lock")
     os.makedirs(os.path.dirname(lock_path), exist_ok=True)
@@ -2991,8 +3570,10 @@ def _registry_write_lock(timeout_s: float = 10.0) -> Iterator[None]:
                 if time.time() - os.path.getmtime(lock_path) > 60:
                     os.remove(lock_path)
                     continue
-            except OSError:
+            except FileNotFoundError:
                 continue
+            except OSError:
+                pass
             if time.monotonic() > deadline:
                 raise SystemExit(f"machine-local: registry is locked by another writer ({lock_path}); retry")
             time.sleep(0.05)
@@ -3015,7 +3596,7 @@ def main() -> int:
     # stream objects that don't expose reconfigure (non-TextIOWrapper).
     for _stream in (sys.stdout, sys.stderr):
         try:
-            _stream.reconfigure(newline="\n")
+            _stream.reconfigure(newline="\n", encoding="utf-8")
         except (AttributeError, ValueError):
             pass
 
@@ -3029,6 +3610,10 @@ def main() -> int:
     get_p.add_argument("key", help="Dotted key name (e.g. repos.claude_unreal_holodeck)")
     get_p.add_argument("--default", metavar="VALUE", default=None,
                        help="Value to print if key is missing (always exits 0)")
+
+    req_p = subparsers.add_parser(
+        "require", help="Print value for a key; exit 3 (typed refusal) if not set")
+    req_p.add_argument("key", help="Dotted key name (e.g. paths.cache_root)")
 
     has_p = subparsers.add_parser("has", help="Exit 0 if key is set, 1 if not set, 2 on operational failure (see machine-local-registry.md §4.1)")
     has_p.add_argument("key", help="Dotted key name")
@@ -3055,7 +3640,7 @@ def main() -> int:
     store_mode.add_argument("--list", action="store_true", help="Print every declared store")
     store_mode.add_argument(
         "--check", action="store_true",
-        help="Existence probe: one missing/orphan/incomplete/dead-dependent line per finding; exit 1 when any",
+        help="Existence probe: one missing/orphan/incomplete/dead-dependent/reparse line per finding; exit 1 when any",
     )
 
     loc_p = subparsers.add_parser(
@@ -3086,6 +3671,10 @@ def main() -> int:
         "--prefix", metavar="PREFIX", default=None,
         help="Only list keys equal to, or nested under (dotted), PREFIX (e.g. repos)",
     )
+    keys_p.add_argument(
+        "--set-only", action="store_true", dest="set_only",
+        help="Only list keys holding a non-empty value (omit declared-but-unset keys)",
+    )
 
     dump_p = subparsers.add_parser(
         "dump",
@@ -3111,6 +3700,15 @@ def main() -> int:
             "Also emit declared-but-unresolvable keys, as JSON null. Keeps "
             "DECLARED-but-unset distinguishable from UNREGISTERED without a second "
             "`keys` process. Incompatible with --format sh (exit 2)."
+        ),
+    )
+    dump_p.add_argument(
+        "--show-origin", action="store_true",
+        help=(
+            "Emit each key as {\"value\": ..., \"layer\": ...} naming the layer that "
+            "answered it (registry.local.toml, registry.toml (defaults), concern, env, "
+            "repos-ladder) -- shows when an unset key re-surfaces from defaults. "
+            "Incompatible with --format sh (exit 2)."
         ),
     )
     dump_p.add_argument(
@@ -3187,9 +3785,18 @@ def main() -> int:
         "--concern",
         metavar="NAME",
         default=None,
-        help="Not supported — accepted so the operator gets an actionable message "
-             "instead of a bare argparse 'unrecognized arguments' error.",
+        help="Remove the key from <NAME>.local.toml (and its provenance row). Without "
+             "it, a key held in its concern's .local.toml is still found and removed.",
     )
+
+    rp_p = subparsers.add_parser(
+        "retire-publisher",
+        help="Remove every publish.* key from ONE target file in one write — for a box "
+             "that is no longer a publisher.",
+    )
+    rp_p.add_argument("--global", dest="write_global", action="store_true",
+                      help="Retire from registry.toml instead of registry.local.toml")
+    rp_p.add_argument("--dry-run", action="store_true", help="Print what would be removed")
 
     aa_p = subparsers.add_parser(
         "array-append",
@@ -3241,6 +3848,7 @@ def main() -> int:
 
     dispatch = {
         "get": cmd_get,
+        "require": cmd_require,
         "has": cmd_has,
         "keys": cmd_keys,
         "external-workspace": cmd_external_workspace,
@@ -3253,14 +3861,19 @@ def main() -> int:
         "dir": cmd_dir,
         "set": cmd_set,
         "unset": cmd_unset,
+        "retire-publisher": cmd_retire_publisher,
         "array-append": cmd_array_append,
         "array-set": cmd_array_set,
         "migrate-publish-mirrors": cmd_migrate_publish_mirrors,
     }
-    if parsed.command in _MUTATING_COMMANDS:
-        with _registry_write_lock():
-            return dispatch[parsed.command](parsed)
-    return dispatch[parsed.command](parsed)
+    global _toml_memo
+    try:
+        if parsed.command in _MUTATING_COMMANDS:
+            with _registry_write_lock():
+                return dispatch[parsed.command](parsed)
+        return dispatch[parsed.command](parsed)
+    finally:
+        _toml_memo = None
 
 
 _DEPTH_ENV = "MACHINE_LOCAL_DEPTH"
@@ -3270,7 +3883,7 @@ _LOAD_PER_CPU_LIMIT = 8.0
 # Box-wide in-flight cap. Each invocation holds an OS lock on one of N slot files for its
 # whole life; when every slot is held it exits at once. The OS drops the lock when the
 # process exits or is killed, so an orphan holds a slot only while it is actually alive and
-# a crash never leaks one. Engine-side callers read the same directory and format.
+# a crash never leaks one.
 _SLOT_DIR_ENV = "MACHINE_LOCAL_SLOT_DIR"
 _MAX_INFLIGHT_ENV = "MACHINE_LOCAL_MAX_INFLIGHT"
 _DEFAULT_MAX_INFLIGHT = 16
@@ -3342,9 +3955,9 @@ def _spawn_storm_breaker() -> int | None:
     Trap: nothing this CLI does legitimately re-enters it, yet a descendant (a git
     hook, a BASH_ENV-sourced profile calling `machine-local get`) can, and each
     level fans out again: one such loop put 842 processes, 10+ deep, on a box in
-    3 s and took it down. The depth var is inherited by every child we spawn, so
-    any descendant that calls back in sees it and stops. Many unrelated top-level
-    callers (hooks across a dozen sessions) never nest, so the slot cap bounds them.
+    3 s. The depth var is inherited by every child we spawn, so any descendant
+    that calls back in sees it and stops. Many unrelated top-level callers never
+    nest, so the slot cap bounds them.
     """
     depth = os.environ.get(_DEPTH_ENV, "0")
     if depth != "0":
@@ -3371,4 +3984,13 @@ def _spawn_storm_breaker() -> int | None:
 
 if __name__ == "__main__":
     _refused = _spawn_storm_breaker()
-    sys.exit(_refused if _refused is not None else main())
+    if _refused is not None:
+        sys.exit(_refused)
+    _env = os.environ.get("MACHINE_LOCAL_DEADLINE_S")
+    try:
+        _secs = float(_env) if _env else _BACKSTOP_S
+    except ValueError:
+        _secs = _BACKSTOP_S
+    _scan_budget_s = _SCAN_BUDGET_S
+    _arm_deadline(_secs if sys.argv[1:2] and sys.argv[1] in {"get", "require", "has", "path", "dir", "dump", "keys"} else 0.0)
+    sys.exit(main())

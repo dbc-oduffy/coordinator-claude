@@ -28,12 +28,35 @@ def _pm_brief():
     return pm_brief
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+def _repo_root(explicit: str | None) -> Path:
+    """The repo the plan belongs to: `--repo-root`, else the nearest cwd ancestor holding
+    `.git`, else cwd. Never this file's own location -- run from the published engine, that
+    names the engine mirror, not the caller's repo (relative plans then FileNotFoundError)."""
+    if explicit:
+        return Path(explicit).resolve()
+    cwd = Path.cwd().resolve()
+    for candidate in (cwd, *cwd.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return cwd
+
+
+def _under(root: Path, raw: str) -> Path:
+    """`raw` as given when absolute; otherwise cwd-relative when that exists, else
+    `root`-relative -- a path typed at a shell means cwd first."""
+    path = Path(raw)
+    if path.is_absolute():
+        return path
+    cwd_path = Path.cwd() / path
+    return cwd_path if cwd_path.exists() else root / path
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="pm-brief")
+    parser.add_argument(
+        "--repo-root", default=None,
+        help="repo the plan or sizing belongs to (default: the git checkout enclosing cwd)",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     render = sub.add_parser("render", help="render the PM intent block for an audience")
@@ -48,20 +71,16 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
 
     pm_brief = _pm_brief()
-    repo_root = _repo_root()
+    repo_root = _repo_root(args.repo_root)
     if args.command == "from-sizing":
-        sizing_path = Path(args.sizing)
-        if not sizing_path.is_absolute():
-            sizing_path = repo_root / sizing_path
+        sizing_path = _under(repo_root, args.sizing)
         body = pm_brief.render_sizing_brief(sizing_path)
         if body is None:
             print(f"no pm_verbatims in {sizing_path}", file=sys.stderr)
             return 1
         print(body)
         return 0
-    plan_path = Path(args.plan)
-    if not plan_path.is_absolute():
-        plan_path = repo_root / plan_path
+    plan_path = _under(repo_root, args.plan)
 
     try:
         brief = pm_brief.resolve(plan_path, repo_root)

@@ -964,7 +964,7 @@ def check_name_free(name, client="", own_pid=None):
     reconnect (kill True). `own_pid` (the inbox-mux process) never counts as another holder.
     """
     live = list(entries())
-    if any(d.get("name") == name and not d.get("unimatrixMirror") for _, d, _ in live):
+    if any(d.get("name") == name and not (d.get("unimatrixMirror") or d.get("macSocketPath")) for _, d, _ in live):
         sys.exit(f"name {name} belongs to a live local session")
     # A second live mirror would duplicate the name, and its bind would orphan the older
     # relay on an unlinked socket; the caller stops the old one first.

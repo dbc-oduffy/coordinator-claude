@@ -87,6 +87,7 @@ from pathlib import Path, PureWindowsPath
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
+from _win_portability import no_console_spawn_kwargs, noninteractive_git_env  # noqa: E402
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root
 except Exception:
@@ -124,7 +125,8 @@ def _git_hooks_dir(cwd: str) -> str:
             capture_output=True,
             text=True,
             timeout=5,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            env=noninteractive_git_env(),
+            **no_console_spawn_kwargs(),
         )
     except Exception:
         return ""
@@ -215,7 +217,8 @@ def main() -> int:
             capture_output=True,
             text=True,
             timeout=5,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            env=noninteractive_git_env(),
+            **no_console_spawn_kwargs(),
         )
         repo_root = (
             repo_root_result.stdout.strip()

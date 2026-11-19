@@ -1,6 +1,4 @@
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-<!-- GENERATED FILE: do not edit. Source: install/steps.yaml; regenerate with `python setup/gen_install_docs.py`. -->
-<!-- INSTALL-DOE-ONLY:END -->
+<!-- GENERATED FILE: do not edit. -->
 
 # Installing coordinator-claude with Claude Code
 
@@ -9,18 +7,6 @@
 coordinator-claude is the doctrine; the coordinator engine (`claude-klabauter`) is a
 **hard co-requisite** most state-mutating flows fail without. An install that stops after
 leg 1 is incomplete — do not report it as done.
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-
-**In this repo (coordinator-content-repo), you are installing the doctrine source itself, not a downstream
-consumer of it.** Its `coordinator/` tree resolves live as the plugin, no publish step required.
-Its engine dependency is the same one every other install has: the published `claude-klabauter`
-mirror. Where the text says "register the public GitHub repo as the marketplace," read "register
-this clone" — see the DoE-only notes in each step.
-
-**`claude-klabauter` is where engine changes are authored; it is never the resolved engine root.**
-Its working tree moves constantly. The one carve-out is the explicit live-tree env override, the
-PM's manual test-and-execute path.
-<!-- INSTALL-DOE-ONLY:END -->
 
 ## What you are installing
 
@@ -50,7 +36,8 @@ The install lands in the **settings home**, `~/.coordinator-claude-settings` (or
 | **Python 3.11+: Homebrew `python3` on macOS** | `brew install python`; the engine puts its dependencies in `<settings-home>/engine-site`, so PEP-668 is no obstacle. No venv. Linux: the distro `python3`; Windows: python.org. Bare `python3` must resolve to it (§ Python, below). Floor 3.11 (`tomllib`). |
 | `gh` | Required — clone auth and merge/release ceremonies. `gh auth login` first. No brew: § `gh` without Homebrew. |
 | `jq` / `node` 18+ | Optional / ceremony-gate JS suite only. |
-| NotebookLM MCP | Optional (deep-research Pipeline D). Install per the [upstream README](https://github.com/jacob-bd/gemini-notebook-mcp-cli); it registers as `gemini-notebook-mcp`. No venv needed; the walk-through does not install or register it. |
+| **Windows only:** Smart App Control, App Execution Alias | Disable the Python App Execution Alias stubs (§ Python). Know Smart App Control's state before choosing the forwarder route: it blocks the unsigned `.exe` forwarders (§ Windows: Smart App Control). |
+| NotebookLM MCP | Optional (deep-research Pipeline D); registers as `gemini-notebook-mcp`. Supported layouts and the exact registration command: § NotebookLM. The walk-through does not install or register it. |
 | **The engine** | One hard dependency, not part of this clone. Installed at § Step 4, **after** the environment wiring (Step 3). |
 
 ### Your host
@@ -82,7 +69,8 @@ export PATH="/opt/homebrew/bin:$PATH"
 A pyenv shim or version directory earlier on PATH shadows it; remove that line.
 
 **Linux:** the distro `python3` (3.11+). **Windows:** python.org 3.11+, with the App Execution Alias
-stubs disabled.
+stubs disabled (Settings, Apps, Advanced app settings, App execution aliases), and Smart App Control
+checked (§ Windows: Smart App Control).
 
 ### `gh` without Homebrew
 
@@ -98,14 +86,123 @@ provide a `python3` (copy of `python.exe`), and start a fresh shell (`winget` ed
 registry PATH). Git Bash keeps `bash.exe` off `PATH`; launch "Git Bash" or use the full path. Run
 examples written as `bash` there; PowerShell/cmd set only `USERPROFILE`.
 
-<!-- INSTALL-DOE-ONLY:BEGIN -->
+**PowerShell profiles.** Never build a path under Documents by hand: folder redirection moves it.
+Ask the shell: `[Environment]::GetFolderPath('MyDocuments')` or `$PROFILE.CurrentUserAllHosts`.
+Windows PowerShell 5.1 and PowerShell 7 are separate shells with separate profiles and separate
+execution policies; check each one a profile is written into
+(`powershell -NoProfile -Command Get-ExecutionPolicy -List`, then the same with `pwsh`). A
+`Restricted` policy (or `AllSigned` for an unsigned profile) means that profile never loads.
 
-**The engine is a hard dependency, including OSS-mirror installs.** The engine root resolves via
-a ladder (env var, then the `repos.claude_klabauter` registry key, then a sibling-dir default) to
-the published `claude-klabauter` mirror — see `coordinator/docs/install/AGENT.md` § Fail-loud
-Claude-klabauter resolution. `claude-klabauter` is private (a 404 clone means access is not granted); the
-install does not need it.
-<!-- INSTALL-DOE-ONLY:END -->
+### Windows: Smart App Control
+
+Smart App Control (SAC, Windows 11) blocks unsigned executables that have no reputation, and the
+engine's .exe CLI forwarders are exactly that: no signed forwarder
+exists. Check the state first (0 = off, 1 = enforcing, 2 = evaluation; unreadable is treated as on):
+
+```powershell
+reg query HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy /v VerifiedAndReputablePolicyState
+```
+
+Windows installs carry one extra install question, **`forwarder_route`** (`py` | `exe`):
+"Use the fast prebuilt .exe forwarders (the .py route is slower but works with Smart App Control
+on)?". The answer is stored as the machine-local key `coordinator.forwarder_route`.
+
+| Route | Speed | Smart App Control |
+|---|---|---|
+| `exe` | fast | needs it **off**; every forwarder launch is blocked while it is on |
+| `py` | slower | works with it **on** |
+
+The default is `exe` only when the registry reads SAC off; enforcing, evaluation or unreadable
+default to `py`. A blocked launch surfaces as `WinError 4551` ("An Application Control policy has
+blocked this file"), or from Git Bash as a bare `Permission denied` that is not a chmod problem.
+The engine's `scripts/setup.py --check` launches one forwarder and reports a blocked launch as
+`FAIL [forwarder-launch]` naming SAC; an install step that hits the block reports BLOCKED:
+"re-run the install and choose forwarder_route=py (works with Smart App Control on), or turn
+Smart App Control off for the .exe route, then retry". `--check` fails only on the execution
+policy of the PowerShell the engine uses (`pwsh` first); the other PowerShell shell warns.
+
+**Switching routes later:** answer `forwarder_route` again in the Step 3 `--answers` document
+(`{"forwarder_route":"py"}`), then re-run the engine installer and its check from a new terminal,
+with the clone path from `machine-local get repos.claude_klabauter`:
+
+```bash
+python <klabauter-clone>/scripts/setup.py --i-am-agent
+python <klabauter-clone>/scripts/setup.py --check
+```
+
+Turning SAC off is the human's call and is permanent for that Windows install (Windows does not
+turn it back on without a reset).
+
+### Windows: elevated runs and finishing `schtasks` later
+
+Some optional extras need an elevated process: the Git Bash fast profile (it edits
+`Git\etc\profile` under Program Files) and the `schtasks /Create` jobs (host sampler, pruner,
+BoxCacheTrim). Run unelevated they report `Access is denied`, which is an advisory, not a failed
+install. An agent cannot click the UAC prompt, so the human approves it:
+
+```powershell
+Start-Process -Verb RunAs -Wait -FilePath (Get-Command python).Source -ArgumentList '<absolute script path>','--install'
+```
+
+The elevated window's output is not returned: confirm from the normal shell afterwards (the
+script's own `--check`, or `schtasks /Query /TN <task name>`). To finish a `schtasks` job later,
+re-run the exact command the advisory printed, the same way, from an elevated terminal. Never run
+the install-git-bash-fast-profile script twice blind: if its `--check` still says `ABSENT` right
+after it reported `installed block`, its BEGIN/END markers are missing and a re-run would add a
+second copy; report that instead.
+
+### NotebookLM (optional)
+
+Deep-research Pipeline D; install per the
+[upstream README](https://github.com/jacob-bd/gemini-notebook-mcp-cli). The supported layouts:
+
+- **User site of the system Python (default, no venv):** macOS Homebrew
+  `python3 -m pip install --user --break-system-packages notebooklm-mcp-cli`; Linux distro
+  `python3 -m pip install --user notebooklm-mcp-cli` (add `--break-system-packages` on a PEP-668
+  distro); Windows python.org `py -3 -m pip install --user notebooklm-mcp-cli`. The scripts land in
+  the user site's `bin` (POSIX) or `Scripts` (Windows) directory.
+- **Isolated tool environment:** `uv tool install notebooklm-mcp-cli` (or `pipx`). To keep the
+  packages in a directory of your choice, set `UV_TOOL_DIR` and `UV_TOOL_BIN_DIR` persistently
+  first and put the bin directory on the user PATH; there is no other "packages directory" option.
+  This is a venv by design, kept apart from every project.
+
+Never install into a pyenv shim or a project interpreter. Register the `notebooklm-mcp` entry
+script by its absolute path (`.exe` on Windows); in Claude Code the **name comes first** because
+`-e` is variadic and swallows a name placed after it:
+
+```bash
+claude mcp add gemini-notebook-mcp -s user -e NLM_AUTH_STORAGE=file -- <absolute path to notebooklm-mcp>
+```
+
+The browser sign-in is the human's: `nlm login --storage file` (never the Keychain-backed
+`protected` mode), run by absolute path or from a new terminal (§ Commands you hand the human).
+Verify with `<plugin-root>/pipelines/deep-research/notebooklm/nlm-preflight.py`.
+
+### Commands you hand the human
+
+A running session's PATH is fixed at its launch, so a PATH edit made during the install is
+invisible to it and to any `!` command the human runs inside it. Give the human a command by
+absolute path (resolve it at run time: `command -v`, `Get-Command`, `machine-local get <key>`), or
+say "open a new terminal first". A tool installed off PATH (a `pip install --user` Scripts
+directory, the npm global directory) needs that directory added to the user PATH, then a new
+terminal.
+
+### Consumer box: SessionStart banners and filing friction
+
+Some SessionStart text is written for the authoring fleet. On a consumer box:
+
+- **"Guardless session(s), no --plugin-dir ... relaunch"** names the authoring box's launcher,
+  which a consumer box does not have. Start a fresh `claude` instead: the marketplace-installed
+  plugin loads (Step 2).
+- **A foreign-platform `statusLine.command` box.** `~/.claude` can be git-synced across boxes, so
+  a POSIX `statusLine.command` can land on Windows (or the reverse). It is the human's call:
+  re-run the Step 3 environment wiring to regenerate it, or correct `statusLine.command` in
+  `~/.claude/settings.json` by hand.
+- **"Friction: memo ..."** names inboxes that exist only on the authoring fleet. File friction as
+  an issue or PR on `dbc-oduffy/coordinator-claude` (`CONTRIBUTING.md`); with no network route,
+  write a dated friction-log markdown file in the working directory and hand its absolute path to
+  the human.
+
 
 ## Step 0 — Detect: which track?
 
@@ -118,19 +215,10 @@ python3 <klabauter-clone>/lib/install/coordinator_install.py --plan
 
 Read `environment.track` (with `track_reason`) from the JSON.
 
-<!-- INSTALL-DOE-ONLY:BEGIN -->
+**That engine copy is the one authoritative `coordinator_install.py`.** Run it from the
+`claude-klabauter` clone for `--plan` and `--answers` alike; do not run a copy of it found under
+the plugin root, even if a command text names one.
 
-**On a DoE box, prefix the command with `CLAUDE_PLUGIN_ROOT=<DoE clone>/coordinator`.** The
-script defaults the plugin root to the engine clone when the variable is unset (a harness sets it
-only inside a command), reads the engine's own manifest, and reports `manifest/step drift`:
-that error is this missing variable, not real drift. The DoE box registers no plugin, so `--plan`
-reports `fresh` there and lists a `plugin_install` step; ignore the track and follow § Launching
-a session (Claude Code). That `plugin_install` step is the Claude plugin registration this box
-skips by design, for every agent type.
-
-The predicates behind each value are in
-`coordinator/docs/wiki/install-playbook-rationale/install-command-residue.md`.
-<!-- INSTALL-DOE-ONLY:END -->
 
 ### Tracks
 
@@ -180,6 +268,10 @@ the human afterwards what you found and did. **Stop and ask only on a genuine co
 the install would have to *overwrite*, or coordinator infra of unestablishable provenance. Name
 the file and the clash.
 
+Setup clones or adopts the user's `group-em` and `.claude` GitHub repos without overwriting a
+file, and links both homes into the repos folder (`machine-local get coordinator.repo_home`);
+report each home's action line to the human.
+
 ## Step 1 — Install via the `claude plugin` CLI
 
 Wire the whole system before the restart, so the fresh session comes up coordinator-shaped.
@@ -192,12 +284,6 @@ The clone provides helper scripts and the offline/dev variant. **Keep it**: the 
 ```bash
 git clone https://github.com/dbc-oduffy/coordinator-claude.git ~/coordinator-claude
 ```
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-
-**coordinator-content-repo's own install has no clone step and no plugin install.** This repo *is* the clone;
-the engine installer registers its `coordinator/` subdirectory as the live plugin. Skip 1a and
-the plugin-install commands of Step 1.
-<!-- INSTALL-DOE-ONLY:END -->
 
 If a clone is already on disk, resolve it yourself — do not ask:
 
@@ -233,34 +319,6 @@ moves and serves a **snapshot**, not live edits. The step clones over SSH;
 `Permission denied (publickey)` means add an SSH key (`gh auth login` does not satisfy it) or
 clone over HTTPS and register the directory. Surface CLI errors verbatim. Detail:
 `docs/wiki/install-playbook-rationale.md` § Step 1d.
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-
-**On a DoE box, do not run the two commands above, and register no coordinator plugin at all.**
-Plain `claude` stays vanilla Claude Code. The only entry is the `coordinator` shell function: it
-runs `claude-author` (`--plugin-dir` at this clone's `coordinator/`) with
-`--dangerously-skip-permissions`, so it always serves the live clone. No
-`coordinator@coordinator-claude` record in `installed_plugins.json` or `enabledPlugins`, and no
-`coordinator-claude` key in `extraKnownMarketplaces`, is correct
-(`docs/decisions/DR-plain-claude-is-vanilla-on-a-doe-box.md`). A `coordinator` session with no
-coordinator skills is a launcher problem; check with a real launch (§ Launching a session).
-
-**One-shot alternative — `coordinator-install`.** A single non-interactive trampoline performs the
-engine-side steps (registry substrate and the rest of the chain); the `claude-author` shim and
-`.content-root` pointer steps are the DoE copies (`coordinator/bin/gen-claude-author-shim.py`,
-`setup/doe-tools/gen-content-root-pointer.py`), run as in `coordinator/commands/install.md`:
-
-```bash
-"$(dirname "$(machine-local dir)")/bin/coordinator-install"   # --check-only to probe first
-```
-
-The trampoline sits under `<settings-home>/bin/`. **Do NOT invoke
-`coordinator_core/install/maximalist.py` directly** — it refuses without the env the trampoline
-exports. **Not a cold bootstrap:** it needs a resolvable engine root; confirm with
-`python3 coordinator/hooks/scripts/_engine_root.py` (exit 2, empty stdout: do § Step 1e first).
-`--check-only` does not verify the install. **Windows:** run `scripts\setup.cmd` under the
-resolved engine root. Caveats: `coordinator/docs/wiki/install-playbook-rationale.md` § One-shot
-alternative.
-<!-- INSTALL-DOE-ONLY:END -->
 
 **No sentinel, no onboarding baton, no `/pickup` staging.** The post-restart
 `/coordinator:install` (Step 3) *is* the onboarding and records its own completion receipt.
@@ -305,12 +363,6 @@ once it runs; this hand-set is the cold-box bootstrap (Step 4 needs the key firs
 
 **Both keys, always.** Without `engine.target` the ladder does not trust the registered engine and
 falls through to any sibling engine checkout it can find.
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-
-**On a DoE box the channel is `candidate`, not `main`** (the value the engine installer writes on a
-makers' box): set `engine.target candidate` and `git -C <klabauter-clone> switch candidate`.
-Without `engine.target`, the sibling `claude-klabauter` working tree answers as the engine root.
-<!-- INSTALL-DOE-ONLY:END -->
 
 > **If `machine-local` does not exist yet** (expected on a cold box; Phase 3 deposits it, so that
 > remedy is circular), hand-write the one durable route — a registry entry in
@@ -350,14 +402,6 @@ Tell the human exactly this:
 > The install opens `~/.claude` in your file manager; you never need to `cd` there. Everything
 > after runs in that one session; `bin/needs-restart.py` prints `none`, `/reload-plugins` or
 > `restart`, and the install asks for a further restart only on `restart`.
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-
-**On a DoE box plain `claude` is vanilla by design, and the `coordinator` function does not exist
-until the launcher is wired.** The first coordinator-loaded session is
-`claude --plugin-dir <DoE clone>/coordinator` (paste `/coordinator:install` there); or the agent
-runs the installer scripts directly through Bash, as `coordinator/commands/install.md` lays them
-out. From the second session on, use `coordinator` (§ Launching a session).
-<!-- INSTALL-DOE-ONLY:END -->
 
 ## Step 3 — Post-restart: finish the environment, onboard a project
 
@@ -382,38 +426,36 @@ and `tsgo` at the versions in `scripts/lsp_front_pins.json`. From the plugin roo
 `python scripts/lsp_stock_plugins.py --install` (installs the pins with `uv` and `npm`, then
 re-verifies; exit 1 on a mismatch or a missing installer), then
 `python scripts/lsp_stock_plugins.py --doctor` (one `backend <tool> ...` line per backend; it
-reports `backend X missing` and exits 1 when `ty` or `tsgo` is absent). The pins are bumped as
+reports `backend X missing` and exits 1 when `ty` or `tsgo` is absent; a binary present but off
+PATH reports `installed at <path>, not on PATH`: add that directory to the user PATH, then open
+a new terminal; `uv` via `pip install --user` and npm globals land off PATH on Windows). The pins are bumped as
 the tools release; `machine-local set lsp.front_backend pooled` is the per-box rollback to
 pyright and typescript-language-server.
-<!-- INSTALL-DOE-ONLY:BEGIN -->
 
-In this repo the plugin root is `coordinator/`.
-<!-- INSTALL-DOE-ONLY:END -->
+### Ask the human once: posture and every optional extra
 
-<!-- INSTALL-DOE-ONLY:BEGIN -->
+Before `--answers`, put **one** numbered questionnaire to the human in a single message and take
+the answer as one string; never answer an optional extra for them, and never drop one because a
+non-interactive default would skip it. Say what each "no" leaves out:
 
-### DoE-only: launching a session — `coordinator`, never plain `claude`
+1. **Posture** (offer it, never declare it; show the current value as the default and ask on
+   every guided install, never inherit it silently): `precision` (close to the work), `default`
+   (the PM/EM middle ground, the engineering manager acts and pushes back), or `substrate-free`
+   (maximum altitude: "build me X").
+2. Cross-box messaging (Unimatrix) and the Codex / agy host hooks (host CLIs first, Step 5).
+3. NotebookLM deep-research (§ NotebookLM).
+4. Context7 docs (it still needs a sign-in through `/mcp` after the install).
+5. Git Bash fast profile and the BoxCacheTrim task (each needs an elevated run, § Windows).
+6. Cloning the user's general-work repo.
+7. Persona renames.
+8. Optional tools: `jq`, `scc`, the 1Password CLI.
+9. Windows only: `forwarder_route` (§ Windows: Smart App Control).
 
-`coordinator` runs `claude-author` (`--plugin-dir` at this clone) with
-`--dangerously-skip-permissions`; edits here take effect next session with no reinstall. Plain
-`claude` loads no coordinator and is never shadowed. The launcher chain is this clone's:
-`coordinator/bin/gen-claude-author-shim.py` (the function; it supplies the default `--template`)
-and `setup/doe-tools/gen-content-root-pointer.py` (the pointer), run by `coordinator-install` or as in
-`coordinator/commands/install.md`. The engine's `scripts/setup.py` neither installs nor accepts
-the launcher chain. A bad pointer or missing `claude-author` fails loud. **Verify with a real
-launch** (`coordinator -p "reply ok"`); `--version` short-circuits and proves nothing
-(`coordinator/docs/wiki/coordinator-tripwires/a-launcher-check-that-never-launches-is-born-passing.md`).
-The launch's SessionStart orientation can switch this clone from `main` to the day's
-`work/<box>/<date>` branch, carrying uncommitted edits: run the check on a clean tree, or expect
-the switch. `<klabauter-clone>/scripts/unstick_claude.py` removes the shim.
+`--answers` is one flat JSON object keyed by the plan's decision `id`s, plus a **`consent`
+object** (`{"consent":{"<step id>":true}}`, shaped by `answers_shape` in the `--plan` output). A
+step that needs consent and has none is SKIPPED with "consent required; re-run with
+consent.<id>=true", whatever the permission mode: presumed extras are listed, not consented.
 
-**Pointer names.** `repos.content_root` is the canonical registry key; `repos.doe_claude` is its
-legacy spelling and `ensure-doe-clone.py` still reads it, so set both to the clone path. The
-installer writes the pointer file `<settings-home>/machine-local/.coordinator-content-root`
-(with a `.content-root` twin beside it); `.content-root` in older text means that pointer.
-The engine's help for the shim names `gen-claude-author-shim.sh` and says "for claude() to take
-effect": it is the `coordinator()` function that takes effect, in a new shell.
-<!-- INSTALL-DOE-ONLY:END -->
 
 ## Step 4 — Install the engine (`claude-klabauter`)
 
@@ -442,7 +484,8 @@ shell started after (4).
    ```
    Expect the Step 1e path. **Do not use `machine-local keys` as the check** — it prints a fatal
    malformed-registry error yet exits 0. `get` exits 2 correctly.
-2. **Windows:** disable the Python App Execution Alias stubs first (§ Requirements). Python 3.11+.
+2. **Windows:** disable the Python App Execution Alias stubs first and check Smart App Control
+   (§ Requirements, § Windows: Smart App Control). Python 3.11+.
 3. **The clone already exists** (Step 1e); do not clone again.
 4. **Run the agent install path**, non-interactive, from that clone:
    ```bash
@@ -468,77 +511,19 @@ In a Claude Code session, run **`/coordinator:setup`**: it walks `direct_deps`, 
 engine is satisfied and emits the chain-complete banner. It installs nothing; run earlier it fails
 loud with "engine not satisfied." That is the whole install.
 
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-
-**In this repo the steps above apply verbatim — clone and install `claude-klabauter`**, never
-`claude-klabauter` (its warm tree moves too fast to be a stable root). Author engine changes in
-Claude-klabauter, percolate to klabauter, install klabauter.
-
-**Pass `--coordinator-root <DoE clone>` to the Step 4 command**:
-`python3 <klabauter-clone>/scripts/setup.py --i-am-agent --coordinator-root <DoE clone>`.
-Without it the root ladder takes the sibling `coordinator-claude` directory (the OSS publish
-mirror) as content root, registers it as `repos.content_root`, and downgrades `engine.target` to
-`main`, all with exit 0. Recovery: re-run with the flag, then fix `repos.content_root` and
-`engine.target candidate` by hand with `machine-local set` (a re-run does not rewrite them).
-Confirm what answered:
-
-```bash
-python3 -c "import sys; sys.path.insert(0,'coordinator/hooks/scripts'); \
-import _engine_root as e; print(e.resolve_claude_klabauter_root_with_provenance())"
-```
-
-Healthy prints the klabauter path with class `resolved-engine`, provenance `published-target`. A
-`live-working-tree` class pointing at `claude-klabauter` is the misconfiguration to prevent.
-`scripts/setup.ps1` does **not** exist in either engine repo; do not cite one.
-<!-- INSTALL-DOE-ONLY:END -->
 
 ## Step 5 — Unimatrix cross-box messaging
 
 Unimatrix carries cross-box idle notices between boxes.
 
-<!-- INSTALL-DOE-ONLY:BEGIN -->
+### Host CLIs first
 
-### Optional: Unimatrix cross-box messaging
+Install the Codex and agy CLIs **before** Unimatrix when the box will govern those hosts: with
+one absent the installer reports `governance verification FAILED: codex not on PATH` and exits 5.
+Codex: `npm i -g @openai/codex`. agy on Windows: `winget install Google.AntigravityCLI`. Open a
+new terminal so PATH sees them, then re-run. The Grok CLI has no winget or npm package; install it
+by its vendor's instructions.
 
-Boxes on the same Claude account reach each other over native `/rc` (`ListAgents` plus
-`SendMessage` by name); skip this step for them. Unimatrix serves cross-account boxes and carries
-cross-box idle notices (bridge pipes are named `cc-msg-<32 hex>`). Check mode
-is the default and refuses outside the verified Claude Code range (`--force` downgrades the
-refusal to a warning):
-
-```bash
-python3 coordinator/bin/unimatrix-install.py            # macOS / Linux; Windows: python
-python3 coordinator/bin/unimatrix-install.py --install  # only after "in verified range"
-```
-
-**Transport: LAN first, tunnel off-network only.** Boxes on the same network reach each other
-directly over the LAN with the tunnel off; Unimatrix tooling tries the LAN address first and never
-requires the tunnel. A roaming box (a laptop away from home) reaches the home boxes over a
-self-hosted WireGuard tunnel that terminates on the home router; no third-party service (no
-Tailscale). The roaming box joins the home LAN over the tunnel, then SSH to the relay works as on
-the LAN. Set up the router's WireGuard server and each roaming box's peer by the router vendor's
-own instructions; the peer private key is vault-resident per box. No router model, endpoint,
-address or key body belongs in a tracked file. **On Windows, keep the tunnel inactive while on
-the home LAN:** a split-tunnel peer whose AllowedIPs include the home subnet routes it ahead of the
-NIC, so local traffic hairpins through the router. macOS keeps the LAN on its own interface.
-
-**Windows sshd and admin accounts.** For an account in Administrators, OpenSSH reads
-`%ProgramData%\ssh\administrators_authorized_keys`, never `~/.ssh/authorized_keys`, and ignores
-that file unless its ACL grants only Administrators and SYSTEM. Key changes need no restart; on
-Windows 11 `Restart-Service sshd` fails because `SshdBroker` depends on it.
-
-**Key naming.** Each key is named `<role>: <from> → <to>`. Roles: `Unimatrix-01` is full shell,
-break-glass; `Unimatrix-Zero` is the comms relay only; `Unimatrix-02` is the project-rag tunnel
-only. One key per box pair, so a leak's blast radius is that pair; Zero is needed one way per pair
-because the initiating box holds the inbox connection. Unimatrix-01 is a full mesh: "we should be
-able to pick any one box as the controller or controlled, so long as the keys authenticate etc
-etc". The one network-wide G-EM reaches other boxes over these keys; any box may hold it (last
-writer wins). 1Password's CLI cannot edit SSH Key items, and a CLI import of an existing OpenSSH
-key lands unparsed: import and rename in the app (`op --ssh-generate-key` is fine).
-
-Route order and key custody: `coordinator/skills/group-em/references/multibox.md`,
-`coordinator/docs/wiki/multibox-key-custody.md`.
-<!-- INSTALL-DOE-ONLY:END -->
 
 ### Consumer box: Unimatrix from the released plugin
 
@@ -577,33 +562,8 @@ Don't infer coordinator is live from the absence of errors:
 Cosmetic: the plugin adds ~8.2k tokens to every session baseline, and `claude plugin details`
 shows doubled skill names (skill plus same-named command wrapper).
 
-<!-- INSTALL-DOE-ONLY:BEGIN -->
 
-### In this repo
 
-**Tests resolve.** `python -m pytest coordinator/tests` should collect and run (see § Build &
-Test in this repo's `CLAUDE.md`); the OSS mirror ships no such tree.
-<!-- INSTALL-DOE-ONLY:END -->
-
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-
-## Machinery locations
-
-The executable install-chain surface (orchestrator, `scripts/setup.py`, substrate writer,
-`normalize_env`) lives in `claude-klabauter` and resolves via the engine-root ladder; the DoE-clone
-scripts are in `setup/doe-tools/` and `coordinator/bin/`. Path table and phase order:
-`coordinator/docs/wiki/install-playbook-rationale.md` § Machinery locations.
-<!-- INSTALL-DOE-ONLY:END -->
-
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-
-## Percolation surface
-
-`/percolate` needs a hand-provisioned `.percolate-identity` (copy
-`coordinator/templates/setup/.percolate-identity.example` to `setup/.percolate-identity` and fill
-`PERSONAL_REVIEW_PATTERNS`). Provisioning and the `publish.py --dry-run` check:
-`coordinator/docs/wiki/install-playbook-rationale.md` § Percolation surface.
-<!-- INSTALL-DOE-ONLY:END -->
 
 ## Manual install (fallback only)
 
@@ -629,11 +589,6 @@ run `/coordinator:install` as in Step 3.
 After install the human evolves their live, git-tracked `~/.claude`. Do NOT edit the
 `coordinator-claude` source repo to customize behaviour; the next install overwrites it.
 `coordinator.local.md` at a consuming repo's root is the one exception.
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-
-**This repo is the exception to its own rule:** it *is* the source, so editing `coordinator/` here
-is the intended workflow.
-<!-- INSTALL-DOE-ONLY:END -->
 
 ## Failure modes
 
@@ -643,15 +598,20 @@ is the intended workflow.
   moved: re-register from GitHub, then `/reload-plugins`.
 - **Commands missing after install.** Hooks and commands load at startup; restart (Step 2).
 
+### Close with a not-done list
+
+End your report with an explicit **not-done list**: every step that did not run, and every
+human step you cannot do. The real-launch check is the human's: a fresh terminal the human
+opens, running the real launch command (a launch that never starts the host, such as
+`--version`, proves nothing). Verify from the user's real default shell with a clean env: on
+Windows, `Remove-Item Env:PSExecutionPolicyPreference` first, in each PowerShell (5.1 and 7)
+that carries a profile. A pass in the shell you ran the install from is not that verdict.
+
 ### Reporting rough edges
 
 Per-project config is `coordinator.local.md` (`/coordinator:repo-setup` writes it). If you worked
 around a rough edge, offer to send it upstream (PR or issue on `dbc-oduffy/coordinator-claude`;
 see `CONTRIBUTING.md`).
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-
-**In this repo you *are* upstream.** Fix it here; do not draft a PR against yourself.
-<!-- INSTALL-DOE-ONLY:END -->
 
 ## Keeping the install current
 
@@ -669,8 +629,3 @@ update baseline (a published-clone commit SHA written only by a completed
 
 - Guided runbook, one phase at a time: `commands/install.md`. Reversing an install:
   `commands/uninstall.md`. Install-chain walker: `docs/install/AGENT.md`.
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-- `coordinator/docs/wiki/DIRECTORY_GUIDE.md` — the wiki index (coordinator-content-repo authoring surface only).
-- Percolation topology and the `PERCOLATE_ROOT` chain:
-  `coordinator/docs/wiki/install-playbook-rationale/percolate-setup.md`.
-<!-- INSTALL-DOE-ONLY:END -->

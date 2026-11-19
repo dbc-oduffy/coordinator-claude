@@ -47,6 +47,11 @@ for _p in (_SCRIPTS, _TESTS, _TESTS / "fixtures" / "skill-weight"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
+from _win_portability import (  # noqa: E402
+    no_console_spawn_kwargs,
+    noninteractive_git_env,
+)
+
 OVERRIDE_ENV = "COORDINATOR_OVERRIDE_PRECOMMIT_SKILL_WEIGHT_BUDGET"
 _SKILLS_PREFIX = "coordinator/skills/"
 _BASELINE_PATH = "coordinator/tests/baselines/skill-weight-budget.json"
@@ -66,7 +71,8 @@ def _git(*args: str, stdin: bytes = b"") -> bytes:
             input=stdin,
             capture_output=True,
             check=False,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            env=noninteractive_git_env(),
+            **no_console_spawn_kwargs(),
             timeout=60,
         )
     except (subprocess.TimeoutExpired, OSError) as exc:

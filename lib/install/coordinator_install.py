@@ -31,11 +31,12 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Callable
 
 SCHEMA = "coordinator-install-plan/1"
 RAN, SKIPPED, INHERITED, FAILED = "RAN", "SKIPPED", "INHERITED", "FAILED"
+BLOCKED = "BLOCKED"  # a launch the OS code-integrity policy refused: the step's work never ran, nothing in it failed
 
 POSTURE_QUESTION = "How do you want the coordinator EM to work with you day to day?"
 POSTURE_OPTIONS = {
@@ -60,14 +61,15 @@ POSTURE_WHY = (
 )
 
 ORIENTATION = (
+    "The first choice is your posture: how closely the EM consults you (precision, default or "
+    "substrate-free), asked of you before anything else. "
     "You are installing a collaboration contract, not software. You are the PM: product authority "
     "-- what to build, ship, cut. The EM (Claude) is the engineering manager: how to build it, when "
     "to dispatch, how to review. The EM acts on engineering calls without hand-holding and pushes "
     "back when it disagrees with you. Non-trivial work flows plan, enrich, review, execute, review "
     "rather than straight to code; reviewer personas are available at the cost of minutes; "
     "/workstream-start and /workstream-complete bracket a working session. You do not need to learn "
-    "the machinery: brief the EM in plain language and it picks the agents. The posture question "
-    "below sets how closely the EM consults you."
+    "the machinery: brief the EM in plain language and it picks the agents."
 )
 
 TOUR = (
@@ -117,19 +119,55 @@ TOUR = (
     },
 )
 
-STATUS_LINE_CMD = (
-    'S="$(cat "$HOME/.claude/.coordinator-plugin-root" 2>/dev/null)/bin/{script}"; '
-    'python3 "$S" || python "$S"'
-)
+STATUS_LINE_LAUNCHER = "statusline-launch.py"
+# Quote-free, `$`-free and absolute-path-free so one git-synced settings.json value runs on every
+# box: `~` is expanded by the shell Claude Code runs it through, `python` is absent on macOS and
+# `python3` is a Store stub on Windows, hence the ordered fallback.
+STATUS_LINE_CMD = f"python ~/.claude/{STATUS_LINE_LAUNCHER} || python3 ~/.claude/{STATUS_LINE_LAUNCHER}"
+
+
+def status_line_cmd(config_dir: Path) -> str:
+    """The statusLine command for a config dir: the git-synced `~/.claude` form when the launcher
+    lands there, else the same shape naming the launcher's absolute path (that settings.json is not
+    the synced one)."""
+    try:
+        home_form = config_dir.resolve() == (Path.home() / ".claude").resolve()
+    except OSError:
+        home_form = False
+    if home_form:
+        return STATUS_LINE_CMD
+    launcher = (config_dir / STATUS_LINE_LAUNCHER).as_posix()
+    return f"python {launcher} || python3 {launcher}"
+
+
+# Written beside settings.json; reads the sibling breadcrumb so no per-box root lands in the command.
+STATUS_LINE_LAUNCHER_SOURCE = '''\
+"""Runs the live coordinator statusline: the root is named by the `.coordinator-plugin-root`
+breadcrumb beside this file."""
+import runpy
+import sys
+from pathlib import Path
+
+try:
+    root = (Path(__file__).resolve().parent / ".coordinator-plugin-root").read_text(encoding="utf-8").strip()
+except OSError:
+    root = ""
+if not root:
+    sys.exit("statusline-launch: .coordinator-plugin-root is missing or empty; re-run scripts/setup.py")
+script = str(Path(root) / "bin" / "statusline.py")
+sys.argv[0] = script
+runpy.run_path(script, run_name="__main__")
+'''
 
 
 def _is_coordinator_status_line(command: str) -> bool:
-    """A statusLine command that already runs a coordinator statusline: the breadcrumb form, or
-    an older install's plugin-cache glob (`…/coordinator-claude/coordinator/*/bin/statusline.py`).
-    Either is replaced in place; relocating one into statusline-inner.json would make the
-    statusline delegate to a stale cache copy of itself."""
+    """A statusLine command that already runs a coordinator statusline: the launcher form, the
+    older `$(cat breadcrumb)` form, or an older install's plugin-cache glob
+    (`…/coordinator-claude/coordinator/*/bin/statusline.py`). Each is replaced in place;
+    relocating one into statusline-inner.json would make the statusline delegate to a stale
+    copy of itself."""
     normalized = command.replace("\\", "/")
-    return ".coordinator-plugin-root" in normalized or (
+    return STATUS_LINE_LAUNCHER in normalized or ".coordinator-plugin-root" in normalized or (
         "coordinator" in normalized and "/bin/statusline.py" in normalized)
 
 
@@ -184,11 +222,65 @@ def plugin_root_source() -> tuple[Path, str]:
     own = Path(__file__).resolve().parents[2]
     if manifest_path(own).is_file():
         return own, "script clone (CLAUDE_PLUGIN_ROOT unset)"
-    tree = doe_tree_from_evidence()
+    tree = doe_tree_from_evidence() or _manifest_bearing_content_root()
     if tree and manifest_path(tree / "coordinator").is_file():
         return (tree / "coordinator",
                 "DoE checkout named by the machine registry (CLAUDE_PLUGIN_ROOT unset)")
     return own, "script clone (CLAUDE_PLUGIN_ROOT unset; no install manifest found there or in a registered DoE checkout)"
+
+
+def _manifest_bearing_content_root() -> Path | None:
+    """A registered `repos.content_root` / `repos.doe_claude` checkout that carries the install
+    manifest under `coordinator/`, with no dev-repo sentinel required; a publish mirror never counts."""
+    flat = _registry_flat()
+    for key in ("repos.content_root", "repos.doe_claude"):
+        value = str(flat.get(key) or "").strip()
+        if value and not _is_registered_publish_mirror(Path(value)) \
+                and manifest_path(Path(value) / "coordinator").is_file():
+            return Path(value)
+    return None
+
+
+def default_plugin_root_env() -> Path | None:
+    """On a DoE box (breadcrumb, `.coordinator-dev-repo` tree, or registered content root) with
+    `CLAUDE_PLUGIN_ROOT` unset, export the DoE plugin root so spawned children resolve it too.
+    Returns the root exported, else None; an unset env on a non-DoE box stays unset."""
+    if os.environ.get("CLAUDE_PLUGIN_ROOT"):
+        return None
+    root, source = plugin_root_source()
+    own_is_doe = source.startswith("script clone (CLAUDE_PLUGIN_ROOT unset)") and is_doe_tree(root.parent)
+    if not (source.startswith(("doctrine breadcrumb", "DoE checkout")) or own_is_doe):
+        return None
+    if not manifest_path(root).is_file():
+        return None
+    os.environ["CLAUDE_PLUGIN_ROOT"] = str(root)
+    return root
+
+
+ENGINE_TARGETS = ("main", "candidate")
+
+
+def register_engine(engine_root: str | None, engine_target: str | None) -> list[str]:
+    """Write `repos.claude_klabauter` / `engine.target` to the registry on a box with no engine
+    yet resolvable; idempotent. Returns the `key=value` pairs asked for. ValueError on a root that
+    is not an engine checkout or a target outside `ENGINE_TARGETS`."""
+    pairs: dict[str, str] = {}
+    if engine_root:
+        root = Path(engine_root).expanduser().resolve()
+        if not (root / "coordinator_core").is_dir():
+            raise ValueError(f"--engine-root {root} holds no coordinator_core/; pass the engine checkout")
+        pairs["repos.claude_klabauter"] = str(root)
+    if engine_target:
+        if engine_target not in ENGINE_TARGETS:
+            raise ValueError(f"--engine-target must be one of {', '.join(ENGINE_TARGETS)}, got {engine_target!r}")
+        pairs["engine.target"] = engine_target
+    if "repos.claude_klabauter" in pairs and pairs["repos.claude_klabauter"] not in sys.path:
+        sys.path.insert(0, pairs["repos.claude_klabauter"])
+    if pairs:
+        from coordinator_core.machine_resolver import registry_set
+        for key, value in pairs.items():
+            registry_set(key, value)
+    return [f"{k}={v}" for k, v in pairs.items()]
 
 
 def manifest_found() -> bool:
@@ -287,14 +379,61 @@ class SpawnFailure(int):
     """
 
 
+class LaunchBlocked(SpawnFailure):
+    """A launch the OS refused (WinError 4551, or exit 126 with `Permission denied` under Git Bash).
+
+    Smart App Control blocks unsigned forwarder images this way; the command's own work never ran.
+    """
+
+
+LAUNCH_BLOCKED_REMEDY = (
+    "Smart App Control blocked an unsigned forwarder: re-run the install and choose forwarder_route=py "
+    "(works with Smart App Control on), or turn Smart App Control off for the .exe route, then retry"
+)
+_WINERROR_CODE_INTEGRITY = 4551
+
+
+def _launch_class(rc: int, out: str) -> int:
+    """`rc` as a LaunchBlocked when `out` shows an exit-126 permission denial, else `rc` unchanged."""
+    if rc == 126 and "permission denied" in out.lower():
+        return LaunchBlocked(126)
+    return rc
+
+
 def run(argv: list[str], timeout: int = 300) -> tuple[int, str]:
     try:
         proc = subprocess.run(
-            argv, capture_output=True, text=True, timeout=timeout, creationflags=_no_console(),
+            argv, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=timeout, creationflags=_no_console(),
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == _WINERROR_CODE_INTEGRITY:
+            return LaunchBlocked(127), f"{type(exc).__name__}: {exc} (blocked by Smart App Control)"
         return SpawnFailure(127), f"{type(exc).__name__}: {exc}"
-    return proc.returncode, (proc.stdout + proc.stderr).strip()
+    except subprocess.TimeoutExpired as exc:
+        return SpawnFailure(127), f"{type(exc).__name__}: {exc}"
+    out = (proc.stdout + proc.stderr).strip()
+    return _launch_class(proc.returncode, out), out
+
+
+def sac_state() -> int | None:
+    """Smart App Control state from the registry: 0 off, 1 enforcing, 2 evaluation; None when unreadable."""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\CI\Policy") as key:
+            value, _ = winreg.QueryValueEx(key, "VerifiedAndReputablePolicyState")
+    except (ImportError, OSError):
+        return None
+    return value if isinstance(value, int) else None
+
+
+def _is_windows() -> bool:
+    return platform.system() == "Windows"
+
+
+def default_forwarder_route() -> str:
+    """`exe` only when Smart App Control reads off; enforcing, evaluation (which can promote itself) and unreadable read `py`."""
+    return "exe" if sac_state() == 0 else "py"
 
 
 # --------------------------------------------------------------------------- decisions
@@ -310,6 +449,44 @@ class Decision:
     level: str  # required | recommended | optional
 
 
+@dataclass(frozen=True)
+class Extra:
+    """One optional extra: the questionnaire item and the decision it answers read this one row."""
+    id: str  # decision id
+    prompt: str
+    leaves_out: str  # what answering `n` leaves out
+    accept: str
+    decline: str
+    step: str = ""  # risky step whose consent an accepted answer grants
+    presumed: bool = False  # a permission-mode default of `accept` counts as the operator's consent
+
+
+OPTIONAL_EXTRAS: tuple[Extra, ...] = (
+    Extra("track_claude_home", "Git-track ~/.claude so your configuration is versioned and backed up?",
+          "~/.claude stays untracked: no versioned backup of your configuration, and the identity file has no git repository to sit in.",
+          "init", "skip", step="claude_home_repo"),
+    Extra("context7", "Install the Context7 plugin (live library documentation for agents)?",
+          "agents that verify API claims (docs-checker, executor, staff reviewers) guess instead of reading live library docs.",
+          "install", "skip", step="context7", presumed=True),
+    Extra("notebooklm", "Use NotebookLM (deep-research Pipeline D)?",
+          "deep-research Pipeline D is unavailable; pipelines A-C are unaffected.",
+          "install", "skip", presumed=True),
+    Extra("status_lines", "Wire the coordinator status line and subagent status line?",
+          "no context-window sidecar, so the context-pressure advisory has nothing to read, and subagent rows disappear.",
+          "wire", "skip"),
+    Extra("forwarder_route", "Use the fast prebuilt .exe forwarders (the .py route is slower but works with Smart App Control on)?",
+          "the .py route is used instead: slower (an interpreter start per call) but Smart App Control and UAC stay on.",
+          "exe", "py"),
+    Extra("open_claude_home", "Open ~/.claude in your file manager?",
+          "nothing opens; browse to ~/.claude yourself to edit CLAUDE.md.",
+          "open", "skip"),
+)
+
+
+def extra_prompt(extra_id: str) -> str:
+    return next(e.prompt for e in OPTIONAL_EXTRAS if e.id == extra_id)
+
+
 def detect_profile() -> str:
     """The hook-side machine-profile reader's answer: explicit registry value, else
     `author` when a registered repo carries the dev-repo sentinel. `consumer` when the
@@ -321,7 +498,18 @@ def detect_profile() -> str:
         from _machine_profile import machine_profile
     except Exception:
         return "consumer"
-    return machine_profile()
+    profile = machine_profile()
+    if profile == "author" and not _authoring_tree_exists():
+        return "consumer"
+    return profile
+
+
+def _authoring_tree_exists() -> bool:
+    """True iff the evidence or an existing `repos.*` registry path names a DoE source tree on this box."""
+    if doe_tree_from_evidence():
+        return True
+    return any(is_doe_tree(Path(v)) for k, v in _registry_flat().items()
+               if k.startswith("repos.") and isinstance(v, str) and v)
 
 
 def default_guard_level(profile: str) -> str:
@@ -338,10 +526,18 @@ def build_decisions(permission_mode: str | None = None) -> list[Decision]:
     profile = detect_profile()
     extras_on = _MODE_ADAPTATION.get(permission_mode or "", ("extras_on", ""))[0] == "extras_on"
     extra_default = "install" if extras_on else "skip"
+    route = [Decision(
+        "forwarder_route", extra_prompt("forwarder_route"),
+        "The door forwarders are unsigned, so Smart App Control blocks the .exe images. py keeps Smart App Control on and pays an interpreter start per call; exe is fastest. The default follows the Smart App Control state read from the registry.",
+        ("py", "exe"), default_forwarder_route(), "recommended",
+    )] if _is_windows() else []
     return [
         Decision(
-            "track_claude_home",
-            "Git-track ~/.claude so your configuration is versioned and backed up?",
+            "posture", POSTURE_QUESTION, POSTURE_WHY,
+            tuple(f"{k}: {v}" for k, v in POSTURE_OPTIONS.items()), None, "required",
+        ),
+        Decision(
+            "track_claude_home", extra_prompt("track_claude_home"),
             "The identity file lives in ~/.claude and must sit inside a git repository. Creates a local repository only: no remote, no push.",
             ("init", "skip"), "init", "recommended",
         ),
@@ -364,10 +560,6 @@ def build_decisions(permission_mode: str | None = None) -> list[Decision]:
             ("<free text>",), "", "optional",
         ),
         Decision(
-            "posture", POSTURE_QUESTION, POSTURE_WHY,
-            tuple(f"{k}: {v}" for k, v in POSTURE_OPTIONS.items()), "default", "required",
-        ),
-        Decision(
             "machine_profile",
             "Is this a consumer box or an author box?",
             "Author boxes carry strict guards and fleet machinery; consumer boxes never read or write author fleet state.",
@@ -379,21 +571,19 @@ def build_decisions(permission_mode: str | None = None) -> list[Decision]:
             "warn is the default: a guard outside the irreversible-act floor never denies and adds at most one advisory line per event; off is silent. Irreversible-act guards stay hard. Change later: machine-local set coordinator.guard_level <level>.",
             ("strict", "warn", "off"), default_guard_level(profile), "recommended",
         ),
+        *route,
         Decision(
-            "context7",
-            "Install the Context7 plugin (live library documentation for agents)?",
+            "context7", extra_prompt("context7"),
             "Agents that verify API claims (docs-checker, executor, staff reviewers) guess without it. Registers the claude-plugins-official marketplace itself.",
             ("install", "skip"), extra_default, "recommended",
         ),
         Decision(
-            "notebooklm",
-            "Use NotebookLM (deep-research Pipeline D)?",
+            "notebooklm", extra_prompt("notebooklm"),
             "Powers deep research; pipelines A-C work without it. The installer only checks that it is registered; install it per its own README.",
             ("install", "skip"), extra_default, "recommended",
         ),
         Decision(
-            "status_lines",
-            "Wire the coordinator status line and subagent status line?",
+            "status_lines", extra_prompt("status_lines"),
             "The main line is the only producer of the context-window sidecar the context-pressure advisory reads; subagent rows show model, effort and distance to compaction.",
             ("wire", "skip"), "wire", "recommended",
         ),
@@ -422,8 +612,7 @@ def build_decisions(permission_mode: str | None = None) -> list[Decision]:
             ("use", "skip"), "use" if shutil.which("agy") else "skip", "optional",
         ),
         Decision(
-            "open_claude_home",
-            "Open ~/.claude in your file manager?",
+            "open_claude_home", extra_prompt("open_claude_home"),
             "Shows you the files that govern your sessions (CLAUDE.md and friends) so you can edit them.",
             ("open", "skip"), "open", "optional",
         ),
@@ -467,13 +656,18 @@ def resolve_answers(raw: dict, permission_mode: str | None, non_interactive: boo
         else:
             value = d.default
         if value is None:
-            if d.level == "required":
+            if did == "posture":
+                problems.append("posture: no answer; the human chooses it, and no default or inherited identity value is applied")
+            elif d.level == "required":
                 problems.append(f"required decision has no answer and no default: {did}")
             continue
         allowed = [o.split(":")[0] for o in d.options] if did == "posture" else list(d.options)
         if allowed != ["<free text>"] and value not in allowed:
             problems.append(f"{did}: {value!r} not one of {allowed}")
         answers[did] = value
+    for extra in OPTIONAL_EXTRAS:
+        if extra.presumed and extra.step in risky and answers.get(extra.id) == extra.accept:
+            answers["consent"].setdefault(extra.step, True)
     return answers, problems
 
 
@@ -497,7 +691,10 @@ def _fail(stage: str, detail: str, follow_up: str = "", *, retryable: bool = Fal
 
 
 def _fail_run(stage: str, rc: int, detail: str, follow_up: str = "") -> StepResult:
-    """FAILED from a `run` result: always an invocation failure, so retryable."""
+    """FAILED from a `run` result (an invocation failure, so retryable); BLOCKED when the OS refused the launch."""
+    if isinstance(rc, LaunchBlocked):
+        return StepResult(BLOCKED, f"{detail} (launch blocked by Smart App Control)",
+                          follow_up or LAUNCH_BLOCKED_REMEDY, stage)
     if not follow_up and isinstance(rc, SpawnFailure):
         follow_up = "the command could not be launched or timed out; check the tool is installed, then retry"
     return _fail(stage, detail, follow_up, retryable=True)
@@ -559,7 +756,32 @@ def _machine_local_set(key: str, value: str) -> StepResult:
     if cp is None:
         return _fail_run("load", SpawnFailure(127), f"machine-local set {key} could not launch or outlived its ceiling")
     out = (cp.stdout + cp.stderr).strip()
-    return StepResult(RAN, f"{key}={value}") if cp.returncode == 0 else _fail_run("load", cp.returncode, out)
+    return StepResult(RAN, f"{key}={value}") if cp.returncode == 0 else _fail_run("load", _launch_class(cp.returncode, out), out)
+
+
+def step_forwarder_route(ctx: Ctx) -> StepResult:
+    """Persist the chosen forwarder route in-process (the machine-local forwarder is not deposited yet)."""
+    route = ctx.answers.get("forwarder_route")
+    if route is None:
+        return StepResult(SKIPPED, "no forwarder route choice on this platform")
+    root = ctx.engine_root
+    inserted = bool(root) and root not in sys.path
+    if inserted:
+        sys.path.insert(0, root)
+    try:
+        from coordinator_core.machine_resolver import registry_get, registry_set
+        if registry_get(_FORWARDER_ROUTE_KEY) == route:
+            return StepResult(INHERITED, f"{_FORWARDER_ROUTE_KEY} already {route}")
+        registry_set(_FORWARDER_ROUTE_KEY, route)
+    except Exception as exc:
+        return _fail("load", f"cannot set {_FORWARDER_ROUTE_KEY}: {type(exc).__name__}: {exc}", retryable=True)
+    finally:
+        if inserted and root in sys.path:
+            sys.path.remove(root)
+    return StepResult(RAN, f"{_FORWARDER_ROUTE_KEY}={route}")
+
+
+_FORWARDER_ROUTE_KEY = "coordinator.forwarder_route"
 
 
 def step_orientation(ctx: Ctx) -> StepResult:
@@ -635,7 +857,8 @@ def step_substrate(ctx: Ctx) -> StepResult:
             return _fail("artifact", f"{script} not found")
         try:
             proc = subprocess.run(_py(str(script)), capture_output=True, text=True,
-                                  timeout=600, env=env, creationflags=_no_console())
+                                  encoding="utf-8", errors="replace", timeout=600, env=env,
+                                  creationflags=_no_console())
         except (OSError, subprocess.TimeoutExpired) as exc:
             return _fail("artifact", f"{name}: {exc}", retryable=True)
         if proc.returncode != 0:
@@ -645,10 +868,16 @@ def step_substrate(ctx: Ctx) -> StepResult:
     return StepResult(RAN, "ran " + ", ".join(notes))
 
 
+def _claude_home_repo_inherited() -> str:
+    """Detail when ~/.claude already sits inside a git repository, else ''."""
+    home = claude_dir()
+    return f"{home} sits inside a git repository" if any((p / ".git").exists() for p in (home, *home.parents)) else ""
+
+
 def step_claude_home_repo(ctx: Ctx) -> StepResult:
     home = claude_dir()
-    if any((p / ".git").exists() for p in (home, *home.parents)):
-        return StepResult(INHERITED, f"{home} sits inside a git repository")
+    if detail := _claude_home_repo_inherited():
+        return StepResult(INHERITED, detail)
     if ctx.answers["track_claude_home"] == "skip":
         return StepResult(SKIPPED, "declined by answer", "the identity file needs a git repository at ~/.claude")
     home.mkdir(parents=True, exist_ok=True)
@@ -730,14 +959,18 @@ _DEV_CLONE_DISTINCTIVE_MARKERS = (
 )
 
 
+def _registry_dir() -> Path:
+    override = os.environ.get("MACHINE_LOCAL_REGISTRY_DIR")
+    return Path(override) if override else settings_home() / "machine-local"
+
+
 def _registry_flat() -> dict:
     """Merged `registry.toml` + `registry.local.toml` (later wins) as dotted keys; {} when unreadable."""
     try:
         import tomllib
     except ImportError:
         return {}
-    override = os.environ.get("MACHINE_LOCAL_REGISTRY_DIR")
-    reg_dir = Path(override) if override else settings_home() / "machine-local"
+    reg_dir = _registry_dir()
 
     def flatten(data: dict, prefix: str = "") -> dict:
         out: dict = {}
@@ -821,6 +1054,163 @@ def doe_tree_from_evidence(
     return None
 
 
+def _registry_path_keys(flat: dict) -> list[str]:
+    """Registry keys whose value is a filesystem path this box is expected to hold."""
+    return sorted(
+        k for k, v in flat.items()
+        if isinstance(v, str) and v and (
+            k.startswith(("repos.", "engine.working_repos."))
+            or (k.startswith("publish.mirrors.") and k.endswith(".path"))
+            or (k.startswith("plugin.mirrors.") and k.endswith(".live_path"))
+        )
+    )
+
+
+def registry_absent_paths() -> dict[str, str]:
+    """`{key: path}` for every path-valued registry key whose path does not exist on this box."""
+    flat = _registry_flat()
+    return {k: flat[k] for k in _registry_path_keys(flat) if not Path(flat[k]).exists()}
+
+
+def prune_absent_repos() -> list[str]:
+    """Drop absent `repos.*` lines from `registry.local.toml` (flat quoted-key shape only, root
+    section only); returns the keys removed. A repo whose path exists is never touched."""
+    target = _registry_dir() / "registry.local.toml"
+    absent = [k for k in registry_absent_paths() if k.startswith("repos.")]
+    try:
+        text = target.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    table = re.search(r"^\s*\[", text, re.MULTILINE)
+    root, tables = (text[:table.start()], text[table.start():]) if table else (text, "")
+    removed = []
+    for key in absent:
+        root, n = re.subn(r'^"' + re.escape(key) + r'"[ \t]*=.*\n?', "", root, flags=re.MULTILINE)
+        if n:
+            removed.append(key)
+    if removed:
+        tmp = target.with_suffix(".toml.tmp")
+        tmp.write_text(root + tables, encoding="utf-8", newline="")
+        os.replace(tmp, target)
+    return removed
+
+
+def rewrite_content_root_pointers() -> list[str]:
+    """Point every existing `_CONTENT_ROOT_POINTER_NAMES` file at `repos.content_root` when it
+    names another path; returns the files rewritten. Nothing is created and an absent root is no target."""
+    root = str(_registry_flat().get("repos.content_root") or "").strip()
+    if not root or not Path(root).exists():
+        return []
+
+    def norm(p: str) -> str:
+        return os.path.normcase(os.path.normpath(p))
+
+    rewritten = []
+    for name in _CONTENT_ROOT_POINTER_NAMES:
+        for base in (_registry_dir(), Path(os.environ.get("CLAUDE_HOME") or Path.home()) / ".claude"):
+            ptr = base / name
+            try:
+                current = ptr.read_text(encoding="utf-8").strip()
+            except OSError:
+                continue
+            if norm(current) != norm(root):
+                ptr.write_text(root + "\n", encoding="utf-8", newline="\n")
+                rewritten.append(str(ptr))
+    return rewritten
+
+
+def _is_absolute_anywhere(s: str) -> bool:
+    return Path(s).is_absolute() or PureWindowsPath(s).is_absolute()
+
+
+def _missing_mcp_paths(spec: dict) -> list[str]:
+    """The command (resolved on PATH when bare) and absolute argument paths of an MCP spec that are absent."""
+    cmd = spec.get("command")
+    args = spec.get("args")
+    missing = []
+    if isinstance(cmd, str) and cmd:
+        if not (shutil.which(cmd) or (_is_absolute_anywhere(cmd) and Path(cmd).exists())):
+            missing.append(cmd)
+    missing += [a for a in (args if isinstance(args, list) else []) if isinstance(a, str)
+                and _is_absolute_anywhere(a) and not Path(a).exists()]
+    return missing
+
+
+def dangling_rag_mcp() -> list[str]:
+    """One line per project-rag MCP registration whose command or absolute argument path is absent
+    on this box (a bare command is resolved on PATH). Covers Claude's JSON configs and Grok's
+    `config.toml` (user and cwd). Reads config files only: no spawn, no network."""
+    home = Path(os.environ.get("CLAUDE_HOME") or Path.home())
+    found = []
+    for path in (claude_dir() / "settings.json", home / ".claude.json", Path.cwd() / ".mcp.json"):
+        cfg = _read_json(path)
+        projects = cfg.get("projects")
+        scopes = [cfg] + [p for p in (projects.values() if isinstance(projects, dict) else []) if isinstance(p, dict)]
+        for scope in scopes:
+            servers = scope.get("mcpServers")
+            for name, spec in (servers.items() if isinstance(servers, dict) else []):
+                if "project-rag" not in name and "project_rag" not in name or not isinstance(spec, dict):
+                    continue
+                missing = _missing_mcp_paths(spec)
+                if missing:
+                    found.append(f"{path}: {name} -> {', '.join(missing)}")
+    for path in (Path.home() / ".grok" / "config.toml", Path.cwd() / ".grok" / "config.toml"):
+        for name, spec in _toml_mcp_servers(path):
+            if "project-rag" not in name and "project_rag" not in name:
+                continue
+            missing = _missing_mcp_paths(spec)
+            if missing:
+                found.append(f"{path}: {name} -> {', '.join(missing)}")
+    return sorted(set(found))
+
+
+def _toml_mcp_servers(path: Path) -> list[tuple[str, dict]]:
+    """(name, spec) per MCP server in a host TOML config: any top-level `*mcp*` table of named
+    tables, or array of tables carrying a `name`. Unreadable or malformed TOML yields nothing."""
+    import tomllib
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    out: list[tuple[str, dict]] = []
+    for key, val in data.items():
+        if "mcp" not in key.lower():
+            continue
+        if isinstance(val, dict):
+            out += [(n, s) for n, s in val.items() if isinstance(s, dict)]
+        elif isinstance(val, list):
+            out += [(str(s.get("name") or ""), s) for s in val if isinstance(s, dict)]
+    return out
+
+
+def registry_hygiene_report() -> dict:
+    """Read-only view of what `step_registry_hygiene` acts on."""
+    return {"absent_paths": registry_absent_paths(), "dangling_rag_mcp": dangling_rag_mcp(),
+            "authoring_tree": _authoring_tree_exists()}
+
+
+def step_registry_hygiene(ctx: Ctx) -> StepResult:
+    absent = registry_absent_paths()
+    pruned = prune_absent_repos()
+    pointers = rewrite_content_root_pointers()
+    rag = dangling_rag_mcp()
+    notes = []
+    if absent:
+        notes.append("absent registry paths: " + ", ".join(f"{k}={v}" for k, v in absent.items()))
+    if pruned:
+        notes.append("pruned repos: " + ", ".join(pruned))
+    if pointers:
+        notes.append("rewrote content-root pointers: " + ", ".join(pointers))
+    if rag:
+        notes.append("dangling project-rag MCP: " + "; ".join(rag))
+    if absent and not _authoring_tree_exists():
+        notes.append("no authoring tree on this box: machine_profile defaults to consumer")
+    follow_up = "remove or repair the dangling project-rag MCP registration" if rag else ""
+    if not notes:
+        return StepResult(INHERITED, "registry paths and project-rag MCP registration resolve")
+    return StepResult(RAN if pruned or pointers else INHERITED, "; ".join(notes), follow_up)
+
+
 def step_claude_md_seed(ctx: Ctx) -> StepResult:
     if doe_tree_from_evidence():
         return StepResult(INHERITED, "derived from global doctrine")
@@ -858,11 +1248,36 @@ def _plugin_enabled(name: str) -> bool:
     return bool(_read_json(claude_dir() / "settings.json").get("enabledPlugins", {}).get(name))
 
 
+def _context7_needs_auth() -> bool:
+    """True when the harness's `mcp-needs-auth-cache.json` holds an entry for a context7 server."""
+    try:
+        cache = json.loads((claude_dir() / "mcp-needs-auth-cache.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    keys = cache if isinstance(cache, dict) else {}
+    return any("context7" in str(k).lower() for k in keys)
+
+
+def _context7_inherited() -> str:
+    """Detail when context7 is enabled and not awaiting authentication, else ''."""
+    return "context7 already enabled" if _plugin_enabled(CONTEXT7_PLUGIN) and not _context7_needs_auth() else ""
+
+
+#: Risky step id -> probe returning the INHERITED detail ('' when the step still has work to do).
+_INHERITED_PROBES: dict[str, Callable[[], str]] = {
+    "claude_home_repo": _claude_home_repo_inherited,
+    "context7": _context7_inherited,
+}
+
+
 def step_context7(ctx: Ctx) -> StepResult:
     if ctx.answers["context7"] == "skip":
         return StepResult(SKIPPED, "declined by answer")
+    if detail := _context7_inherited():
+        return StepResult(INHERITED, detail)
     if _plugin_enabled(CONTEXT7_PLUGIN):
-        return StepResult(INHERITED, "context7 already enabled")
+        return StepResult(SKIPPED, "context7 enabled but needs authentication",
+                          "authenticate context7: run /mcp in a Claude Code session and pick context7")
     claude = shutil.which("claude")
     if not claude:
         return _fail("load", "claude CLI not on PATH")
@@ -911,25 +1326,31 @@ def step_status_lines(ctx: Ctx) -> StepResult:
     if doc is None:
         return _fail("inspection", f"{path} exists but is not a readable JSON object; left untouched",
                      "fix or remove the file, then re-run")
-    wanted = {
-        "statusLine": {"type": "command", "command": STATUS_LINE_CMD.format(script="statusline.py")},
-        "subagentStatusLine": {"type": "command",
-                               "command": STATUS_LINE_CMD.format(script="subagent-statusline.py")},
-    }
+    value = {"type": "command", "command": status_line_cmd(path.parent)}
+    current = doc.get("statusLine")
     changed = []
-    for key, value in wanted.items():
-        current = doc.get(key)
-        if current == value:
-            continue
-        if key == "statusLine" and isinstance(current, dict) and current.get("command") \
+    launcher = path.parent / STATUS_LINE_LAUNCHER
+    try:
+        launcher_stale = launcher.read_text(encoding="utf-8") != STATUS_LINE_LAUNCHER_SOURCE
+    except OSError:
+        launcher_stale = True
+    if launcher_stale:
+        launcher.parent.mkdir(parents=True, exist_ok=True)
+        launcher.write_text(STATUS_LINE_LAUNCHER_SOURCE, encoding="utf-8", newline="\n")
+        changed.append(STATUS_LINE_LAUNCHER)
+    if current != value:
+        if isinstance(current, dict) and current.get("command") \
                 and not _is_coordinator_status_line(str(current["command"])):
             inner = settings_home() / "statusline-inner.json"
             if not inner.exists():
                 _write_json(inner, current)
-        doc[key] = value
-        changed.append(key)
+        doc["statusLine"] = value
+        changed.append("statusLine")
+    # subagentStatusLine is deprecated; DoE's AgentRow mod (coordinator/hooks/modules/agent-row.js) renders the row.
+    if doc.pop("subagentStatusLine", None) is not None:
+        changed.append("removed subagentStatusLine")
     if not changed:
-        return StepResult(INHERITED, "statusLine and subagentStatusLine already wired")
+        return StepResult(INHERITED, "statusLine already wired")
     _write_json(path, doc)
     ctx.next_session.append("status lines render next session")
     return StepResult(RAN, "wired " + ", ".join(changed))
@@ -1027,6 +1448,43 @@ def step_open_claude_home(ctx: Ctx) -> StepResult:
     return StepResult(RAN, f"opened {target}")
 
 
+def step_repo_home(ctx: Ctx) -> StepResult:
+    """Advisory: link ~/.claude into repo_home and note a non-Dev-Drive repo_home; never FAILED."""
+    root = ctx.engine_root
+    if not root:
+        ok, found = _engine_root()
+        root = found if ok else ""
+    if not root:
+        return StepResult(SKIPPED, "engine root does not resolve; repo_home affordances not applied")
+    inserted = root not in sys.path
+    if inserted:
+        sys.path.insert(0, root)
+    try:
+        import importlib
+        aff = importlib.import_module("coordinator_core.install.repo_home_affordances")
+        try:
+            home = aff.resolve_repo_home()
+        except Exception as exc:  # a typed refusal naming the key: advisory here
+            key = getattr(exc, "key", aff.REPO_HOME_KEY)
+            return StepResult(SKIPPED, f"repo_home not set ({key})", f"set {key} to enable repo_home shortcuts")
+        targets = {"claude-home": claude_dir()}
+        try:
+            gem = importlib.import_module("coordinator_core.group_em.gem_home")
+            targets[gem.DEFAULT_DIRNAME] = gem.resolve_home()
+        except Exception:  # unresolvable or checkout-inside home: no group-em shortcut
+            pass
+        results = aff.ensure_repo_home_shortcuts(home, targets)
+        advisory = aff.dev_drive_advisory(home)
+    except Exception as exc:  # advisory: never aborts the block
+        return StepResult(SKIPPED, f"repo_home affordances unavailable: {type(exc).__name__}: {exc}")
+    finally:
+        if inserted and root in sys.path:
+            sys.path.remove(root)
+    detail = "; ".join(f"{r.name}: {r.status}" + (f" ({r.detail})" if r.detail else "") for r in results)
+    status = RAN if any(r.status == aff.CREATED for r in results) else INHERITED
+    return StepResult(status, detail or "no shortcuts requested", advisory or "")
+
+
 @dataclass(frozen=True)
 class Step:
     id: str
@@ -1041,8 +1499,10 @@ STEPS: tuple[Step, ...] = (
     Step("orientation", step_orientation, exempt="operator choice: the tour is not an install surface", optional=True),
     Step("system_prereqs", step_system_prereqs, ("system_prerequisites:*",)),
     Step("engine_root", step_engine_root, ("direct_deps:claude-klabauter",)),
+    Step("forwarder_route", step_forwarder_route, exempt="operator choice: machine-local setting the substrate step reads"),
     Step("engine_deps", step_engine_deps, exempt="provisions engine deps the substrate scripts import"),
     Step("substrate", step_substrate, exempt="deposits the settings-home forwarders every later step calls"),
+    Step("registry_hygiene", step_registry_hygiene, exempt="repairs the machine-local registry the later steps read", optional=True),
     Step("settings_env", step_settings_env, ("required_local_surfaces:settings-env", "required_env_vars:*")),
     Step("claude_home_repo", step_claude_home_repo, exempt="prerequisite of the identity file", risky=True),
     Step("posture", step_posture, exempt="operator choice: recorded in the identity file"),
@@ -1052,16 +1512,16 @@ STEPS: tuple[Step, ...] = (
     Step("context7", step_context7, ("required_mcp_surfaces:context7",), risky=True, optional=True),
     Step("notebooklm", step_notebooklm,
          ("required_mcp_surfaces:gemini-notebook-mcp|required_mcp_surfaces:notebooklm-mcp",), optional=True),
-    Step("status_lines", step_status_lines,
-         ("required_local_surfaces:statusline-registration",
-          "required_local_surfaces:subagent-statusline-registration")),
+    Step("status_lines", step_status_lines, ("required_local_surfaces:statusline-registration",)),
     Step("hooks_marker", step_hooks_marker, ("required_local_surfaces:hook-delivery",)),
     Step("coordinator_currency", step_currency, exempt="per-repo record, not a machine install surface"),
+    Step("repo_home", step_repo_home, exempt="advisory: shortcuts and Dev Drive note for repo_home", optional=True),
     Step("open_claude_home", step_open_claude_home, exempt="presentation only", optional=True),
 )
 
 STEP_DECISION = {"orientation": "orientation", "claude_md_seed": "posture", "claude_home_repo": "track_claude_home", "settings_env": "settings_env", "posture": "posture",
                  "machine_profile": "machine_profile", "guard_level": "guard_level",
+                 "forwarder_route": "forwarder_route",
                  "context7": "context7", "notebooklm": "notebooklm", "status_lines": "status_lines",
                  "hooks_marker": "hooks_marker", "coordinator_currency": "coordinator_currency",
                  "open_claude_home": "open_claude_home"}
@@ -1083,6 +1543,10 @@ def manifest_entry_ids(manifest: dict) -> set[str]:
 
 # A step ref whose manifest entry was renamed upstream: the renamed entry satisfies the old ref.
 _MANIFEST_RENAMES = {"required_mcp_surfaces:notebooklm-mcp": "required_mcp_surfaces:gemini-notebook-mcp"}
+
+
+# Manifest entries the installer deliberately no longer implements; the DoE manifest drops them later.
+_DEPRECATED_MANIFEST_ENTRIES = frozenset({"required_local_surfaces:subagent-statusline-registration"})
 
 
 def check_manifest_drift(manifest: dict | None = None, steps: tuple[Step, ...] = STEPS) -> list[str]:
@@ -1110,7 +1574,7 @@ def check_manifest_drift(manifest: dict | None = None, steps: tuple[Step, ...] =
                 claimed |= {alt for alt in ref.split("|") if alt in entries}
             else:
                 problems.append(f"step {step.id} claims {ref}, absent from the manifest")
-    for entry in sorted(entries - claimed):
+    for entry in sorted(entries - claimed - _DEPRECATED_MANIFEST_ENTRIES):
         problems.append(f"manifest entry {entry} has no implementing step")
     return problems
 
@@ -1354,6 +1818,7 @@ def step_engine_check(ctx: Ctx) -> StepResult:
 TRACK_STEP_RUNNERS = {
     "plugin_install": {"runner": "human", "handover": "/plugin marketplace add dbc-oduffy/coordinator-claude, then /plugin install coordinator@coordinator-claude"},
     "plugin_update": {"runner": "human", "handover": "/coordinator:install"},
+    "grok_plugin_install": {"runner": "human", "handover": "grok plugin install <coordinator-claude clone> --trust"},
     "engine_setup": {"runner": "agent", "handover": None},
     "engine_check": {"runner": "agent", "handover": None},
 }
@@ -1446,18 +1911,44 @@ def answers_shape() -> dict:
     }
 
 
-def build_plan(permission_mode: str | None) -> dict:
+HOSTS = ("claude", "grok")
+
+
+def grok_plugin_registry() -> dict:
+    """Is the coordinator plugin in Grok's own registry: `{"present": bool | None, "detail": str}`.
+
+    One `grok plugin list` spawn; each output line prints a plugin id plus its local path; the
+    plugin is a line whose id token (not its path) contains `coordinator`. `present` is None when the registry cannot be read.
+    """
+    exe = shutil.which("grok")
+    if not exe:
+        return {"present": None, "detail": "grok CLI not on PATH"}
+    rc, out = run([exe, "plugin", "list"], timeout=30)
+    if rc != 0:
+        return {"present": None, "detail": f"grok plugin list exited {rc}: {out[-200:]}"}
+    hit = next((ln.strip() for ln in out.splitlines() if "coordinator" in (ln.split() or [""])[0].lower()), None)
+    return {"present": hit is not None, "detail": hit or "coordinator plugin not in grok plugin list"}
+
+
+def build_plan(permission_mode: str | None, hosts: tuple[str, ...] = ("claude",)) -> dict:
     problems = check_manifest_drift() if manifest_found() else []
     root, source = plugin_root_source()
     if source.startswith("doctrine breadcrumb"):
         source = plugin_root_resolution()[1]
+    env = {"platform": platform.system(), "plugin_root": str(root),
+           "plugin_root_source": source, **detect_track()}
+    if "grok" in hosts:
+        grok = grok_plugin_registry()
+        env["host_plugins"] = {"grok": grok}
+        if grok["present"] is not True:
+            env["track_steps"] = ["grok_plugin_install", *env["track_steps"]]
     return {
         "backup": backup_block(_fresh_plan_id()),
         "schema": SCHEMA,
         "orientation": ORIENTATION,
-        "environment": (env := {"platform": platform.system(), "plugin_root": str(root),
-                                "plugin_root_source": source, **detect_track()}),
+        "environment": env,
         "answers_shape": answers_shape(),
+        "registry_hygiene": registry_hygiene_report(),
         "track_step_runners": track_step_runners(env["track_steps"], env["doe_box"]),
         "mode_policy": mode_policy(permission_mode),
         "decisions": [decision_json(d) for d in build_decisions(permission_mode)],
@@ -1481,15 +1972,15 @@ def record_concluded(results: list[dict], optional_ids: set[str], ctx: Ctx) -> d
 
     The one place this installer imports coordinator_core: after every step has run, from the engine root.
     """
-    blocking = [r["id"] for r in results if r["status"] == FAILED and r["id"] not in optional_ids]
+    blocking = [r["id"] for r in results if r["status"] in (FAILED, BLOCKED) and r["id"] not in optional_ids]
     if blocking:
-        return {"written": False, "detail": f"withheld: required step failed ({', '.join(blocking)})"}
+        return record_withheld(f"required step failed or blocked ({', '.join(blocking)})", tuple(blocking), ctx)
     root = ctx.engine_root
     if not root:
         ok, found = _engine_root()
         root = found if ok else ""
     if not root:
-        return {"written": False, "detail": "withheld: engine root does not resolve"}
+        return record_withheld("engine root does not resolve", (), ctx)
     inserted = root not in sys.path
     if inserted:
         sys.path.insert(0, root)
@@ -1511,6 +2002,39 @@ def record_concluded(results: list[dict], optional_ids: set[str], ctx: Ctx) -> d
         if inserted and root in sys.path:
             sys.path.remove(root)
     return {"written": rc == 0, "detail": "setup_concluded recorded" if rc == 0 else f"write failed (exit {rc})"}
+
+
+def record_withheld(reason: str, blocking: tuple, ctx: Ctx) -> dict:
+    """Persist a withheld run through the setup-state writer; returns `{written: False, detail}`.
+
+    `written` stays False: no concluded receipt exists. `recorded` says whether the withheld
+    record landed. Never raises; an unresolvable engine root leaves nothing recorded.
+    """
+    detail = f"withheld: {reason}"
+    root = ctx.engine_root
+    if not root:
+        ok, found = _engine_root()
+        root = found if ok else ""
+    if not root:
+        return {"written": False, "recorded": False, "detail": f"{detail}; withheld record not written (engine root does not resolve)"}
+    inserted = root not in sys.path
+    if inserted:
+        sys.path.insert(0, root)
+    try:
+        import importlib
+        state = importlib.import_module("coordinator_core.ops.coordinator_setup_state")
+        with contextlib.redirect_stdout(sys.stderr):
+            rc = state.record_setup_withheld(reason, tuple(blocking))
+    except Exception as exc:  # recording must never abort the install block
+        return {"written": False, "recorded": False, "detail": f"{detail}; withheld record failed: {type(exc).__name__}: {exc}"}
+    finally:
+        if inserted and root in sys.path:
+            sys.path.remove(root)
+    return {"written": False, "recorded": rc == 0, "detail": detail if rc == 0 else f"{detail}; withheld record failed (exit {rc})"}
+
+
+#: The command the closing NEXT line names; the same command scripts/setup.py closes with.
+UNIMATRIX_INSTALL_COMMAND = "python3 coordinator/bin/unimatrix-install.py --install"
 
 
 def execute(answers: dict, only: set[str] | None = None, permission_mode: str | None = None) -> dict:
@@ -1535,19 +2059,20 @@ def execute(answers: dict, only: set[str] | None = None, permission_mode: str | 
             continue
         declined = answers.get(STEP_DECISION.get(step.id, "")) == "skip"
         try:
-            if step.risky and not declined and consent.get(step.id) is not True:
+            probe = _INHERITED_PROBES.get(step.id)
+            if step.risky and not declined and consent.get(step.id) is not True and not (probe and probe()):
                 res = StepResult(SKIPPED, "consent required", f"re-run with consent.{step.id}=true")
             else:
                 res = step.fn(ctx)
         except Exception as exc:  # a step must never abort the block
             res = _fail("inspection", f"{type(exc).__name__}: {exc}")
         row = {"id": step.id, "status": res.status, "detail": res.detail, "follow_up": res.follow_up}
-        if res.status == FAILED:
+        if res.status in (FAILED, BLOCKED):
             row.update(stage=res.stage, retryable=res.retryable)
         results.append(row)
-    counts = {k: sum(1 for r in results if r["status"] == k) for k in (RAN, SKIPPED, INHERITED, FAILED)}
+    counts = {k: sum(1 for r in results if r["status"] == k) for k in (RAN, SKIPPED, INHERITED, FAILED, BLOCKED)}
     receipt = (record_concluded(results, {s.id for s in steps if s.optional}, ctx) if not only
-               else {"written": False, "detail": "withheld: --only run"})
+               else record_withheld("--only run", tuple(sorted(only)), ctx))
     return {
         "schema": "coordinator-install-result/1",
         "backup": backup,
@@ -1559,6 +2084,7 @@ def execute(answers: dict, only: set[str] | None = None, permission_mode: str | 
         "restart_needed": ctx.restart_needed,
         "next_session": ctx.next_session,
         "follow_ups": [r["follow_up"] for r in results if r["follow_up"]],
+        "unimatrix_next": UNIMATRIX_INSTALL_COMMAND,
     }
 
 
@@ -1569,6 +2095,8 @@ def render_text(block: dict) -> str:
         lines.append(f"{'RECEIPT':<9} {'setup_concluded':<22} {receipt['detail']}")
     lines += [f"ADDED     {e}" for e in block["added_extras"]]
     lines += [f"NEXT      {f}" for f in block["follow_ups"]]
+    if block.get("unimatrix_next"):
+        lines.append(f"NEXT      (optional) {block['unimatrix_next']}")
     for t in block.get("tour", []):
         lines.append(f"TOUR {t['movement']}   {t['title']}: {t['text']}")
     lines.append("restart needed: " + ("yes" if block["restart_needed"] else "no"))
@@ -1591,49 +2119,96 @@ def _describe_option(did: str, option: str) -> tuple[str, str]:
     return option, option
 
 
+def _identity_posture() -> str | None:
+    """The `engagement_posture` an earlier install recorded in the identity file; offered, never applied."""
+    try:
+        text = (claude_dir() / "coordinator-identity.yaml").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    m = re.search(r"^engagement_posture:\s*['\"]?([\w-]+)", text, re.MULTILINE)
+    return m.group(1) if m and m.group(1) in POSTURE_OPTIONS else None
+
+
+def _ask_decision(d: Decision, stdin, stdout, default: object, refuse_eof: bool = False) -> object | None:
+    """Ask one decision; the answer, or None to keep `default`. SystemExit at end of input with no
+    default, or whenever `refuse_eof` (an end of input is no answer from the human)."""
+    free_text = list(d.options) == ["<free text>"]
+    stdout.write(f"\n{d.question}\n{d.why}\n")
+    choices = [_describe_option(d.id, o) for o in d.options] if not free_text else []
+    for i, (_, label) in enumerate(choices, 1):
+        stdout.write(f"  {i}. {label}\n")
+    default_hint = f" [{default}]" if default is not None else ""
+    while True:
+        reply = _ask(f"> {'number or name' if choices else 'answer'}{default_hint}: ", stdin, stdout)
+        if reply is None or (reply == "" and default is not None):
+            if default is None or (reply is None and refuse_eof):
+                raise SystemExit(f"no answer for required question ({d.id}): {d.question}")
+            return None
+        if free_text:
+            if reply:
+                return reply
+            continue
+        values = [v for v, _ in choices]
+        picked = values[int(reply) - 1] if reply.isdigit() and 0 < int(reply) <= len(values) else reply
+        if picked in values:
+            return picked
+        stdout.write(f"  choose one of: {', '.join(values)}\n")
+
+
+def ask_extras(permission_mode: str | None, stdin, stdout) -> tuple[dict, dict]:
+    """The one numbered optional-extras questionnaire: (answers, consent).
+
+    Each item prints what `n` leaves out; a probe-INHERITED item asks nothing. An accepted
+    (answered or defaulted yes) item granting a risky step is that step's consent.
+    """
+    defaults = {d.id: d.default for d in build_decisions(permission_mode)}
+    items = [e for e in OPTIONAL_EXTRAS if e.id in defaults]
+    stdout.write(f"\nOptional extras: {len(items)} questions. Enter takes the default shown; `n` skips the item.\n")
+    answers: dict = {}
+    consent: dict = {}
+    for n, e in enumerate(items, 1):
+        stdout.write(f"\n{n}. {e.prompt}\n   n leaves out: {e.leaves_out}\n")
+        probe = _INHERITED_PROBES.get(e.step)
+        if probe and (detail := probe()):
+            stdout.write(f"   already in place ({detail}); not asked\n")
+            answers[e.id] = e.accept
+            continue
+        yes_by_default = defaults[e.id] == e.accept
+        while True:
+            reply = (_ask(f"> [{'Y/n' if yes_by_default else 'y/N'}]: ", stdin, stdout) or "").lower()
+            if reply in ("", "y", "yes", "n", "no"):
+                break
+            stdout.write("  answer y or n\n")
+        accepted = yes_by_default if reply == "" else reply in ("y", "yes")
+        answers[e.id] = e.accept if accepted else e.decline
+        if accepted and e.step:
+            consent[e.step] = True
+    return answers, consent
+
+
 def walk_decisions(permission_mode: str | None, stdin, stdout, custom: bool) -> dict:
-    """Ask the decisions on `stdin` in plain language. Express asks only what has no default."""
+    """Ask on `stdin` in plain language: posture first, then the questions with no default
+    (express) or every other decision (custom), then the extras questionnaire."""
     stdout.write(ORIENTATION + "\n\n")
     raw: dict = {}
-    for d in build_decisions(permission_mode):
+    extra_ids = {e.id for e in OPTIONAL_EXTRAS}
+    decisions = build_decisions(permission_mode)
+    posture = next(d for d in decisions if d.id == "posture")
+    offered = _identity_posture()
+    raw["posture"] = _ask_decision(posture, stdin, stdout, offered, refuse_eof=True) or offered
+    for d in decisions:
+        if d.id == "posture" or d.id in extra_ids:
+            continue
         free_text = list(d.options) == ["<free text>"]
         if not custom and (d.default is not None or not free_text):
             continue
-        stdout.write(f"\n{d.question}\n{d.why}\n")
-        choices = [_describe_option(d.id, o) for o in d.options] if not free_text else []
-        for i, (_, label) in enumerate(choices, 1):
-            stdout.write(f"  {i}. {label}\n")
-        default_hint = f" [{d.default}]" if d.default is not None else ""
-        while True:
-            reply = _ask(f"> {'number or name' if choices else 'answer'}{default_hint}: ", stdin, stdout)
-            if reply is None or (reply == "" and d.default is not None):
-                if d.default is None:
-                    raise SystemExit(f"no answer for required question: {d.question}")
-                break
-            if free_text:
-                if reply:
-                    raw[d.id] = reply
-                    break
-                continue
-            values = [v for v, _ in choices]
-            picked = values[int(reply) - 1] if reply.isdigit() and 0 < int(reply) <= len(values) else reply
-            if picked in values:
-                raw[d.id] = picked
-                break
-            stdout.write(f"  choose one of: {', '.join(values)}\n")
-    if custom:
-        decisions = {d.id: d for d in build_decisions(permission_mode)}
-        consent: dict = {}
-        for s in STEPS:
-            did = STEP_DECISION.get(s.id)
-            chosen = raw.get(did, decisions[did].default) if did else None
-            if not s.risky or chosen == "skip":
-                continue
-            reply = _ask(f"\nThis step changes things beyond the settings home: {decisions[did].question}\n"
-                         f"> allow {s.id}? [y/N]: ", stdin, stdout)
-            consent[s.id] = (reply or "").lower() in ("y", "yes")
-        if consent:
-            raw["consent"] = consent
+        picked = _ask_decision(d, stdin, stdout, d.default)
+        if picked is not None:
+            raw[d.id] = picked
+    extra_answers, consent = ask_extras(permission_mode, stdin, stdout)
+    raw.update(extra_answers)
+    if consent:
+        raw["consent"] = consent
     return raw
 
 
@@ -1664,7 +2239,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--non-interactive", action="store_true", help="use declared defaults")
     ap.add_argument("--i-am-agent", action="store_true", help="emit the full plan for the agent to answer")
     ap.add_argument("--express", action="store_true",
-                    help="human path: apply the recommended defaults, asking only for what has none")
+                    help="human path (the default on a terminal): posture, then what has no default, then the extras questionnaire")
     ap.add_argument("--custom", action="store_true",
                     help="human path: walk the decisions one at a time on stdin")
     ap.add_argument("--check-drift", action="store_true", help="fail when manifest and steps disagree")
@@ -1672,7 +2247,22 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--permission-mode", default=os.environ.get("COORDINATOR_PERMISSION_MODE"),
                     help="harness permission_mode from hook input; adapts defaults")
     ap.add_argument("--format", choices=("json", "text"), default="json")
+    ap.add_argument("--engine-root", help="engine checkout to register as repos.claude_klabauter (cold box)")
+    ap.add_argument("--engine-target", choices=ENGINE_TARGETS, help="engine channel to register as engine.target")
+    ap.add_argument("--host", action="append", choices=HOSTS,
+                    help="host whose own plugin registry the plan probes (repeatable; claude is always probed)")
     args = ap.parse_args(argv)
+
+    if args.engine_root or args.engine_target:
+        if args.plan or args.check_drift:
+            ap.error("--engine-root/--engine-target write the registry; not with --plan or --check-drift")
+        try:
+            written = register_engine(args.engine_root, args.engine_target)
+        except (OSError, ValueError, ImportError) as exc:
+            print(json.dumps({"error": f"engine registration failed: {exc}"}), file=sys.stderr)
+            return 2
+        print("registered " + ", ".join(written), file=sys.stderr)
+    default_plugin_root_env()
 
     if args.check_drift:
         problems = check_manifest_drift()
@@ -1682,7 +2272,7 @@ def main(argv: list[str] | None = None) -> int:
 
     planning = args.plan or (args.i_am_agent and not args.answers)
     if planning:
-        plan = build_plan(args.permission_mode)
+        plan = build_plan(args.permission_mode, tuple(dict.fromkeys(["claude", *(args.host or [])])))
         print(json.dumps(plan, indent=2))
         return 0
     drift = check_manifest_drift() if manifest_found() and not planning else []
@@ -1693,6 +2283,8 @@ def main(argv: list[str] | None = None) -> int:
         return 3
     if args.express and args.custom:
         ap.error("--express and --custom are alternatives")
+    if not (args.answers or args.non_interactive or args.express or args.custom) and _stdin_can_answer():
+        args.express = True
     if not (args.answers or args.non_interactive or args.express or args.custom):
         ap.error("pass --plan, --express, --custom, --answers <file|json>, --non-interactive, or --i-am-agent")
     if (args.express or args.custom) and not _stdin_can_answer():
@@ -1715,7 +2307,7 @@ def main(argv: list[str] | None = None) -> int:
     only = set(args.only.split(",")) if args.only else None
     block = execute(answers, only, args.permission_mode)
     print(render_text(block) if args.format == "text" else json.dumps(block, indent=2))
-    return 1 if block["summary"][FAILED] else 0
+    return 1 if block["summary"][FAILED] or block["summary"][BLOCKED] else 0
 
 
 if __name__ == "__main__":

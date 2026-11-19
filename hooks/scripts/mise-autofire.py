@@ -117,11 +117,6 @@ _CONTEXT_BUDGET_CHARS = 10_000
 _MINT_TIMEOUT_SECONDS = 12
 _BRIEF_TIMEOUT_SECONDS = 12
 
-# Windows console-subprocess discipline: `python.exe` is a CONSOLE-subsystem
-# child. `getattr` resolves to 0 (no-op) on every non-Windows platform.
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
-
 # --- COORDINATOR_SETTINGS_HOME resolution (mirrors pickup-autofire.py) ------
 
 
@@ -146,6 +141,7 @@ def resolve_settings_home() -> Path:
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
+from _win_portability import no_console_spawn_kwargs  # noqa: E402
 try:
     from _forwarder_resolve import forwarder_argv as _forwarder_argv
     from _forwarder_resolve import resolve_forwarder as _resolve_forwarder
@@ -200,7 +196,7 @@ def _run_backlog_grind_assemble(
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
-            creationflags=_NO_WINDOW,
+            **no_console_spawn_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise _TransportFailure(str(exc)) from exc

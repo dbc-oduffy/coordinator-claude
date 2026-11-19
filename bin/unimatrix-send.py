@@ -186,6 +186,13 @@ def own_target(env: "_Environ[str]" = os.environ, grok=None):
             or (grok or _grok_target)())
 
 
+def _unreachable_why(e, ctl) -> str:
+    """The OSError text; a missing/refused endpoint (WinError 2 on a named pipe, ENOENT/ECONNREFUSED on a socket) is named as the router not running."""
+    if isinstance(e, (FileNotFoundError, ConnectionRefusedError)):
+        return f"{e}; no router is listening on {ctl}, start unimatrix-peer-router.py"
+    return str(e)
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="unimatrix-send.py", description=__doc__.split("\n\n")[0])
     p.add_argument("--to", help="name of the agent to message (see --list)")
@@ -208,10 +215,13 @@ def main(argv=None) -> int:
     try:
         resp = r.request_line(ctl, req)
     except OSError as e:
+        why = _unreachable_why(e, ctl)
         if a.list:
+            print(f"unimatrix router not reachable ({why}); listing local session records, "
+                  "not the router's roster", file=sys.stderr)
             _list_from_sessions()
             return 0
-        print(f"unimatrix router not reachable: {e}", file=sys.stderr)
+        print(f"unimatrix router not reachable: {why}", file=sys.stderr)
         print("Claude sessions and bridged mirrors are reached with SendMessage; ListAgents lists them.",
               file=sys.stderr)
         return 1

@@ -73,6 +73,8 @@ outward send. Reconcile with the holder or drop.
 **A claim held by THIS session is not contention** — read `gates.claim_grant.held_by_self` and
 `directives[].already_satisfied`, not a raw `claimed_by`. A satisfied claim over frontmatter still naming a dead session: run `archive-stamp-cli claim-handoff <path>`.
 
+**A baton lives at `state/handoffs/YYYY-MM/<file>.md`** (month = the filename's leading date); pickup never moves, copies or re-creates one at the flat root or in a per-handoff directory.
+
 **The claimed body is paper trail, not a progress journal.** No session notes or
 Progress/Recommended-Next-Steps edits; progress goes in commits, the next checkpoint in a
 successor handoff via `/handoff`. Tick verified criteria — `jp-consumed-handoff-completeness` blocks a claimed handoff left unticked.

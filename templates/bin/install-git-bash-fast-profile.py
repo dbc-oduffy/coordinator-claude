@@ -33,7 +33,8 @@ import shutil
 import sys
 from pathlib import Path
 
-BEGIN = b"# >>> claude-code fast profile (coordinator-content-repo) >>>"
+BEGIN = b"# >>> claude-code fast profile >>>"
+LEGACY_BEGIN = b"# >>> claude-code fast profile (coordinator-content-repo) >>>"
 END = b"# <<< claude-code fast profile <<<"
 BACKUP_SUFFIX = ".pre-claude-fast-profile.bak"
 
@@ -60,10 +61,16 @@ def _fragment_path() -> Path:
     return Path(__file__).resolve().parent / "git-bash-fast-profile.sh"
 
 
+def _find_begin(data: bytes) -> int:
+    """Offset of the earliest BEGIN marker of either generation, -1 when absent."""
+    hits = [i for i in (data.find(BEGIN), data.find(LEGACY_BEGIN)) if i != -1]
+    return min(hits) if hits else -1
+
+
 def _strip_block(data: bytes, profile: Path) -> bytes:
     """Remove an already-installed block, wherever it sits. Returns data unchanged
     when no block is present."""
-    start = data.find(BEGIN)
+    start = _find_begin(data)
     if start == -1:
         return data
     end = data.find(END, start)
@@ -103,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     current = profile.read_bytes()
-    installed = BEGIN in current
+    installed = _find_begin(current) != -1
 
     if args.check:
         print(f"{'installed' if installed else 'ABSENT'}: {profile}")
@@ -116,6 +123,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"fragment missing: {fragment}", file=sys.stderr)
             return 2
         block = fragment.read_bytes()
+        if _find_begin(block) == -1:
+            tail = b"" if block.endswith(b"\n") else b"\n"
+            block = BEGIN + b"\n" + block + tail + END + b"\n"
         if b"\r\n" in block:
             print(
                 f"refusing to install: {fragment} contains CRLF. A CRLF in /etc/profile "
@@ -124,8 +134,6 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 2
 
-    # Strip any prior block first, so this is idempotent and a re-apply after a Git
-    # update cannot stack two copies.
     base = _strip_block(current, profile)
     new = base if args.uninstall else block + base
 

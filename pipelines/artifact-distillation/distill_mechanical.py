@@ -40,6 +40,7 @@ import re
 import shutil
 import subprocess
 import sys
+import types
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -297,8 +298,12 @@ def _non_content_tag(nugget: dict, slug: str) -> bool:
 
 
 def _per_nugget_cluster(nugget: dict, primary: str, taken: set) -> dict:
-    """A one-nugget topic keyed by the nugget's id; its page is minted only from synth's page_title."""
-    slug = base = slugify(f"nugget-{nugget.get('id')}")
+    """A one-nugget topic keyed by the nugget's id; its page is minted only from synth's page_title.
+
+    A DECISION nugget's key is `decision-<id>`, not `nugget-<id>`: a `nugget-` key is judge-only and
+    cannot mint the decision record the nugget owes.
+    """
+    slug = base = slugify(f"{'decision' if nugget.get('type') == 'DECISION' else 'nugget'}-{nugget.get('id')}")
     k = 1
     while slug in taken:
         k += 1
@@ -839,7 +844,7 @@ def lift_batches(repo: Path, batches: List[dict], wiki_slugs: Dict[str, str],
 
 SYNTH_AGENT_TYPE = "coordinator:distill-synth"
 DISTILL_WRITER_TYPE = "coordinator:distill-writer"
-SYNTH_BATCH_BYTES = 100000  # ~25K tokens at estimate_tokens' 4 bytes per token
+SYNTH_BATCH_BYTES = 200000  # ~50K tokens at estimate_tokens' 4 bytes per token
 MAX_SYNTH_CALLS = 3
 SYNTH_OUTLINE_CHARS = 2000
 SYNTH_TOPIC_TOKENS = 10000
@@ -864,6 +869,17 @@ def judge_topic_key(nugget_id: object) -> str:
     text = str(nugget_id)
     m = _NUGGET_ID_BATCH.match(text)
     return slugify(f"nugget-{m.group(1) if m else text}")
+
+
+def record_nuggets(cluster: dict) -> List[dict]:
+    """A per_nugget cluster's nuggets that ride a record-capable topic under the cluster's own key.
+
+    The harvest workflow forces any `nugget-` key judge-only, so only other keys carry decision records;
+    every other nugget of a per_nugget cluster is judged under its batch key.
+    """
+    if cluster["topicKey"].startswith("nugget-"):
+        return []
+    return [n for n in cluster["nuggets"] if n.get("type") == "DECISION"]
 
 
 def _valid_home_suggestion(hs: object) -> bool:
@@ -1070,27 +1086,37 @@ def synth_inputs(clusters: List[dict], repo: Path) -> List[dict]:
 
     batches: Dict[str, List[dict]] = {}
     for c in clusters:
+        nuggets = c["nuggets"]
         if c.get("per_nugget"):
-            for n in c["nuggets"]:
-                batches.setdefault(judge_topic_key(n.get("id")), []).append(n)
-            continue
+            records = record_nuggets(c)
+            record_ids = {n.get("id") for n in records}
+            for n in nuggets:
+                if n.get("id") not in record_ids:
+                    batches.setdefault(judge_topic_key(n.get("id")), []).append(n)
+            nuggets = records
+            if not nuggets:
+                continue
         page = inside(repo, c["wikiPath"])
         outline = page_outline(page.read_text(encoding="utf-8", errors="replace")) \
             if c.get("homed") and page.is_file() else {"headings": [], "gotchas": []}
         split_into({"topic_key": c["topicKey"], "wiki_path": c["wikiPath"], "new_page": not page.is_file(),
-                    "outline": outline}, c["nuggets"])
+                    "outline": outline}, nuggets)
     for key in sorted(batches):
         split_into({"topic_key": key, "judge_only": True}, batches[key])
     return out
 
 
-def pack_synth_batches(inputs: List[dict], cap: Optional[int] = None) -> List[List[dict]]:
-    """Greedy batches of topics in slug order, each within cap (default SYNTH_BATCH_BYTES) JSON bytes; an oversize topic rides alone."""
+def pack_synth_batches(inputs: List[dict], cap: Optional[int] = None,
+                       weight: Optional[Dict[str, int]] = None) -> List[List[dict]]:
+    """Greedy batches of topics in slug order, each within cap (default SYNTH_BATCH_BYTES) JSON bytes; an oversize topic rides alone.
+
+    `weight` adds bytes per topic_key on top of the input's own: the clusters a payload's launch shard
+    must carry, which the input bytes do not show and which alone can push one payload past the launch cap."""
     cap = SYNTH_BATCH_BYTES if cap is None else cap
     batches: List[List[dict]] = []
     size = 0
     for item in sorted(inputs, key=lambda i: slugify(i["topic_key"])):
-        n = len(json.dumps(item))
+        n = len(json.dumps(item)) + (weight or {}).get(item["topic_key"], 0)
         if not batches or size + n > cap:
             batches.append([])
             size = 0
@@ -1315,7 +1341,8 @@ def _shard_slice(prepared: dict, idx: List[int], primary: bool, owned: List[set]
     # Shard 0 also holds every entry no payload draws on (unchanged, deferred, pointer-covered topics).
     keep = (lambda k: k in mine or k not in claimed) if primary else (lambda k: k in mine)
     keep_file = (lambda k: k in topic_keys or k not in all_topic_keys) if primary else (lambda k: k in topic_keys)
-    block = {**synth, "payloads": payloads, "deferred_topics": deferred}
+    block = {**synth, "payloads": payloads, "deferred_topics": deferred,
+             "deferred_nugget_ids": list(synth.get("deferred_nugget_ids") or []) if primary else []}
     for name in ("schemas", "batches"):
         if isinstance(synth.get(name), list) and len(synth[name]) == len(synth["payloads"]):
             block[name] = [synth[name][i] for i in idx]
@@ -1336,8 +1363,8 @@ def _shard_slice(prepared: dict, idx: List[int], primary: bool, owned: List[set]
 def shard_prepared(prepared: dict, script_bytes: int, budget: int) -> List[dict]:
     """Split one prepared dict into launches, each `script_bytes` plus its write_prepared file within `budget`.
 
-    The partition unit is the synth payload: a shard holds a contiguous run of `synth.payloads` (at most
-    MAX_SYNTH_CALLS) plus exactly the `clusters`, `candidates` and `sourceHashes` entries of those payloads'
+    The partition unit is the synth payload: a shard holds a set of `synth.payloads` in payload order (at most
+    MAX_SYNTH_CALLS; payloads sharing a cluster stay together, so the set can skip an index) plus exactly the `clusters`, `candidates` and `sourceHashes` entries of those payloads'
     topics. Greedy fill; a single payload that alone overflows raises DriverError launch-over-cap naming it.
     One launch fitting returns `[prepared]` unchanged, no SHARD_KEY. Otherwise each returned dict is a prepared
     dict in write_prepared's input form and carries `SHARD_KEY: {"index": i, "count": n, "run_id": runId}`.
@@ -1367,6 +1394,11 @@ def shard_prepared(prepared: dict, script_bytes: int, budget: int) -> List[dict]
             if fits:
                 current = trial
                 break
+            if primary and not current and not attempt:
+                # Shard 0 alone carries the run context; a payload that cannot share it rides shard 1,
+                # leaving the primary payload-free.
+                groups.append([])
+                continue
             if not current or attempt:
                 lone = size(_shard_slice(prepared, unit, primary, owned, 99))
                 raise DriverError("launch-over-cap",
@@ -1391,7 +1423,7 @@ def merge_shard_manifests(manifests: List[dict], shards_index: dict) -> dict:
     run_id}`). Requires every index in `shards_index` exactly once, else DriverError shard-index-missing or
     shard-index-duplicate. Returns `{run_id, files, synth_results, hashes}`: `files` and `synth_results`
     concatenated in shard index order, `hashes` unioned; two shards hashing one topic_key differently raise
-    DriverError shard-merge-conflict. Shard 0's other keys (deletions, archive, wikiDirs) ride through; a
+    DriverError shard-merge-conflict, as do two shards staging one target. Shard 0's other keys (deletions, archive, wikiDirs) ride through; a
     manifest whose run_id differs from the index's, or whose index the index does not list, raises
     shard-merge-conflict."""
     run_id = shards_index.get("run_id")
@@ -1415,9 +1447,15 @@ def merge_shard_manifests(manifests: List[dict], shards_index: dict) -> dict:
     merged: dict = {k: v for k, v in by_index[min(wanted)].items()
                     if k not in ("shard", "prepared", "files", "synth_results", "hashes", "run_id")}
     merged.update({"run_id": run_id, "files": [], "synth_results": [], "hashes": {}})
+    staged_targets: set = set()
     for i in sorted(by_index):
         m = by_index[i]
-        merged["files"] += list(m.get("files") or [])
+        for row in m.get("files") or []:
+            target = row.get("target")
+            if target is not None and target in staged_targets:
+                raise DriverError("shard-merge-conflict", f"shard {i} stages target {target!r} that an earlier shard already stages")
+            staged_targets.add(target)
+            merged["files"].append(row)
         merged["synth_results"] += list(m.get("synth_results") or [])
         for key, value in (m.get("hashes") or {}).items():
             if key in merged["hashes"] and merged["hashes"][key] != value:
@@ -1532,16 +1570,37 @@ def load_pointer_index(path: Path) -> List[dict]:
     return entries
 
 
-def split_by_pointer(clusters: List[dict], entries: List[dict]) -> Tuple[List[dict], int]:
-    """Clusters reduced to the nuggets no index entry covers, each made per-nugget (judge-only), and the covered count.
+POINTER_COVERED_FIELD = "pointer_covered"  # cluster key: ids of the nuggets pointer coverage withheld from synth
 
-    Nuggets carry a source file, not a section, so an entry covers every nugget of its path.
+
+def pointer_covered_ids(clusters: List[dict], entries: List[dict]) -> Dict[str, List[object]]:
+    """topicKey -> ids of the nuggets the pointer index covers, so synth never sees them.
+
+    Nuggets carry a source file, not a section, so coverage is judged per path: a path is pointer-covered
+    only when every entry of it is an unmarked `section` span. The pass indexes every section of every
+    file, so any marked entry (durable, decision, ...) means the file holds material synth must read.
+    A DECISION nugget is never covered: it owes a decision record or a PIPELINE.md SKIP reason.
     """
-    covered = {_posix_rel(e["path"]) for e in entries}
+    indexed = {_posix_rel(e["path"]) for e in entries}
+    marked = {_posix_rel(e["path"]) for e in entries if e["tag"] != "section"}
+    covered = indexed - marked
+    out: Dict[str, List[object]] = {}
+    for c in clusters:
+        ids = [n.get("id") for n in c["nuggets"]
+               if n.get("type") != "DECISION" and _posix_rel(n.get("source", "")) in covered]
+        if ids:
+            out[c["topicKey"]] = ids
+    return out
+
+
+def split_by_pointer(clusters: List[dict], entries: List[dict]) -> Tuple[List[dict], int]:
+    """Clusters reduced to the nuggets pointer_covered_ids leaves, each made per-nugget, and the covered count."""
+    gone = pointer_covered_ids(clusters, entries)
     rest: List[dict] = []
     skipped = 0
     for c in clusters:
-        keep = [n for n in c["nuggets"] if _posix_rel(n.get("source", "")) not in covered]
+        out = set(gone.get(c["topicKey"], ()))
+        keep = [n for n in c["nuggets"] if n.get("id") not in out]
         skipped += len(c["nuggets"]) - len(keep)
         if keep:
             rest.append({**c, "per_nugget": True, "nuggets": keep})
@@ -1565,7 +1624,14 @@ def write_synth_batches(clusters: List[dict], repo: Path, out_dir: Path, pointer
         path = out_dir / "topics" / f"{slugify(key)}{suffix}.json"
         write_json(path, item)
         topic_files.setdefault(key, path.as_posix())
-    packed = pack_synth_batches(inputs)
+    cluster_bytes = {c["topicKey"]: len(json.dumps(c)) for c in clusters}
+    owner = {n.get("id"): c["topicKey"] for c in clusters for n in c.get("nuggets") or []}
+    weight: Dict[str, int] = {}
+    for item in inputs:
+        # A judge-only key (per_nugget batch) names no cluster; it draws on its nuggets' owners.
+        owners = {item["topic_key"]} | {owner[n] for n in item.get("cite_ids", []) if n in owner}
+        weight[item["topic_key"]] = max(weight.get(item["topic_key"], 0), sum(cluster_bytes.get(k, 0) for k in owners))
+    packed = pack_synth_batches(inputs, weight=weight)
     kept, rest = packed[:MAX_SYNTH_CALLS], packed[MAX_SYNTH_CALLS:]
     payloads = [{"topics": batch, **({"pointer_index": pointer} if pointer else {})} for batch in kept]
     files = []
@@ -1575,7 +1641,11 @@ def write_synth_batches(clusters: List[dict], repo: Path, out_dir: Path, pointer
         files.append(path.as_posix())
     sent = {i["topic_key"] for batch in kept for i in batch}
     deferred = sorted({i["topic_key"] for batch in rest for i in batch} - sent)
-    block = {"batches": files, "payloads": payloads, "deferred_topics": deferred, "topic_files": topic_files,
+    # Judge keys (nugget-<batch>) name no cluster, so the coverage gate exempts deferred work by nugget id.
+    deferred_ids = sorted({str(n) for batch in rest for i in batch if i["topic_key"] in deferred
+                           for n in i.get("cite_ids", [])})
+    block = {"batches": files, "payloads": payloads, "deferred_topics": deferred,
+             "deferred_nugget_ids": deferred_ids, "topic_files": topic_files,
              "topics": len({i["topic_key"] for i in inputs}), "schema": SYNTH_SCHEMA,
              "schemas": [payload_schema(p) for p in payloads],
              "max_topic_tokens": max((estimate_tokens(i) for i in inputs), default=0)}
@@ -1778,8 +1848,10 @@ def apply_synth(results: List[object], prepared: dict, repo: Path, out_dir: Path
     members: Dict[str, List[str]] = {}
     for k, c in topics.items():
         if c.get("per_nugget"):
+            record_ids = {n.get("id") for n in record_nuggets(c)}
             for n in c["nuggets"]:
-                members.setdefault(judge_topic_key(n.get("id")), []).append(k)
+                if n.get("id") not in record_ids:
+                    members.setdefault(judge_topic_key(n.get("id")), []).append(k)
     judge_keys = {k for k in members if k not in topics}
     by_slug = {slugify(k): k for k in reversed(list(topics))}
     for k in sorted(judge_keys):
@@ -1807,6 +1879,8 @@ def apply_synth(results: List[object], prepared: dict, repo: Path, out_dir: Path
                 for k in scope:
                     claimed.setdefault(k, t["no_ops_reason"])
             ids = {n.get("id") for k in scope for n in topics[k]["nuggets"]}
+            if judge:
+                ids -= {n.get("id") for k in scope for n in record_nuggets(topics[k])}
             if isinstance(t.get("page_title"), str) and not judge:
                 titles.setdefault(key, t["page_title"].strip())
             for nr in t.get("nugget_reasons") or []:
@@ -2094,9 +2168,12 @@ def prepare(repo: Path, input_file: Path, nuggets_file: Optional[Path], verdicts
     synth_clusters = [c for c in clusters if c["topicKey"] not in unchanged]
     pointer = None
     if pointer_entries is not None:
+        withheld = pointer_covered_ids(synth_clusters, pointer_entries)
         synth_clusters, skipped = split_by_pointer(synth_clusters, pointer_entries)
         judged = {c["topicKey"] for c in synth_clusters}
-        clusters = [{**c, "per_nugget": True} if c["topicKey"] in judged else c for c in clusters]
+        clusters = [{**c, **({"per_nugget": True} if c["topicKey"] in judged else {}),
+                     **({POINTER_COVERED_FIELD: withheld[c["topicKey"]]} if c["topicKey"] in withheld else {})}
+                    for c in clusters]
         try:
             shown = pointer_index.resolve().relative_to(repo).as_posix()
         except ValueError:
@@ -2415,7 +2492,7 @@ WATERMARK_KIND = "distill"
 _ENGINE_ROOT_MODULE = Path(__file__).resolve().parents[2] / "hooks" / "scripts" / "_engine_root.py"
 
 
-def _load_run_watermark():
+def _load_run_watermark() -> types.ModuleType:
     """The engine's coordinator_core.run_watermark, imported through the resolved engine root.
 
     Raises DriverError("engine-unresolved") when no engine root answers; never vendors the module.

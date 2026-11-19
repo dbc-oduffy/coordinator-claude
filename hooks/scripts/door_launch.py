@@ -9,6 +9,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+_HOOKS_DIR = str(Path(__file__).resolve().parent)
+if _HOOKS_DIR not in sys.path:
+    sys.path.insert(0, _HOOKS_DIR)
+
+from _win_portability import no_console_spawn_kwargs  # noqa: E402
+
 _FLAGS = ("--quiet", "--pass-2")
 
 
@@ -46,7 +52,7 @@ def main(argv: list[str]) -> int:
             stdin=_fd(sys.stdin),
             stdout=_fd(sys.stdout),
             stderr=subprocess.DEVNULL if quiet else _fd(sys.stderr),
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **no_console_spawn_kwargs(),
         )
     except OSError as exc:
         sys.stderr.write("COORDINATOR DOOR: hook-run not runnable, fails OPEN: %s (%s)\n" % (door, exc))

@@ -1839,6 +1839,7 @@ Rationale moved out of the resident `plan` skill (`SKILL.md`, `residue/shared-co
 - **Scope a doc-corpus chunk from the corpus's INDEX location.** Find where the corpus and its index file actually live before naming the path; a hand-typed scope sends the executor to the wrong tree.
 - **Trace a rendered field end-to-end before planning to render it.** Present in the contract schema and fixtures does not mean present at render: follow it through ingest → store → loader → DTO; ingest can drop it silently.
 - **A passing grep oracle covers only the tokens it names.** A negative-assertion / over-claim oracle is not proof of no over-claim; pair it with a reading review.
+- **Grep each doc a re-framing plan names for the OLD framing, not just stale status tokens.** A prior bulk conform pass is not proof every doc was conformed; a doc it skipped forecast as a token flip under-delivers.
 - **Before reshaping a plan on a cited doctrine, check for a same-day ruling on the seam.** Run prior-art-checker and grep sibling inboxes; an affirmed wiki can be superseded by a ruling hours old.
 - **Read a library's shipped source before adjudicating library-vs-CLI transport.** If the library spawns the same binary over the same protocol, the conflict dissolves without a tiebreaker.
 - **Verify a config-key premise against the code that reads it.** Which file and which semantics govern (local override only, non-empty value only) is decided by the resolver, not by a file that happens to hold the key.

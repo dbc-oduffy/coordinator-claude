@@ -131,7 +131,7 @@ def session_ensure_branch(
     caller: str = "ceremony",
 ) -> EnsureResult:
     """Gate: on main, detached HEAD, or zero-ahead non-span branch → cut
-    work/{machine}/{today} (collision-safe suffix loop), push it, return
+    {owner}/{machine}/{today} (collision-safe suffix loop), push it, return
     EnsureResult("FRESH-CUT", branch). Silent no-op (EnsureResult("", "")) when
     the gate condition is not met.
 
@@ -204,7 +204,7 @@ def session_ensure_branch(
       commits_ahead — commits ahead of origin/main (0 when on main or detached);
                        accepts int or str.
 
-    Raises SuffixCollisionError when work/{machine}/{today}-2..-9 are all taken.
+    Raises SuffixCollisionError when {owner}/{machine}/{today}-2..-9 are all taken.
 
     Ceremony/oracle incoherence on -N collision suffixes (deliberate, not a
     bug): the -N branches this function mints are NOT accepted by
@@ -255,16 +255,20 @@ def session_ensure_branch(
 
     from coordinator_core.session import worktree_safety as _ws
 
+    from coordinator_core.daily_branch import day_branch_name
+    from coordinator_core.machine_resolver import compute_owner
+
+    target_branch = day_branch_name(compute_owner(), machine, today)
     branch_mutation_verdict = _branch_mutation_verdict()
     verdict = branch_mutation_verdict(operation=_ws.FRESH_CUT_AT_HEAD, current_branch=current)
     if verdict.outcome != "ok":
         print(
-            f"REFUSED-LIVE-PEERS branch=work/{machine}/{today} reason={verdict.reason}",
+            f"REFUSED-LIVE-PEERS branch={target_branch} reason={verdict.reason}",
             file=err,
         )
         return EnsureResult(result="REFUSED-LIVE-PEERS", new_branch="")
 
-    target = f"work/{machine}/{today}"
+    target = target_branch
     lock = _cut_lock()
     acquired = lock.acquire(".", session_id=_self_session_id())
     if not acquired.acquired:

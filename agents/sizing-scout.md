@@ -55,7 +55,7 @@ and the evidence, hedged neither up nor down.
 
 ## Checklist
 
-A PM method stated as ordered steps: one register row per step, `mechanism:` the PM's stated means or `unstated` (`coordinator/docs/wiki/planning/requirement-register.md` § Method steps).
+A PM method stated as ordered steps: one register row per step, `mechanism:` the PM's stated means or `unstated`.
 
 Follow Steps 1a, 1b, 2 of `coordinator/skills/sizing/SKILL.md`; rationale:
 `coordinator/docs/wiki/planning/sizing-lobby.md`.
@@ -87,8 +87,8 @@ Reply inline, these fields only:
 - `probe_signal`, `scout_evidence_kind`, `probe_raise_basis` (when probed)
 - `verbatim_accounting`: per brief turn, its register row ids, or `unrelated — <reason>`
 - `register_rows`: per PM instruction `{id, source_text, surface, status: open}`, optional `anchor`
-  (never `source`); `surface` is `ui|api|cli|internal|visual` (default `internal`); shape:
-  `coordinator/docs/wiki/planning/requirement-register.md`
+  (never `source`); `surface` is `ui|api|cli|internal|visual` (default `internal`); `source_text`
+  is the instruction verbatim, `status` is always `open`; a method step is its own row
 - `register_sources`: `[{doc, ref}]`
 - `initiatives`: an id per independent initiative
 - `route_override_reason`: when route ≠ `route_preference`, why

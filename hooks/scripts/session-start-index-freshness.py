@@ -33,6 +33,7 @@ from typing import Any, Optional
 _SCRIPTS_DIR = str(Path(__file__).resolve().parent)
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
+from _win_portability import no_console_spawn_kwargs  # noqa: E402
 
 CACHE_REL = Path(".coordinator-local") / "index-freshness-verdict.json"
 CACHE_VERSION = 1
@@ -45,7 +46,6 @@ CLI_REGISTRY_KEY = "project_rag.bin.project_rag_cli"
 VERDICT_TIMEOUT_S = 10
 #: Verdicts that fire the refresh; `current` and `unknown` never do.
 REFRESH_VERDICTS = frozenset({"stale", "absent"})
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 def _now() -> float:
@@ -61,7 +61,7 @@ def _run(argv: list, cwd: str, timeout: float) -> Optional[tuple]:
     try:
         proc = subprocess.run(
             argv, cwd=cwd, capture_output=True, text=True, timeout=timeout,
-            stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW)
+            stdin=subprocess.DEVNULL, **no_console_spawn_kwargs())
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
     return proc.returncode, proc.stdout, proc.stderr
@@ -181,11 +181,13 @@ def _spawn_detached(argv: list, cwd: str) -> None:
     Trap: the async legs run serially under one 45 s registration timeout and sweep_boot runs last
     on its own 30 s, so a pull awaited here would starve sweep_boot. The leg never waits on it.
     """
-    flags = _NO_WINDOW | getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    hidden = no_console_spawn_kwargs()
+    flags = (hidden.pop("creationflags", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+             | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
     try:
         subprocess.Popen(
             argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            creationflags=flags, start_new_session=os.name != "nt", close_fds=True)
+            creationflags=flags, start_new_session=os.name != "nt", close_fds=True, **hidden)
     except (OSError, ValueError):
         pass
 

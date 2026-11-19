@@ -12,6 +12,13 @@ Per statement (`;`, `&&`, `||`, `|`, `&`, newline), with the vendor name in comm
 A call carrying --help, -h or --version, a prompt file that does not exist yet, and a path built
 from a variable are allowed. `bash -c`/`pwsh -Command` bodies are parsed too.
 
+A headless EM is exempt: a vendor statement whose COORDINATOR_SESSION_ID and
+COORDINATOR_ALLOW_HEADLESS_EM_TOKEN (inline `VAR=v`, an earlier `export VAR=v` or `$env:VAR = v`, or
+this hook's own env) match the grant headless-em-launch.py wrote for that session and family. An EM
+prompt leads with no WORKER preamble by design; the launcher's grant is the EM-vs-worker boundary
+(A-HEADLESS-EM-WITHOUT-THE-LAUNCHER-GRANT-IS-A-WORKER). The grant check is the engine's own
+`headless_em_grant_matches`; when the engine cannot load, the exemption fails closed.
+
 Cost: an in-process regex prefilter returns at once for a command naming none of the three vendors.
 Override: COORDINATOR_ALLOW_FAMILY_STAGE_PROMPT_WITHOUT_PREAMBLE=1 in the hook environment
 (guard-override-keys convention); the deny text never names it.
@@ -49,6 +56,10 @@ _WINDOWS_WRAPPER = "codex-exec-windows.ps1"
 _CAT_NAMES = {"cat", "get-content", "gc", "type"}
 _CAT_VALUE_FLAGS = {"-encoding", "-readcount", "-totalcount", "-tail", "-first"}
 _SUBST = re.compile(r"^\$\(\s*(.*?)\s*\)$", re.S)
+SESSION_ENV = "COORDINATOR_SESSION_ID"
+GRANT_ENV = "COORDINATOR_ALLOW_HEADLESS_EM_TOKEN"
+_PS_ENV = re.compile(r"^\$env:([A-Za-z_][A-Za-z0-9_]*)(?:=(.*))?$", re.I)
+_GRANT_FAMILIES = {"codex", "agy", "grok"}
 
 
 def _strip_heredocs(text: str) -> str:
@@ -332,34 +343,95 @@ def _load_builder() -> bool:
         return False
 
 
-def _scan_shell_args(args: list[str], cwd: str, depth: int) -> tuple[str, str] | None:
+def _scan_shell_args(args: list[str], cwd: str, depth: int, env: dict[str, str]) -> tuple[str, str] | None:
     """A `-c`/`-Command` body, or a `-File codex-exec-windows.ps1 ...` call, passed to a shell."""
     for idx, a in enumerate(args):
         if a.lower().endswith(_WINDOWS_WRAPPER):
             return _check_windows_wrapper(args[idx + 1:], cwd)
         if a.lower() in _BODY_FLAGS and idx + 1 < len(args) and depth < _MAX_DEPTH:
-            return _scan(args[idx + 1], cwd, depth + 1)
+            return _scan(args[idx + 1], cwd, depth + 1, env)
     return None
 
 
-def _scan(command: str, cwd: str, depth: int = 0) -> tuple[str, str] | None:
+def _assignments(tokens: list[str]) -> dict[str, str]:
+    """Env values a statement sets for the rest of the command: `export V=x`, `$env:V = x`, `$env:V=x`."""
+    if not tokens:
+        return {}
+    m = _PS_ENV.match(tokens[0])
+    if m:
+        if m.group(2) is not None:
+            return {m.group(1): m.group(2)}
+        if len(tokens) >= 3 and tokens[1] == "=":
+            return {m.group(1): tokens[2]}
+        return {}
+    if tokens[0] in ("export", "set"):
+        return dict(a.split("=", 1) for a in tokens[1:] if _ENV.match(a))
+    if all(_ENV.match(a) for a in tokens):
+        return dict(a.split("=", 1) for a in tokens)
+    return {}
+
+
+def _inline_env(tokens: list[str]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for a in tokens:
+        if _ENV.match(a):
+            k, v = a.split("=", 1)
+            out[k] = v
+        elif a not in _WRAP:
+            break
+    return out
+
+
+def _grant_holds(env: dict[str, str], family: str) -> bool:
+    """True only when the engine confirms a launcher grant for (session, family); False on any doubt."""
+    sid, token = env.get(SESSION_ENV), env.get(GRANT_ENV)
+    if family not in _GRANT_FAMILIES or not sid or not token or "$" in sid or "$" in token:
+        return False
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from _engine_root import resolve_claude_klabauter_root
+        root = resolve_claude_klabauter_root()
+        if not root:
+            return False
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        from coordinator_core.ops.workflow_fire.headless_em_grant import headless_em_grant_matches
+        return bool(headless_em_grant_matches({GRANT_ENV: token}, sid, family))
+    except Exception:
+        return False
+
+
+def _scan(command: str, cwd: str, depth: int = 0, env: dict[str, str] | None = None) -> tuple[str, str] | None:
+    env = dict(env if env is not None else {k: os.environ[k] for k in (SESSION_ENV, GRANT_ENV) if k in os.environ})
     for tokens in _statements(_strip_heredocs(command)):
+        set_here = _assignments(tokens)
+        if set_here:
+            env.update(set_here)
+            continue
         name, _raw, args = _head(tokens)
         if name in ("cd", "set-location", "sl") and args and not args[0].startswith("-"):
             base = _norm(args[0])
             cwd = base if os.path.isabs(base) else os.path.join(_norm(cwd), base)
             continue
         if name in _SHELLS:
-            hit = _scan_shell_args(args, cwd, depth)
+            hit = _scan_shell_args(args, cwd, depth, {**env, **_inline_env(tokens)})
             if hit:
                 return hit
             continue
         if any(a in _HELP for a in args):
             continue
         hit = _verdicts(tokens, cwd)
+        if hit and _grant_holds({**env, **_inline_env(tokens)}, _family(name, _raw)):
+            continue
         if hit:
             return hit
     return None
+
+
+def _family(name: str, raw: str) -> str:
+    if name == "codex" or raw.lower().endswith(_WINDOWS_WRAPPER) or name == _WINDOWS_WRAPPER:
+        return "codex"
+    return name
 
 
 def _deny_reason(kind: str, detail: str, command: str) -> str:

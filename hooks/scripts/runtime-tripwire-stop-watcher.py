@@ -138,6 +138,7 @@ from typing import Optional
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
+from _win_portability import no_console_spawn_kwargs, noninteractive_git_env  # noqa: E402
 try:
     from _message_envelope import resolve_wiki_citation  # noqa: E402
 except Exception:
@@ -272,7 +273,8 @@ def _git_root() -> str:
             capture_output=True,
             text=True,
             timeout=5.0,
-            creationflags=_NO_WINDOW,
+            env=noninteractive_git_env(),
+            **no_console_spawn_kwargs(),
         )
         if proc.returncode == 0:
             return proc.stdout.strip()
@@ -493,11 +495,13 @@ def _spawn_detached(argv: list) -> Optional[int]:
     )
     try:
         if os.name == "nt":
-            flags = _NO_WINDOW | _CREATE_NEW_PROCESS_GROUP
+            hidden = no_console_spawn_kwargs()
+            flags = hidden.pop("creationflags", _NO_WINDOW) | _CREATE_NEW_PROCESS_GROUP
             try:
                 proc = subprocess.Popen(
                     argv,
                     creationflags=flags | _CREATE_BREAKAWAY_FROM_JOB,
+                    **hidden,
                     **common_kwargs,
                 )
             except OSError:
@@ -505,9 +509,11 @@ def _spawn_detached(argv: list) -> Optional[int]:
                 # without it (see module docstring KNOWN RISK paragraph: the
                 # detached child may still die with the parent's job in this
                 # branch; nothing further can be done from user-mode code).
-                proc = subprocess.Popen(argv, creationflags=flags, **common_kwargs)
+                hidden = no_console_spawn_kwargs()
+                hidden.pop("creationflags", None)
+                proc = subprocess.Popen(argv, creationflags=flags, **hidden, **common_kwargs)
         else:
-            proc = subprocess.Popen(argv, start_new_session=True, **common_kwargs)
+            proc = subprocess.Popen(argv, start_new_session=True, **no_console_spawn_kwargs(), **common_kwargs)
         return proc.pid
     except Exception:
         return None

@@ -409,10 +409,23 @@ _POINTER_TAGS = (
 _POINTER_TAG_MAX = 3
 
 
+_TAG_PRIORITY = {name: i for i, (name, _rx) in enumerate(_POINTER_TAGS)}
+
+
+def capped_tag(names: Iterable[str]) -> str:
+    """The .jsonl tag for a set of tag names: up to three in priority order, a lone tag only when alone.
+
+    Trap: the pointer page coalesces adjacent spans by unioning their codes, uncapped; every page
+    read-back into pointers.jsonl must pass through here, or prepare refuses the index."""
+    named = sorted({n for n in names if n in _TAG_PRIORITY}, key=_TAG_PRIORITY.__getitem__)
+    if named:
+        return "+".join(named[:_POINTER_TAG_MAX])
+    return "section" if "section" in names else "durable"
+
+
 def pointer_tag(text: str) -> str:
     """One-line rule-derived tag for a durable section: up to three matching tag names, priority order."""
-    names = [name for name, rx in _POINTER_TAGS if rx.search(text)]
-    return "+".join(names[:_POINTER_TAG_MAX]) or "durable"
+    return capped_tag([name for name, rx in _POINTER_TAGS if rx.search(text)])
 
 
 def _frontmatter_pointer_blocks(text: str) -> List[tuple]:
@@ -813,7 +826,7 @@ def incremental_pointer_index(rows: Iterable[dict], repo_root: Path, page_text: 
         ch = changed.get(es[0]["sha"]) if es else None
         if ch is not None and path not in ch:
             out.extend({"path": path, "heading": "(pointer page)", "start_line": e["start_line"],
-                        "end_line": e["end_line"], "tag": "+".join(_CODE_NAMES.get(c, c) for c in e["tag"].split("+"))}
+                        "end_line": e["end_line"], "tag": capped_tag(_CODE_NAMES.get(c, c) for c in e["tag"].split("+"))}
                        for e in es)
             continue
         reread += 1

@@ -1640,6 +1640,7 @@ def exec_cli(target: str, argv: Optional[List[str]] = None) -> None:
         prior = os.environ.get("PYTHONPATH", "")
         os.environ["PYTHONPATH"] = lib_dir + (os.pathsep + prior if prior else "")
     try:
+        # guard-allow: no-bare-python-spawn exec replaces this process with the sys.executable-pinned interpreter; no child console is created
         os.execv(sys.executable, [sys.executable, target_path, *argv])
     except OSError as exc:
         sys.stderr.write(

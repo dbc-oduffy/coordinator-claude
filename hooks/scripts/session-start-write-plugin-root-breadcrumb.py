@@ -116,31 +116,42 @@ def _breadcrumb_path() -> Path | None:
     return Path(home) / BREADCRUMB_RELATIVE_PATH
 
 
+def write_breadcrumb(target: Path, fallback_root: str | None = None) -> str:
+    """Resolve the plugin root for `target`'s home and write it atomically; the one write path
+    shared by this hook and `gen-content-root-pointer`.
+
+    `fallback_root` is used only when no installed record or own root resolves. Returns
+    "current" (already matches, nothing written), "written", or "unresolved" (no root).
+    Raises on an unwritable target: the hook swallows, the generator reports.
+    """
+    root = _plugin_root(str(target.parents[1])) or fallback_root
+    if root is None:
+        return "unresolved"
+    try:
+        if target.read_text(encoding="utf-8").strip() == root:
+            return "current"
+    except OSError:
+        pass
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=str(target.parent), prefix=target.name + ".")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(root + "\n")
+        os.replace(tmp_name, target)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+    return "written"
+
+
 def main() -> int:
     try:
         target = _breadcrumb_path()
-        if target is None:
-            return 0
-        root = _plugin_root(str(target.parents[1]))
-        if root is None:
-            return 0
-        try:
-            if target.read_text(encoding="utf-8").strip() == root:
-                return 0
-        except OSError:
-            pass
-        target.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp_name = tempfile.mkstemp(dir=str(target.parent), prefix=target.name + ".")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                fh.write(root + "\n")
-            os.replace(tmp_name, target)
-        except Exception:
-            try:
-                os.unlink(tmp_name)
-            except OSError:
-                pass
-            raise
+        if target is not None:
+            write_breadcrumb(target)
     except Exception:
         return 0
     return 0

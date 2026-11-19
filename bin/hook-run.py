@@ -219,7 +219,19 @@ def _check_all(args: "list[str]") -> int:
     return 0
 
 
+def _stdout_utf8() -> None:
+    """The envelope is JSON that may carry non-cp1252 text; a console-code-page stdout would raise on
+    write. A stdout without `reconfigure` (a test stub) is left alone."""
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if reconfigure is not None:
+        try:
+            reconfigure(encoding="utf-8")
+        except (OSError, ValueError):
+            pass
+
+
 def main(argv: "list[str] | None" = None) -> int:
+    _stdout_utf8()
     args = sys.argv[1:] if argv is None else argv[1:]
     if args and args[0] == "--check-all":
         return _check_all(args[1:])

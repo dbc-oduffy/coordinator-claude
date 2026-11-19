@@ -137,10 +137,15 @@ def leg_record_live(rec):
 
 
 def leg_target_live(legs_dir, target):
-    """True when `legs_dir` holds a live leg record for conversation `target`."""
+    """True when `legs_dir` holds a live leg record for `target` whose agy session does not read dead.
+
+    Same two gates as `load_leg_peers`: an orphaned leg whose agy app is gone is not live, or
+    `_repair_faces` respawns a face the reaper keeps reaping.
+    """
     try:
         with open(os.path.join(legs_dir, f"{target}.json"), encoding="utf-8") as fh:
-            return leg_record_live(json.load(fh))
+            rec = json.load(fh)
+        return leg_record_live(rec) and _liveness().agy_session_state(target, rec) != "dead"
     except (OSError, ValueError, TypeError):
         return False
 

@@ -491,7 +491,7 @@ def _reap_seam_present() -> Tuple[bool, str]:
     Screen for that disagreement here: an override the transport will refuse
     means the native seam is not usable, whichever tree happens to sit around
     this script. Legacy reaps the same sidecars, so routing there is strictly
-    better than skipping. This is the check the reserved ``_claude_klabauter_root=``
+    better than skipping. This is the check the reserved ``_engine_root=``
     kwarg used to make unnecessary by pinning the transport to THIS resolver's
     answer (dropped by C16/C28 --
     docs/plans/2026-08-20-a-refusal-cannot-exit-zero.md).
@@ -566,7 +566,7 @@ def _reap_native(
     summary_limit: int = _DEFAULT_SUMMARY_LIMIT,
 ) -> int:
     _bootstrap_imports()
-    # No `claude_klabauter_root` parameter: C28 dropped the reserved `_claude_klabauter_root=` kwarg from
+    # No `claude_klabauter_root` parameter: C28 dropped the reserved `_engine_root=` kwarg from
     # the cc_invoke call below, which was its only reader, and a parameter nothing
     # reads is a standing invitation to re-wire the transport through it. The engine
     # this dispatches to is resolved by cc_invoke itself; `_reap_seam_present` still

@@ -211,12 +211,6 @@ _REQUIRED_SEGMENT_KEYS = frozenset({"segment_id", "case", "class", "order"})
 _GIT_STATUS_TIMEOUT_SECONDS = 5
 _BRIEF_TIMEOUT_SECONDS = 12
 
-# Windows console-subprocess discipline: `python.exe` is a CONSOLE-subsystem
-# child. `getattr` resolves to 0 (no-op) on every non-Windows platform --
-# same idiom as every sibling hook in this directory.
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
-
 # --- COORDINATOR_SETTINGS_HOME resolution (mirrors pickup-autofire.py) ------
 
 
@@ -239,6 +233,11 @@ def resolve_settings_home() -> Path:
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
+
+from _win_portability import (  # noqa: E402
+    no_console_spawn_kwargs,
+    noninteractive_git_env,
+)
 
 # `_skill_invocation` is the shared entry-path adapter (chunk C1) that lets
 # this hook read either a typed `UserPromptExpansion` slash-command payload
@@ -323,7 +322,8 @@ def _git_status_porcelain(repo_root: Path) -> "str | None":
             encoding="utf-8",
             errors="replace",
             timeout=_GIT_STATUS_TIMEOUT_SECONDS,
-            creationflags=_NO_WINDOW,
+            env=noninteractive_git_env(),
+            **no_console_spawn_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -360,7 +360,7 @@ def _run_baton_assemble_brief(script_path: Path) -> "subprocess.CompletedProcess
             encoding="utf-8",
             errors="replace",
             timeout=_BRIEF_TIMEOUT_SECONDS,
-            creationflags=_NO_WINDOW,
+            **no_console_spawn_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return None

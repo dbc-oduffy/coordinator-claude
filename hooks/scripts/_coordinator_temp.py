@@ -6,8 +6,15 @@ Stdlib only; hooks import this before engine resolution.
 from __future__ import annotations
 
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
+
+_HOOKS_DIR = str(Path(__file__).resolve().parent)
+if _HOOKS_DIR not in sys.path:
+    sys.path.insert(0, _HOOKS_DIR)
+
+from _win_portability import no_console_spawn_kwargs, noninteractive_git_env  # noqa: E402
 
 _ROOT_NAME = "coordinator"
 
@@ -20,7 +27,8 @@ def _default_slug() -> str:
             capture_output=True,
             text=True,
             timeout=10,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            env=noninteractive_git_env(),
+            **no_console_spawn_kwargs(),
         )
         top = out.stdout.strip()
         if out.returncode == 0 and top:

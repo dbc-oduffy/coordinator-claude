@@ -243,3 +243,11 @@ each, and surfaces a structured table:
 - [addon-protocol.md](../addon-protocol.md) — full v6 hookspec table + façade types
 - [addon-receiver-scaffold.md](./addon-receiver-scaffold.md) — Wave-2a doctrine, project-type gate
 - `<project-rag-root>/docs/wiki/artifact-shape-conformance/thin-wrapper-graceful-fail.md` — graceful-fail contract for addon seam probe sites
+
+## Family goals are capability not benchmark
+
+1b = workflows CAN fold in grok/agy/codex, verified end to end. 1a = those families fire workflow runs like Claude EMs and get nagged when they DIY. Quality/fit benchmarks (C6-style) are the experiments team's; don't run them.
+
+**Why:** PM 2026-11-12 stopped the C6 benchmark: being able to fold them in is not "we found their optimal use".
+
+**How to apply:** Criteria are mechanism-only; reliability defects that stop a family running are in scope.

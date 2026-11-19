@@ -42,10 +42,10 @@ a safeguard fires.
 - **Only publishing is irreversible:** a local write to any working tree, owned or not, is
   recoverable, bar a sibling-repo commit (assent-gated: ownership). Irreversible: p4 submit/shelve, push/PR to a non-owned
   remote, mail, release, third-party effects, merge to main, force-push, branch deletion, history
-  rewrite. `A-LOCAL-WRITE-IS-RECOVERABLE-ONLY-PUBLISHING-IS-IRREVERSIBLE`.
+  rewrite.
 - **Surfacing is a write.** A PR (owned repo), issue, memo or queue row: open it, don't ask.
 - **Licensing is the PM's call.** Open-source repos, any licence, are ours to clone, vendor, fork,
-  patch and absorb; never invent a licence gate, nor remove one the PM designed. `PM-DECIDES-LICENSING`.
+  patch and absorb; never invent a licence gate, nor remove one the PM designed.
 <!-- coordinator:posture:end -->
 
 ## Flag Severity

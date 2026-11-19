@@ -76,6 +76,7 @@ def _read_stdin(timeout: float = 2.0) -> str:
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
+from _win_portability import no_console_spawn_kwargs, noninteractive_git_env  # noqa: E402
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
@@ -103,7 +104,7 @@ def _note_degradation(payload: dict, note: str) -> None:
                         ["git", "-C", str(candidate), "rev-parse",
                          "--path-format=absolute", "--git-common-dir"],
                         capture_output=True, text=True, timeout=5, check=False,
-                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                        env=noninteractive_git_env(), **no_console_spawn_kwargs(),
                     )
                     if out.returncode != 0 or not out.stdout.strip():
                         return
@@ -166,7 +167,7 @@ def main() -> int:
             timeout=10,
             capture_output=True,
             check=False,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **no_console_spawn_kwargs(),
         )
     except Exception:
         pass  # any subprocess failure (missing interpreter, timeout, ...) -- fail-open

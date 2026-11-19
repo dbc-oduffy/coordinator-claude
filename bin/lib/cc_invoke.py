@@ -11,7 +11,7 @@ then parses the
 {jsonrpc,id,result} envelope that is coordinator_core.invoke's default (non---bare)
 response shape (see DR-215 ref below). On the route() path, the engine root is resolved ONCE via the native
 _resolve_claude_klabauter_root ladder (env var → pointer file → coordinator_core.engine_root,
-no bash subprocess anywhere) — forwarded to cc_invoke() via _claude_klabauter_root for both the
+no bash subprocess anywhere) — forwarded to cc_invoke() via _engine_root for both the
 find_spec gate and the subprocess env (single resolution source).
 
 Public API:
@@ -521,18 +521,6 @@ def _claude_home() -> str:
     return _machine_local_impl_resolver().claude_home()
 
 
-# Cross-reference (C11, pln-an-engine-root-is-not-named-for-the-repo-...):
-# coordinator_core/engine_root.py's `coordinator_engine_root_env`/
-# `coordinator_engine_root_env_exports` (C10) are the dual-read/dual-write seam
-# for this rename everywhere coordinator_core CAN be imported. This module sits
-# on the far side of the same one-way no-import boundary as
-# `_REGISTRY_READ_TIMEOUT_TOKEN` (imported from engine_bootstrap below) — its
-# own engine-root-resolution ladder exists to LOCATE coordinator_core in the
-# first place, so it cannot depend on importing coordinator_core.engine_root
-# to do it — this literal is duplicated by hand in engine_root.py for the
-# same reason, not an oversight.
-_ENGINE_ROOT_OLD_VAR = "CLAUDE_KLABAUTER_ROOT"
-
 _IN_PROCESS_REGISTRY_MEMO: dict[str, str | None] = {}
 
 
@@ -687,10 +675,7 @@ def resolve_engine_root(script_file: str) -> str:
 
       Rung 1: ``COORDINATOR_ENGINE_ROOT`` in the environment, when it names a
               real directory — the explicit operator/test-harness override.
-              (Pre-C14 this rung read ``CLAUDE_KLABAUTER_ROOT``; the dual-read window
-              closed and the old name is no longer consulted here — see
-              ``_ENGINE_ROOT_NEW_VAR``/``_ENGINE_ROOT_OLD_VAR``'s module-level
-              note.)
+              (The retired name is no longer consulted here.)
       Rung 2: self-location — ``_walk_up_to_checkout(script_file)``, the
               nearest enclosing checkout at any depth.
       Rung 3: ``_resolve_claude_klabauter_root()``'s remaining rungs — the
@@ -743,7 +728,6 @@ def resolve_engine_root(script_file: str) -> str:
     THIS function, not on ``ensure_engine_on_path`` — see that function's
     docstring for why the degrading form is the wrong choice there.
     """
-    # _ENGINE_ROOT_NEW_VAR/_ENGINE_ROOT_OLD_VAR's module-level note above).
     env_root = os.environ.get(_ENGINE_ROOT_NEW_VAR) or ""
     if env_root and os.path.isdir(env_root):
         return env_root
@@ -1712,7 +1696,6 @@ def _settings_home_env(base_env: dict[str, str], claude_klabauter_root: str | No
     if base_env.get("COORDINATOR_SETTINGS_HOME"):
         return base_env
 
-    # _ENGINE_ROOT_NEW_VAR/_ENGINE_ROOT_OLD_VAR's module-level note above).
     _root = claude_klabauter_root if claude_klabauter_root is not None else os.environ.get(_ENGINE_ROOT_NEW_VAR)
     _injected_root = _root if _root and _root not in sys.path else None
     if _injected_root is not None:
@@ -2843,7 +2826,7 @@ def cc_invoke(
     params: dict[str, Any],
     repo_root: str,
     *,
-    _claude_klabauter_root: str | None = None,
+    _engine_root: str | None = None,
     _stderr_sink: list[str] | None = None,
 ) -> dict[str, Any]:
     """Spawn coordinator_core.invoke and return the bare result dict.
@@ -2878,7 +2861,7 @@ def cc_invoke(
     `--params-file <path>` for this call convention.
 
     Args:
-        _claude_klabauter_root: already-resolved engine root (forwarded by route() to avoid a
+        _engine_root: already-resolved engine root (forwarded by route() to avoid a
             second resolution on the State-2 path). If None, resolved here via
             _resolve_claude_klabauter_root(). Keyword-only; callers outside route() should omit it.
         _stderr_sink: when provided, the child's captured stderr text is appended to
@@ -2896,7 +2879,7 @@ def cc_invoke(
             point, so this always means the op already succeeded and the failure is
             confined to parsing its report. See that type's own docstring.
     """
-    claude_klabauter_root = _claude_klabauter_root if _claude_klabauter_root is not None else _resolve_claude_klabauter_root()
+    claude_klabauter_root = _engine_root if _engine_root is not None else _resolve_claude_klabauter_root()
 
     global last_rung
     last_rung = None
@@ -3036,7 +3019,7 @@ def cc_invoke_bare(
     params: dict[str, Any],
     repo_root: str,
     *,
-    _claude_klabauter_root: str | None = None,
+    _engine_root: str | None = None,
     _stderr_sink: list[str] | None = None,
 ) -> dict[str, Any]:
     """Bare-transport spawn of coordinator_core.invoke — the shared Python promotion of
@@ -3059,7 +3042,7 @@ def cc_invoke_bare(
     with cc_invoke() via _raise_on_process_failure — one ladder, two call conventions.
 
     Args:
-        _claude_klabauter_root: already-resolved engine root (forwarded by route paths to avoid a
+        _engine_root: already-resolved engine root (forwarded by route paths to avoid a
             second resolution). Keyword-only; callers outside a router should omit it.
         _stderr_sink: when provided, the child's captured stderr text is appended to
             this list on the SUCCESS return path if non-empty — same purpose as
@@ -3068,7 +3051,7 @@ def cc_invoke_bare(
     Returns the bare result dict on success. Raises RuntimeError on any transport failure;
     NEVER returns legacy after a spawn.
     """
-    claude_klabauter_root = _claude_klabauter_root if _claude_klabauter_root is not None else _resolve_claude_klabauter_root()
+    claude_klabauter_root = _engine_root if _engine_root is not None else _resolve_claude_klabauter_root()
 
     global last_rung
     last_rung = None
@@ -3284,7 +3267,7 @@ def route(
                 )
             ) from exc
 
-    return cc_invoke(op, params, repo_root, _claude_klabauter_root=claude_klabauter_root, _stderr_sink=_stderr_sink)
+    return cc_invoke(op, params, repo_root, _engine_root=claude_klabauter_root, _stderr_sink=_stderr_sink)
 
 
 class RouteMutationError(RuntimeError):

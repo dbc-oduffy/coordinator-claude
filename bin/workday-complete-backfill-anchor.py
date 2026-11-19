@@ -57,13 +57,14 @@ Subcommands:
         INJECTED_FILES=<space-separated paths>
         COMMITTED=<0|1>
 
-  write-gap <ROOT> <DATE> [--machine M] [--today YYYY-MM-DD] [--no-commit]
+  write-gap <ROOT> <DATE> [--machine M] [--today YYYY-MM-DD] [--no-commit] [--allow-diverged]
       Composes the missing archive/daily-summaries/<DATE>-<machine>.md for a
       true-gap day (the `run` subcommand's TRUE_GAP_DATES): rollup
       frontmatter, bare covered_tip_sha / covered_machine anchors and a
       `## Work Completed` list of commit subjects, from `git log --all`. Exits
       1 (nothing written) when a summary for the day exists, the day has no
-      commits, or its tips diverge. Prints `TARGET=<path>` and `COMMITTED=<0|1>`.
+      commits, or its tips diverge; --allow-diverged composes a diverged day
+      with a `## Leaf Tips` section listing every leaf instead. Prints `TARGET=<path>` and `COMMITTED=<0|1>`.
 
 Divergence from the ported bash prose (executor note, WDC-3): the bash
 source describes deriving a per-date `machine` value from a gap row's `$2`
@@ -377,6 +378,10 @@ def _cmd_write_gap(argv: list[str]) -> int:
     parser.add_argument("--machine", default=None, help="Machine name; defaults to compute_machine().")
     parser.add_argument("--today", default=None, help="Override 'today' (YYYY-MM-DD) in the Generated line.")
     parser.add_argument("--no-commit", action="store_true", help="Write the file but skip the git add+commit.")
+    parser.add_argument(
+        "--allow-diverged", action="store_true",
+        help="Compose a diverged day listing every leaf tip instead of refusing.",
+    )
     args = parser.parse_args(argv)
 
     if not os.path.isdir(args.root):
@@ -401,7 +406,8 @@ def _cmd_write_gap(argv: list[str]) -> int:
 
     try:
         path, text = compose_daily_summary_gap(
-            root, args.date, machine, compute_descendant_tip, today=args.today
+            root, args.date, machine, compute_descendant_tip, today=args.today,
+            allow_diverged=args.allow_diverged,
         )
     except GapRefusal as exc:
         _err(f"REFUSED: {exc}")

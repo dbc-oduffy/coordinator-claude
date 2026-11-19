@@ -3,8 +3,8 @@
 Resolves `coordinator.general_work_root` (default `<workspace>/_general-work`, where workspace is
 the recorded `coordinator.repo_home`, else the folder holding most `repos.*` checkouts, else the
 user home), refuses a root inside a checkout or overlapping the group-em home,
-and creates it on demand; `ensure_root` clones `coordinator.general_work_remote` into it when set, else git-inits it
-(only when `.git` is absent), pins the key, converges the full coordinator-repo tree and commits only the paths it seeded. The root is
+and creates it on demand; `ensure_root` adopts `coordinator.general_work_remote` (else the gh user's `general-work` repo): clones
+it into a root with no `.git`, merges it into a `.git` root with no `origin`, else git-inits; pins the key, converges the full coordinator-repo tree and commits only the paths it seeded. The root is
 the `general-work-em` memo identity and is registered as `repos.general_work`, which
 `resolve_root` exempts from the checkout refusal.
 Contract: gem-cockpit-contract.md.
@@ -20,12 +20,15 @@ from pathlib import Path
 import _engine_root
 import _gem_home
 import _general_work_tree
+from _win_portability import no_console_spawn_kwargs, noninteractive_git_env
 
 KEY = "coordinator.general_work_root"
 REPOS_KEY = "repos.general_work"
 REPO_HOME_KEY = "coordinator.repo_home"
 REMOTE_KEY = "coordinator.general_work_remote"
 CLONE_TIMEOUT = 20
+GH_TIMEOUT = 10
+GH_REPO_NAME = "general-work"
 DEFAULT_DIRNAME = "_general-work"
 _PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 _TEMPLATE = _PLUGIN_ROOT / "templates" / "general-work-home" / "home-CLAUDE.md"
@@ -187,8 +190,8 @@ def _git(
             input=stdin,
             check=False,
             timeout=timeout,
-            env=env,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            env=noninteractive_git_env(env),
+            **no_console_spawn_kwargs(),
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -198,7 +201,7 @@ def _clone(root: Path, remote: str) -> bool:
     """Clone `remote` into the existing directory `root`, never prompting and bounded by
     `CLONE_TIMEOUT`; True on success. A failed or timed-out clone's partial `.git` is removed so the
     caller can init."""
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "never"}
+    env = noninteractive_git_env()
     res = _git(root, "clone", "-q", "--", remote, ".", timeout=CLONE_TIMEOUT, env=env)
     if res is not None and res.returncode == 0:
         return True
@@ -206,14 +209,117 @@ def _clone(root: Path, remote: str) -> bool:
     return False
 
 
-def _git_init(root: Path) -> None:
-    """Clone `coordinator.general_work_remote` into the root when it is set, else (or when the clone
-    fails) `git init` it, once; an existing `.git` is never touched, and a missing or failing git
-    binary leaves the root untracked (a later `ensure` retries)."""
-    if (root / ".git").exists():
+def _gh(*args: str) -> str | None:
+    """Run `gh` non-interactively, bounded by `GH_TIMEOUT`; stripped stdout on exit 0, else None
+    (gh missing, unauthenticated, no such repo, spawn failure or timeout)."""
+    env = {**os.environ, "GH_PROMPT_DISABLED": "1", "GH_NO_UPDATE_NOTIFIER": "1"}
+    try:
+        res = subprocess.run(
+            ["gh", *args],
+            capture_output=True,
+            check=False,
+            timeout=GH_TIMEOUT,
+            env=env,
+            **no_console_spawn_kwargs(),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if res.returncode != 0:
+        return None
+    return res.stdout.decode("utf-8", "replace").strip() or None
+
+
+def _gh_remote() -> str | None:
+    """URL of the authenticated gh user's `general-work` repo, None when gh cannot answer. Never
+    creates the repo."""
+    user = _gh("api", "user", "--jq", ".login")
+    if not user:
+        return None
+    return _gh("repo", "view", f"{user}/{GH_REPO_NAME}", "--json", "url", "--jq", ".url")
+
+
+def _resolve_remote() -> tuple[str | None, bool]:
+    """`(remote, discovered)`: the registry's `coordinator.general_work_remote` when set, else the gh
+    lookup (discovered=True); `(None, False)` when neither answers."""
+    configured = _engine_root._registry_value(_engine_root._settings_home_registry_dir(), REMOTE_KEY)
+    if configured:
+        return configured, False
+    found = _gh_remote()
+    return (found, True) if found else (None, False)
+
+
+def _record_remote(remote: str) -> None:
+    """Pin `coordinator.general_work_remote` to `remote`; best-effort."""
+    try:
+        import _registry_write
+
+        _registry_write.machine_local_set(REMOTE_KEY, remote)
+    except Exception:
+        # Best-effort: an unwritable registry leaves the key unset; the next ensure rediscovers it.
+        pass
+
+
+def _identity_pre(root: Path) -> tuple[str, ...]:
+    """`-c` identity args for a commit when the box has no `user.email`, else none."""
+    ident = _git(root, "config", "user.email")
+    return () if ident is not None and ident.returncode == 0 and ident.stdout.strip() else _SEED_IDENTITY
+
+
+def _adopt_remote(root: Path) -> None:
+    """Give a `.git` root with no `origin` the resolved remote and merge its history in; never
+    force, rewrite or discard local commits. Any failure drops the `origin` it added (a later
+    `ensure` retries) and leaves the root as it was."""
+    has_origin = _git(root, "remote", "get-url", "origin")
+    if has_origin is None or has_origin.returncode == 0:
         return
-    remote = _engine_root._registry_value(_engine_root._settings_home_registry_dir(), REMOTE_KEY)
+    remote, discovered = _resolve_remote()
+    if not remote:
+        return
+    env = noninteractive_git_env()
+    added = _git(root, "remote", "add", "origin", remote)
+    if added is None or added.returncode != 0:
+        return
+    fetched = _git(root, "fetch", "-q", "origin", timeout=CLONE_TIMEOUT, env=env)
+    if fetched is None or fetched.returncode != 0:
+        _git(root, "remote", "remove", "origin")
+        return
+    _git(root, "remote", "set-head", "origin", "-a", timeout=CLONE_TIMEOUT, env=env)
+    head = _git(root, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+    if head is None or head.returncode != 0:
+        if discovered:
+            _record_remote(remote)
+        return
+    upstream = head.stdout.decode("utf-8", "replace").strip()
+    branch = upstream.split("/", 1)[1]
+    unborn = _git(root, "rev-parse", "--verify", "-q", "HEAD")
+    if unborn is not None and unborn.returncode != 0:
+        done = _git(root, "checkout", "-q", "-B", branch, upstream)
+    else:
+        done = _git(
+            root, "merge", "-q", "--no-edit", "--allow-unrelated-histories", upstream, pre=_identity_pre(root)
+        )
+        if done is not None and done.returncode != 0:
+            _git(root, "merge", "--abort")
+    if done is None or done.returncode != 0:
+        _git(root, "remote", "remove", "origin")
+        return
+    if discovered:
+        _record_remote(remote)
+
+
+def _git_init(root: Path) -> None:
+    """Adopt the remote (`coordinator.general_work_remote`, else the gh user's `general-work` repo,
+    recorded on success): clone it into a root with no `.git`, or merge it into a `.git` root that
+    has no `origin`. With no remote, or a failed clone, `git init` the root; an existing `.git`
+    keeps its history, and a missing or failing git binary leaves the root untracked (a later
+    `ensure` retries)."""
+    if (root / ".git").exists():
+        _adopt_remote(root)
+        return
+    remote, discovered = _resolve_remote()
     if remote and _clone(root, remote):
+        if discovered:
+            _record_remote(remote)
         return
     _git(root, "init", "-q")
 
@@ -305,9 +411,7 @@ def _commit_seed(root: Path, paths: list[str], message: str = "general-work root
     dirty = _git(root, "status", "--porcelain", "--", *use)
     if dirty is None or not dirty.stdout.strip():
         return
-    ident = _git(root, "config", "user.email")
-    pre = () if ident is not None and ident.returncode == 0 and ident.stdout.strip() else _SEED_IDENTITY
-    _git(root, "commit", "-q", "-m", message, "--", *use, pre=pre)
+    _git(root, "commit", "-q", "-m", message, "--", *use, pre=_identity_pre(root))
 
 
 def ensure_root(template: Path | None = None) -> Path:

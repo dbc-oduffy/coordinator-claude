@@ -22,6 +22,7 @@ if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
 from _forwarder_resolve import forwarder_argv, resolve_forwarder  # noqa: E402
+from _win_portability import no_console_spawn_kwargs  # noqa: E402
 
 RETENTION_ENV = "COORDINATOR_SCRATCH_RETENTION_DAYS"
 DEFAULT_RETENTION_DAYS = 7
@@ -123,7 +124,7 @@ def default_invoke(timeout: float = INVOKE_TIMEOUT_S) -> Invoke:
                 encoding="utf-8",
                 errors="replace",
                 timeout=timeout,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                **no_console_spawn_kwargs(),
             )
         except (OSError, subprocess.SubprocessError, ValueError):
             return None

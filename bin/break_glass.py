@@ -480,6 +480,8 @@ def check_defender_exclusions(is_windows: Optional[bool] = None, timeout: float 
 
     from shutil import which
 
+    # Windows PowerShell on purpose: the Defender module is native there, and pwsh 7 reaches it through
+    # a compatibility proxy that leaves its scratch dirs behind in TEMP.
     ps = which("powershell.exe") or which("powershell")
     if not ps:
         return Finding("defender-exclusions", STATUS_UNKNOWN, "powershell.exe not found on PATH", None)

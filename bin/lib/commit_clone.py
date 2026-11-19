@@ -76,12 +76,14 @@ atexit.register(_cc._record_extra, _clone)
 # child loses pyyaml). Our directory leaves sys.path; the child no longer needs it.
 _here = Path(__file__).resolve().parent
 sys.path[:] = [p for p in sys.path if not p or Path(p).resolve() != _here]
-del sys.modules["sitecustomize"]
+_self = sys.modules.pop("sitecustomize")
 try:
     import sitecustomize  # noqa: F401
 except ModuleNotFoundError as _exc:
     if _exc.name != "sitecustomize":
         raise
+    # The importer of this file pops its entry on return: leave one there.
+    sys.modules["sitecustomize"] = _self
 """
 # Import root -> clone-relative directories a dotted module name resolves under.
 _FILL_ROOTS = {"coordinator_core": ("",), "coordinator": ("",), "percolate": ("coordinator/lib",)}
@@ -477,9 +479,13 @@ def run_entry_from_clone(clone: Path, entry_rel: str, argv: list[str]) -> int:
     live.add(Path(__file__).resolve().parents[3])
     drop = {str(p) for p in live}
     clone_bin = clone / "coordinator" / "bin"
+    # An in-process caller keeps running after the entry returns; it gets its own sys.path and
+    # coordinator_core binding back, else its later imports resolve into a clone with no filler.
+    saved_path = list(sys.path)
+    saved_engine = {m: mod for m, mod in sys.modules.items() if m == "coordinator_core" or m.startswith("coordinator_core.")}
     sys.path[:] = [p for p in sys.path if p not in drop]
     sys.path[:0] = [str(clone_bin), str(clone)]
-    for name in [m for m in sys.modules if m == "coordinator_core" or m.startswith("coordinator_core.")]:
+    for name in saved_engine:
         del sys.modules[name]
     filler = _CommitFill(clone)
     sys.meta_path.append(filler)
@@ -503,6 +509,10 @@ def run_entry_from_clone(clone: Path, entry_rel: str, argv: list[str]) -> int:
         _record_extra(clone)
         if filler in sys.meta_path:
             sys.meta_path.remove(filler)
+        sys.path[:] = saved_path
+        for name in [m for m in sys.modules if m == "coordinator_core" or m.startswith("coordinator_core.")]:
+            del sys.modules[name]
+        sys.modules.update(saved_engine)
     return 0
 
 

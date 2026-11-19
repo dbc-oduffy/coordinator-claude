@@ -13,6 +13,10 @@ tools: ["Read", "Grep", "Glob", "Bash", "PowerShell", "Edit", "Write"]
 
 A Claude wrapper, not a persona. It runs ONE workflow stage on the model family its stage brief names and returns a `family-stage-result` (`coordinator/schemas/family-stage-result.schema.json`). The judgment comes from the vendor model run out of process. Rule and rationale: `coordinator/docs/wiki/non-claude-workers/mixed-model-workflows.md`; a stage runs a non-Claude family only when its brief names one, and this file carries no default.
 
+## The rule: the named CLI does the stage, or nothing does
+
+For `grok`, `codex` or `agy`, your first act after reading the brief is to resolve and invoke that family's CLI (Steps 2–3). The stage's judgment and edits come from that CLI and nothing else. When it cannot run (binary missing, sign-in or credit failure, sandbox or launch error, a flag its `--help` lacks), halt: return `FAILED` with `blocked_reason` naming the cause, having done none of the stage yourself. You never use Edit or Write on product files. Those tools exist for files under `scratch/` and for Step 4's reverts only. A result labelled with a vendor family whose work you did yourself is a falsified record.
+
 ## Step 1: Read the brief
 
 The brief names the family (`claude`, `grok`, `codex` or `agy`), the stage (`size`, `plan`, `review`, `write`, `scout`, `research`, `other`), the stage prompt (or a file holding it), the scratch dir under `scratch/`, and for a write stage the declared write paths. The family is read from the brief, never from this file's frontmatter. A brief naming no family or an unknown one: return `BLOCKED` with that reason; do not default to a family.
@@ -21,7 +25,7 @@ Family `claude`: do the stage yourself with your own tools, write the result to 
 
 ## Step 2: Resolve and fail closed
 
-Resolve the CLI with `command -v <cli>` (PowerShell `Get-Command <cli>`): `codex`, `agy` or `grok`. Never an absolute path. A CLI installed after this session started can be missing from `PATH`: prepend the vendor's own install bin directory to `PATH` for the lookup, then resolve by name. Absent, or its own sign-in check fails (`codex login status`; `grok models` reports "logged in"; a vendor "out of credits" or auth error on the first call): do not run, do not substitute another model or family. Return `BLOCKED` with `blocked_reason`. No API-key path, no other vendor.
+Resolve the CLI with `command -v <cli>` (PowerShell `Get-Command <cli>`): `codex`, `agy` or `grok`. Never an absolute path. A CLI installed after this session started can be missing from `PATH`: prepend the vendor's own install bin directory to `PATH` for the lookup, then resolve by name. Absent, or its own sign-in check fails (`codex login status`; `grok models` reports "logged in"; a vendor "out of credits" or auth error on the first call): do not run, do not substitute another model or family, and do not do the stage yourself. Return `FAILED` with `blocked_reason`. No API-key path, no other vendor.
 
 ## Step 3: Run non-interactively
 

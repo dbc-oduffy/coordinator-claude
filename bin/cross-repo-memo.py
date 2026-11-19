@@ -3628,7 +3628,13 @@ def _print_receiver_file_absent(abs_receiver_path: str, acted_item: dict) -> boo
     if anchored:
         print(
             f"cross-repo-memo: anchored, not materialized: {abs_receiver_path} "
-            "is not on disk yet; the receiver's heal restores it from the anchor."
+            "is not on disk yet."
+        )
+        print(
+            "cross-repo-memo: materializes when the receiver repo next runs "
+            "`memo.heal_inbox` (its /workday-start handoff-housekeeping step, "
+            "not at send time), or now via `cross-repo-memo sweep --apply "
+            "--repo <receiver>`; the memo is held by the anchor ref until then."
         )
     else:
         print(
@@ -3743,6 +3749,12 @@ def _cmd_sweep(args: argparse.Namespace) -> int:
     except RuntimeError as exc:
         print(f"cross-repo-memo sweep: {exc}", file=sys.stderr)
         _print_route_mutation_failure_reasons(exc)
+        if "Method not found" in str(exc):
+            print(
+                "cross-repo-memo sweep: the resolved engine predates `memo.sweep_ref_only`; "
+                "publish or update the engine, or run `memo.heal_inbox` in the receiver repo.",
+                file=sys.stderr,
+            )
         result = getattr(exc, "result", None)
         if isinstance(result, dict) and result.get("repos"):
             _print_sweep_table(result)

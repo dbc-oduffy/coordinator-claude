@@ -4,6 +4,12 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.22] — 2026-11-17
+
+- **Subagent status rows:** per-subagent rows render through an AgentRow hooks module; the deprecated `subagentStatusLine` setting is no longer shipped.
+- **Install on Windows:** PowerShell commands call `python` (`py -3` where `python.exe` is absent), and the PowerShell launcher render asks each shell for its own profile path.
+- **Hook messages:** paths containing Windows short names (`ABCDEF~1`) are accepted as alternatives.
+
 ## [4.6.21] — 2026-11-17
 
 - **Kill guard:** scripts that kill only the processes they started are no longer denied for also reading the process table.

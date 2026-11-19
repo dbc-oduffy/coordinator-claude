@@ -25,9 +25,16 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import NamedTuple, Optional
+
+_HOOKS_DIR = str(Path(__file__).resolve().parent)
+if _HOOKS_DIR not in sys.path:
+    sys.path.insert(0, _HOOKS_DIR)
+
+from _win_portability import no_console_spawn_kwargs, noninteractive_git_env  # noqa: E402
 
 STATE_CLEAN = "clean"
 STATE_BEHIND = "behind"
@@ -169,10 +176,10 @@ def decide_ancestry(engine_root: str, floor: str, stamp: str) -> str:
     try:
         proc = subprocess.run(
             ["git", "-C", str(engine_root), "merge-base", "--is-ancestor", floor, stamp],
-            env=_git_env(),
+            env=noninteractive_git_env(_git_env()),
             capture_output=True,
             timeout=_TIMEOUT_SECONDS,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **no_console_spawn_kwargs(),
         )
     except (OSError, subprocess.SubprocessError):
         return _CACHED_UNDECIDED

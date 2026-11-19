@@ -223,16 +223,25 @@ def _derive_machine(root: str, full_sha: str, machine_arg: str) -> str:
 
     if machine_arg:
         return machine_arg
+    owners = ["work"]
+    try:
+        _ensure_claude_klabauter_on_path()
+        from coordinator_core.machine_resolver import compute_owner
+        owners.append(compute_owner())
+    except (RuntimeError, ImportError):
+        pass
+    owners = list(dict.fromkeys(owners))
+    patterns = [f"refs/{base}/{o}/" for o in owners for base in ("heads", "remotes/origin")]
     proc = wc.git(
         "-C", root, "for-each-ref", "--contains", full_sha,
-        "--format=%(refname)", "refs/heads/work/", "refs/remotes/origin/work/",
+        "--format=%(refname)", *patterns,
         cwd=None,
     )
+    ref_re = re.compile(
+        r"^refs/(?:heads|remotes/origin)/(?:" + "|".join(re.escape(o) for o in owners) + r")/([^/]+)/"
+    )
     for ref in proc.stdout.splitlines():
-        m = re.match(r"^refs/heads/work/([^/]+)/", ref)
-        if m:
-            return m.group(1)
-        m = re.match(r"^refs/remotes/origin/work/([^/]+)/", ref)
+        m = ref_re.match(ref)
         if m:
             return m.group(1)
     try:

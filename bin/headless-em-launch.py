@@ -27,6 +27,8 @@ claude (both OSes) runs `claude --bg -n NAME` (or `claude --bg --resume ID`) cap
 codex on Windows a shaped PATH: real pwsh dir first, Store alias dirs dropped) and execs nothing;
 Windows non-prepare launches are refused because exec must not sit under python.exe.
 """
+from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -113,6 +115,23 @@ def _grok_launch_args(extra, environ, platform) -> list[str]:
         if rule not in extra:
             head += ["--allow", rule]
     return [*head, *extra]
+
+
+def _agy_launch_args(extra, cwd) -> list[str]:
+    """`extra` led by `--add-dir <cwd>`, `--add-dir ~/.coordinator` and `--mode accept-edits`.
+
+    agy's workspace is its launch cwd, not `--cwd`, so the grant is explicit. `--dangerously-skip-permissions`
+    is dropped; a caller's own `--mode` and any dir it already granted are kept, never doubled.
+    """
+    rest = [a for a in extra if a != "--dangerously-skip-permissions"]
+    head = []
+    granted = {rest[i + 1] for i, a in enumerate(rest[:-1]) if a == "--add-dir"}
+    for d in (cwd or os.getcwd(), str(Path.home() / ".coordinator")):
+        if d not in granted:
+            head += ["--add-dir", d]
+    if not any(a == "--mode" or a.startswith("--mode=") for a in rest):
+        head += ["--mode", "accept-edits"]
+    return [*head, *rest]
 
 
 def _with_settings_bin(environ) -> str:
@@ -236,11 +255,16 @@ def launch(family, extra, *, session_id=None, which=shutil.which, spawn=_spawn, 
     except HeadlessEmGrantError as exc:
         print(f"headless-em-launch: refused: {exc}", file=sys.stderr)
         return REFUSED
-    cmd = [cli, *_codex_writable_dirs(extra, cwd)] if family == "codex" else [cli, *extra]
-    if family == "grok":
+    if family == "codex":
+        cmd = [cli, *_codex_writable_dirs(extra, cwd)]
+    elif family == "grok":
         cmd = [cli, *_grok_launch_args(extra, environ, platform)]
-    if family == "claude":
+    elif family == "agy":
+        cmd = [cli, *_agy_launch_args(extra, cwd)]
+    elif family == "claude":
         cmd = [cli, "--bg", *(["--resume", resume] if resume else ["-n", name] if name else []), *extra]
+    else:
+        cmd = [cli, *extra]
     child = {SESSION_ENV: sid, HEADLESS_EM_TOKEN_ENV: token, PROVIDER_ENV: family}
     if family == "codex" and platform == "win32":
         from coordinator_core.codex_runner.codex_spawn_env import place_installed_pwsh

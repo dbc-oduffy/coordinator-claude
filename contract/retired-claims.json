@@ -36,13 +36,14 @@
     },
     {
       "id": "doe-box-plain-claude-loads-coordinator",
-      "claim": "On a DoE box, plain `claude` loads coordinator through an installed-plugin record repointed at the clone.",
-      "retired_by": "docs/decisions/DR-plain-claude-is-vanilla-on-a-doe-box.md",
+      "claim": "On a DoE box, plain `claude` is vanilla and no coordinator plugin is registered.",
+      "retired_by": "docs/decisions/DR-doe-box-installs-coordinator-plugin-as-fallback.md",
       "signatures": [
-        "\\bplain\\s+`claude`\\s+(?:already\\s+|therefore\\s+)?(?:loads|runs)\\s+(?:the\\s+live\\s+)?coordinator\\b",
-        "\\bplain\\s+`claude`\\s+session\\s+loads\\s+coordinator\\b"
+        "\\bplain\\s+`claude`\\s+(?:stays|is|remains)\\s+(?:vanilla|the\\s+vanilla)\\b",
+        "\\bregister\\s+no\\s+coordinator\\s+plugin\\b",
+        "\\bplain\\s+`claude`\\s+loads\\s+no\\s+coordinator\\b"
       ],
-      "witness": "Plain `claude` loads coordinator on a DoE box\nPlain `claude` therefore runs the live coordinator surface\nA plain `claude` session loads coordinator through the registration",
+      "witness": "Plain `claude` stays vanilla Claude Code on a DoE box\nOn a DoE box, register no coordinator plugin at all\nPlain `claude` loads no coordinator",
       "legacy_sites": []
     },
     {

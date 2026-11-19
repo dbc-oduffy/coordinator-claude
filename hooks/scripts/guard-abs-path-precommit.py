@@ -27,6 +27,8 @@ _SCRIPTS = Path(__file__).resolve().parent
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
+from _win_portability import no_console_spawn_kwargs  # noqa: E402
+
 _GATE_NAME = "coordinator-precommit-abs-path-check"
 _TAG = "[abs-path-precommit-guard]"
 
@@ -56,7 +58,7 @@ def main() -> int:
             [sys.executable, str(gate)],
             check=False,
             capture_output=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **no_console_spawn_kwargs(),
         )
     except OSError as exc:
         print(f"{_TAG} cannot run: launching {gate} failed: {exc}", file=sys.stderr)

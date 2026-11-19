@@ -183,6 +183,11 @@ if os.path.basename(p) == 'preuse-workflow-dispatch.py':
     import re
     import subprocess
 
+    _HOOKS_DIR = os.path.dirname(os.path.abspath(p))
+    if _HOOKS_DIR not in sys.path:
+        sys.path.insert(0, _HOOKS_DIR)
+    from _win_portability import no_console_spawn_kwargs
+
     def _workflow_deny(why) -> None:
         sys.stdout.write(json.dumps({'hookSpecificOutput': {
             'hookEventName': 'PreToolUse',
@@ -213,7 +218,7 @@ if os.path.basename(p) == 'preuse-workflow-dispatch.py':
     try:
         _child = subprocess.run(
             [sys.executable, p], input=_raw, capture_output=True, timeout=_limit,
-            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+            **no_console_spawn_kwargs(),
         )
     except subprocess.TimeoutExpired:
         if _is_submission:

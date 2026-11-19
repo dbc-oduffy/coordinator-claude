@@ -353,7 +353,18 @@ def _resolve_engine_root(explicit_root: Optional[str]) -> str:
     return root
 
 
-def _repo_relative(path_str: str) -> str:
+def _working_repo_root() -> Path:
+    """The repo the caller runs in (nearest cwd ancestor holding `.git`), else
+    this engine checkout. Waste reports are written and reported against it, so
+    the returned repo-relative path resolves where the file is."""
+    cwd = Path.cwd().resolve()
+    for candidate in (cwd, *cwd.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return _REPO_ROOT
+
+
+def _repo_relative(path_str: str, root: Optional[Path] = None) -> str:
     """Normalize an emitted path to repo-relative POSIX form.
 
     The emitted args object is consumed by a Workflow script and handed to
@@ -372,7 +383,7 @@ def _repo_relative(path_str: str) -> str:
     if not candidate.is_absolute():
         return PurePosixPath(candidate.as_posix()).as_posix()
     try:
-        return candidate.resolve().relative_to(_REPO_ROOT.resolve()).as_posix()
+        return candidate.resolve().relative_to((root or _REPO_ROOT).resolve()).as_posix()
     except ValueError:
         # Genuinely outside the repo -- emitting a wrong relative path would be
         # worse than an honest absolute one.
@@ -724,7 +735,7 @@ def _write_waste_report(report: dict, run_id: str, slice_id: str) -> Path:
     slice-and-run-scoped path -- the FILE this composer emits under the
     `wasteReport` key (a path, like `diffPath`, never an inline
     dict -- see `_SLICE_KEYS`'s own comment)."""
-    out_dir = _REPO_ROOT / "state" / "review-trail" / "waste-reports"
+    out_dir = _working_repo_root() / "state" / "review-trail" / "waste-reports"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{run_id}.{slice_id}.json"
     tmp = out_path.with_name(f".{out_path.name}.tmp{os.getpid()}")
@@ -939,7 +950,7 @@ def compose(
                 # `reviewed_range`; nothing downstream can supply it on the
                 # reviewer's behalf, and review_trail.write gates on it.
                 "shaRange": range_spec,
-                "wasteReport": _repo_relative(str(waste_report_path)),
+                "wasteReport": _repo_relative(str(waste_report_path), _working_repo_root()),
                 "reviewer": role_payloads["reviewer"],
             }
         )

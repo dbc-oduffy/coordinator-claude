@@ -90,7 +90,7 @@ if str(_HOOKS_DIR) not in sys.path:
 _IMPORT_FAILURE: Optional[BaseException] = None
 try:
     from _stop_family_runner import _BufferedTextCapture  # noqa: E402
-    from _win_portability import no_console_creationflags  # noqa: E402
+    from _win_portability import no_console_spawn_kwargs  # noqa: E402
 except Exception as _exc:  # pragma: no cover - exercised by forcing the import to fail
     _IMPORT_FAILURE = _exc
 
@@ -260,7 +260,7 @@ def _spawn_op(launcher: Path, op: str, raw: str, payload: dict) -> "subprocess.C
         timeout=_SUBMIT_TIMEOUT_S,
         env={**os.environ, "COORDINATOR_DOOR_STDIN_MODE": "hook"},
         cwd=cwd if isinstance(cwd, str) and os.path.isdir(cwd) else None,
-        **no_console_creationflags(),
+        **no_console_spawn_kwargs(),
     )
 
 

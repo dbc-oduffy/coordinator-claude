@@ -74,6 +74,7 @@ from types import ModuleType
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import _engine_root as _er  # noqa: E402 -- sibling module, resolved off this script's own directory
+from _win_portability import no_console_spawn_kwargs, noninteractive_git_env  # noqa: E402
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 
@@ -834,7 +835,8 @@ def _run_git(*args: str, cwd: Any = None) -> str:
             text=True,
             timeout=_GIT_TIMEOUT_SECONDS,
             shell=False,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            env=noninteractive_git_env(),
+            **no_console_spawn_kwargs(),
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise EmitterError(f"cannot run 'git {' '.join(args)}': {exc}") from exc

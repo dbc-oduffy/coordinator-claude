@@ -66,7 +66,7 @@ class SpawnParseError(Exception):
     which reports an unparseable file as clean.
     """
 
-    def __init__(self, path: str, detail: str):
+    def __init__(self, path: str, detail: str) -> None:
         self.path = path
         self.detail = detail
         super().__init__(f"{path}: failed to parse — {detail}")
@@ -330,7 +330,7 @@ def _argv_bearing_arg(
 class _ImportResolver:
     """Resolves module aliases and direct-callable aliases from imports."""
 
-    def __init__(self, tree: ast.Module):
+    def __init__(self, tree: ast.Module) -> None:
         self.module_alias: dict[str, str] = {}
         self.direct_alias: dict[str, tuple[str, str]] = {}
         self.shutil_module_alias: dict[str, str] = {}  # local name -> "shutil"
@@ -655,7 +655,7 @@ class _SiteCollector(ast.NodeVisitor):
         resolver: _ImportResolver,
         helpers: dict[str, _HelperInfo],
         partials: dict[str, _PartialInfo],
-    ):
+    ) -> None:
         self.path = path
         self.module_consts = module_consts
         self.resolver = resolver

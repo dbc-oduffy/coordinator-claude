@@ -14,7 +14,7 @@ Subcommands (argv[1] selects):
   recovery-branch [--repo-root PATH] [--branch-name NAME]
       Runs the "on main with unpushed commits" auto-recovery dance: sync
       local main to origin/main (via the sibling sync-main.py), cut a fresh
-      work/<host>/<date> branch off the pre-sync state, push it, hard-reset
+      <owner>/<host>/<date> branch off the pre-sync state, push it, hard-reset
       main to origin/main, then return to the new branch. Prints the
       resulting branch name to stdout (`BRANCH=<name>`) for the caller to
       capture. Ported from SKILL.md Step 1, "If on main with unpushed
@@ -189,9 +189,13 @@ def _branch_mutation_verdict():
 # ---------------------------------------------------------------------------
 
 def _default_branch_name() -> str:
+    _require_engine_on_path()
+    from coordinator_core.daily_branch import day_branch_name
+    from coordinator_core.machine_resolver import compute_owner
+
     host = socket.gethostname().lower()
     today = date.today().strftime("%Y-%m-%d")
-    return f"work/{host}/{today}"
+    return day_branch_name(compute_owner(), host, today)
 
 
 def cmd_recovery_branch(args: argparse.Namespace) -> int:
@@ -735,7 +739,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_recovery = sub.add_parser(
         "recovery-branch",
-        help="sync main, cut a fresh work/<host>/<date> branch, reset main",
+        help="sync main, cut a fresh <owner>/<host>/<date> branch, reset main",
     )
     p_recovery.add_argument("--repo-root", default=None)
     p_recovery.add_argument("--branch-name", default=None)

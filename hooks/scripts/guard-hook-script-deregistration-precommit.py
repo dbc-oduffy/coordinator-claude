@@ -60,6 +60,10 @@ from _hook_script_deregistration import (  # noqa: E402
     parse_name_status_z,
     render_report,
 )
+from _win_portability import (  # noqa: E402
+    no_console_spawn_kwargs,
+    noninteractive_git_env,
+)
 
 OVERRIDE_ENV = "COORDINATOR_OVERRIDE_HOOK_SCRIPT_DEREGISTRATION"
 _HOOKS_JSON_PATH = "coordinator/hooks/hooks.json"
@@ -72,9 +76,8 @@ def _git(*args: str) -> "subprocess.CompletedProcess[bytes]":
             cmd,
             capture_output=True,
             check=False,
-            # Suppresses the console window a spawned child otherwise flashes on
-            # headless Windows shells.
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            env=noninteractive_git_env(),
+            **no_console_spawn_kwargs(),
             timeout=30,
         )
     except subprocess.TimeoutExpired:

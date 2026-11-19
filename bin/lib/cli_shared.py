@@ -34,34 +34,11 @@ CLAUDE_HOME_ENV = "CLAUDE_HOME"
 # indefinitely). `claude_klabauter_root()` IS the primitive those callers use to find
 # where `coordinator_core` even lives; importing the accessor here would be
 # the same chicken-and-egg `cc_invoke.py`'s own AC13 rung exists to avoid.
-# PRECEDENCE HERE DELIBERATELY DIVERGES FROM THE ACCESSOR, AND SAYING SO IS
-# THE POINT. `coordinator_engine_root_env` reads the retired name only to
-# report it as retired and NEVER returns it (C14). This site still ANSWERS
-# from it when the new name is unset. That is not the same rule, and a
-# hand-duplicate that claims parity it does not have is worse than no
-# duplicate -- the two would disagree only in the skew case nobody exercises
-# until it breaks on the commit hot path.
-#
-# Why the divergence is kept: this is the primitive the State-1 fallback CLIs
-# use to locate `coordinator_core` at all. Dropping the retired rung here
-# cannot degrade to a slower path, only to a dead one, and DR-210 keeps that
-# fallback live indefinitely. Every in-tree exporter now sets BOTH names
-# (scripts/setup.py x2, append-goal-event, regen-cockpit-schema, cc_invoke
-# exports the new name only), so this rung should already be unreachable in
-# practice.
-#
-# CONDITION FOR REMOVING IT -- already met, not a future measurement:
-# C14 item 4 (this rung) was discharged at `02ef8ae9de77` on C23's
-# three-leg ratchet -- zero unexcluded executable read sites, proved as a
-# property of the code by falsification against planted tuple/list/dict
-# shapes. `coordinator_core.engine_root_census.census()` no longer reports
-# a verdict field at all (that field, `evidences_absence`, was removed as
-# part of the same cleanup) -- it reports fallback-read observations only,
-# and no future census reading can discharge this or anything else. Do not
-# wait on a census result before deleting this rung; the discharge already
-# happened.
+# The retired engine-root env name has no rung here: C14 item 4 was
+# discharged at `02ef8ae9de77` and every in-tree exporter sets
+# COORDINATOR_ENGINE_ROOT. The accessor reports the retired name as retired
+# and never answers from it; this bootstrap carve-out now matches.
 COORDINATOR_ENGINE_ROOT_ENV = "COORDINATOR_ENGINE_ROOT"
-CLAUDE_KLABAUTER_ROOT_ENV = "CLAUDE_KLABAUTER_ROOT"
 
 UNDER_TEST_ENV = "PYTEST_CURRENT_TEST"
 
@@ -284,16 +261,7 @@ def claude_klabauter_root() -> str | None:
 
     Resolution chain:
       1. COORDINATOR_ENGINE_ROOT env var — if non-empty, trusted as-is (§4b
-         idempotency gate). CLAUDE_KLABAUTER_ROOT is read too, but ONLY as a fallback
-         when the new name is unset — C14 closed coordinator_engine_root_env's
-         dual-read window, and this bootstrap-carve-out site (see the
-         CLAUDE_KLABAUTER_ROOT_ENV declaration above) duplicates that same precedence by
-         hand rather than importing the accessor.
-
-         C23: fixed a dark bug here -- this rung previously read ONLY
-         CLAUDE_KLABAUTER_ROOT_ENV, so a caller that had migrated to
-         COORDINATOR_ENGINE_ROOT (and never set the retired name) got NO
-         override rung at all and silently fell through to rung 2.
+         idempotency gate).
       2. machine-local get repos.claude_klabauter — delegates to the §4c discovery ladder.
       3. Returns None when unresolvable — callers degrade gracefully (AC13).
 
@@ -304,8 +272,6 @@ def claude_klabauter_root() -> str | None:
     Spec backlink: pln-stop-the-rot-claude-klabauter-state-home-placement-4cc787 § AC1 / AC13
     """
     override = os.environ.get(COORDINATOR_ENGINE_ROOT_ENV, "").strip()
-    if not override:
-        override = os.environ.get(CLAUDE_KLABAUTER_ROOT_ENV, "").strip()
     if override:
         return override
     val = machine_local_get("repos.claude_klabauter")
@@ -432,10 +398,10 @@ def claude_klabauter_data_home() -> str | None:
     The engine-root env override names where engine code runs from, which is
     the published mirror on a standard install; that mirror's `state/` is
     gitignored, so a data write there is accepted and lost. Precedence matches
-    the native write seam (`coordinator_core.ops.queue_append._claude_klabauter_root`)
+    the native write seam's engine-root resolver in `coordinator_core.ops.queue_append`
     so a dedup scan and the write it dedups always resolve the same root:
 
-      1. COORDINATOR_ENGINE_ROOT / CLAUDE_KLABAUTER_ROOT, unless it carries the engine
+      1. COORDINATOR_ENGINE_ROOT, unless it carries the engine
          build stamp (a published mirror).
       2. `machine-local get repos.claude_klabauter`, likewise never a mirror.
       3. None -- callers degrade gracefully (WARN + skip).
@@ -443,8 +409,6 @@ def claude_klabauter_data_home() -> str | None:
     Never raises; no subprocess spawn beyond `machine_local_get`'s own.
     """
     override = os.environ.get(COORDINATOR_ENGINE_ROOT_ENV, "").strip()
-    if not override:
-        override = os.environ.get(CLAUDE_KLABAUTER_ROOT_ENV, "").strip()
     if override and not _is_stamped_published_root(override):
         return override
     val = machine_local_get("repos.claude_klabauter")

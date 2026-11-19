@@ -46,7 +46,7 @@ The actual discriminator, confirmed by surveying every `sys.path.insert`/
 engine-root bootstrap's inserted expression is always named with `root`,
 `engine`, or the engine-repo name somewhere in an identifier in its expression tree
 (`claude_klabauter_root` is the dominant idiom, alongside `_ENGINE_ROOT`, `_REPO_ROOT`,
-`_REPO_ROOT_GUESS`, `_CLAUDE_KLABAUTER_ROOT`, `engine_root`, `_claude_klabauter_root`, or a
+`_REPO_ROOT_GUESS`, `_CLAUDE_KLABAUTER_ROOT`, `engine_root`, `_engine_root`, or a
 `str(...)`-wrapped variant of any of those) — while a lib-helper-only insert
 never is. So:
 

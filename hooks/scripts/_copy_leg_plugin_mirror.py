@@ -71,7 +71,7 @@ def source_plugin_root(source: Path) -> Path:
 
 def git_commit_times(source: Path, mirror: Path) -> tuple[int, int] | None:
     """(source last published-path commit time, mirror last commit time); 2 spawns, refresh-only."""
-    from _win_portability import no_console_creationflags
+    from _win_portability import no_console_spawn_kwargs, noninteractive_git_env
 
     def last(repo: Path, *tail: str) -> int | None:
         out = subprocess.run(
@@ -79,7 +79,8 @@ def git_commit_times(source: Path, mirror: Path) -> tuple[int, int] | None:
             capture_output=True,
             text=True,
             timeout=10,
-            **no_console_creationflags(),
+            env=noninteractive_git_env(),
+            **no_console_spawn_kwargs(),
         )
         text = out.stdout.strip()
         return int(text) if out.returncode == 0 and text.isdigit() else None

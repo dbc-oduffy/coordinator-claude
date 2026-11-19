@@ -167,7 +167,10 @@ if str(_LIB_DIR) not in sys.path:
 
 from _message_envelope import compose, render  # noqa: E402
 from frontmatter_scan import read_text, scan_frontmatter  # noqa: E402
-from _win_portability import no_console_creationflags  # noqa: E402
+from _win_portability import (  # noqa: E402
+    no_console_spawn_kwargs,
+    noninteractive_git_env,
+)
 try:
     from _git_root_walk import git_root_walk as _git_root_walk  # noqa: E402
 except Exception:
@@ -928,7 +931,8 @@ def _git_root() -> "str | None":
             capture_output=True,
             text=True,
             timeout=1,
-            **no_console_creationflags(),
+            env=noninteractive_git_env(),
+            **no_console_spawn_kwargs(),
         )
     except Exception:
         return None

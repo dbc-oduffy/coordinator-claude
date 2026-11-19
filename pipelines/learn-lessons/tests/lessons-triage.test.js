@@ -35,7 +35,7 @@ const honestUsage = (call) => ({
   output_tokens: 100 * new Set([...call.brief.matchAll(/"id":"([^"]+)"/g)].map((m) => m[1])).size,
 });
 
-async function run({ budget, batches = payloads(3), usage = honestUsage, prepared = {}, rawArgs = {} }) {
+async function run({ budget, batches = payloads(3), usage = honestUsage, prepared = {}, rawArgs = {}, verdictFor = () => 'discard' }) {
   const calls = [];
   const reported = [];
   const logs = [];
@@ -45,7 +45,7 @@ async function run({ budget, batches = payloads(3), usage = honestUsage, prepare
     const ids = [...brief.matchAll(/"id":"([^"]+)"/g)].map((m) => m[1]);
     const unique = [...new Set(ids)];
     const body = opts.label.startsWith('triage')
-      ? { verdicts: unique.map((id) => ({ id, verdict: 'discard', target: '', evidence: 'e', tests: [] })) }
+      ? { verdicts: unique.map((id) => ({ id, verdict: verdictFor(id), target: '', evidence: 'e', tests: [] })) }
       : { verdicts: unique.map((id) => ({ id, verdict: 'upheld', reason: 'r' })) };
     const u = usage(call);
     if (u !== undefined) reported.push(u.input_tokens + u.output_tokens);
@@ -123,6 +123,9 @@ test('every admitted triage call is followed by its refute call; calls are singl
     assert.ok(/You have no tools/.test(c.brief));
   }
   assert.deepEqual(calls[0].opts.schema, SCHEMA, 'triage uses the prepared TRIAGE_SCHEMA');
+  assert.ok(/copied exactly from that lesson's homes\[\]/.test(calls[0].brief), 'triage may name only a listed home');
+  assert.ok(/verdict is wiki-new/.test(calls[0].brief), 'and proposes a create when none fits');
+  assert.ok(/nor in its homes\[\]/.test(calls[1].brief), 'refute accepts a listed home the lesson did not name');
   const refuteEnum = calls[1].opts.schema.properties.verdicts.items.properties.verdict.enum;
   assert.deepEqual(refuteEnum, ['upheld', 'overturned']);
   assert.ok(calls[1].brief.includes('"verdict":"discard"'), 'the refute call sees the triage verdicts');
@@ -202,4 +205,27 @@ test('the script touches no engine op, filesystem or process: no brief, roots, r
   assert.ok(!/\brequire\(|\bimport\(|child_process|node:fs/.test(SOURCE));
   const code = SOURCE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   assert.equal((code.match(/\bagent\(/g) || []).length, 2, 'two agent() sites: triage and refute');
+});
+
+test('the check sees only verdicts finalize cannot prove, as slim rows; wiki-new and wiki-append pass upheld unchecked', async () => {
+  const kinds = { 1: 'wiki-new', 2: 'wiki-append', 3: 'discard', 4: 'script-edit' };
+  const batches = payloads(1, 4, 5000);
+  const { result, calls } = await run({ batches, verdictFor: (id) => kinds[id.split('-').pop()] });
+  const refute = calls.filter((c) => c.opts.label.startsWith('refute'));
+  assert.equal(refute.length, 1);
+  const checked = [...new Set([...refute[0].brief.matchAll(/"id":"([^"]+)"/g)].map((m) => m[1]))].sort();
+  assert.deepEqual(checked, ['l1-3', 'l1-4']);
+  assert.ok(!refute[0].brief.includes('x'.repeat(301)), 'the check gets an excerpt, never the full body');
+  const r = result.synth_results[0];
+  assert.equal(r.status, 'refuted');
+  const upheld = new Map(r.refute.verdicts.map((v) => [v.id, v.verdict]));
+  assert.deepEqual([...upheld.keys()].sort(), ['l1-1', 'l1-2', 'l1-3', 'l1-4']);
+  assert.ok([...upheld.values()].every((v) => v === 'upheld'));
+});
+
+test('a batch whose verdicts are all finalize-proven makes no refute call', async () => {
+  const { result, calls } = await run({ batches: payloads(1, 3), verdictFor: () => 'wiki-new' });
+  assert.equal(calls.filter((c) => c.opts.label.startsWith('refute')).length, 0);
+  assert.equal(result.synth_results[0].status, 'refuted');
+  assert.equal(result.synth_results[0].refute.verdicts.length, 3);
 });

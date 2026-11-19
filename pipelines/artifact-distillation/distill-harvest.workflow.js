@@ -1065,6 +1065,9 @@ function renderFormatHints(h) {
   if (h && typeof h === 'object' && Object.keys(h).length > 0) return JSON.stringify(h)
   return 'none'
 }
+// Scan cost is read volume: whole-file reads ran ~9.4k tokens per file (median source 15k chars).
+// The cap bounds it; the pointer page, not the scan, is what keeps a source's tail findable.
+const SCAN_READ_LINE_CAP = 150
 const scanBriefFor = (batch) => COMMON + `
 
 You are a Haiku artifact scanner (Wave 1 of the /distill harvest Workflow).
@@ -1073,7 +1076,10 @@ Your assigned batch: ${batch.batchId} — ${batch.description}
 Files to read: ${JSON.stringify(batch.files)}
 Format hints: ${renderFormatHints(batch.formatHints)}
 
-Read every file in your batch and extract structured knowledge nuggets. Classify each
+Read every file in your batch with ONE Read call each, \`limit: ${SCAN_READ_LINE_CAP}\` — never
+the whole file, never a second call for the rest. A file's opening carries its goal, decisions
+and outcome; its tail stays reachable through the pointer page, which records every source's
+path and line span. Extract structured knowledge nuggets from what you read. Classify each
 piece of extractable knowledge as one of: DECISION, SUPERSEDED, KNOWLEDGE (with a
 system_tag naming the topic it clusters under), EPHEMERAL, ALREADY_CAPTURED, AMBIGUOUS,
 PRESERVE. \`system_tag\` MUST be exactly ONE tag — never a comma- or semicolon-joined list of
@@ -2197,6 +2203,7 @@ const synthResults = deriveSynthResults(
   clusters, synthReturns.filter(Boolean), SYNTH_PAYLOADS, RUN_ID, wikiPathOf,
   RAW_ARGS_INPUT.spliceReport && typeof RAW_ARGS_INPUT.spliceReport === 'object' ? RAW_ARGS_INPUT.spliceReport : null)
 const deferredTopics = (PREPARED.synth.deferred_topics || [])
+const deferredNuggetIds = (PREPARED.synth.deferred_nugget_ids || [])
 const synthOutcome = synthOutcomeOf(clusters, synthResults, SYNTH_PAYLOADS, synthReturns.filter(Boolean))
 log(`synth: ${synthOutcome.topics_with_ops}/${synthOutcome.topics_sent} topic(s) returned ops or records, ` +
   `${synthOutcome.no_ops_topics} returned no ops${synthOutcome.no_ops_topics ? ` (${synthOutcome.no_ops_topic_keys.map((k) => `${k}: ${synthOutcome.no_ops_reasons[k]}`).join(', ')})` : ''}; ` +
@@ -2227,16 +2234,24 @@ if (failedSynthCalls.length > 0) {
 // Coverage gate: mechanical set-diff (each cluster's dispositions[] nugget_ids vs its assigned IDs), no
 // dispatch, run in-process right after Wave 2 succeeds.
 
-function findCoverageGaps(clusters, results) {
+// A nugget is covered by a synth disposition, by prepare's `pointer_covered` marker, or by deferral to
+// the next run (deferred topic, or deferred nugget id: judge keys name no cluster). A topic with no result
+// that is none of these was never sent: its nuggets are gaps. (A failed synth call halts the run first.)
+function findCoverageGaps(clusters, results, deferred = [], deferredIds = []) {
   const resultsByTopic = new Map(results.map((r) => [slugifyTopic(r.topic_key), r]))
+  const deferredSlugs = new Set(deferred.map((k) => slugifyTopic(String(k))))
   const gaps = []
   for (const cluster of clusters) {
     const result = resultsByTopic.get(slugifyTopic(cluster.topicKey))
-    if (!result) continue // failed synth — already reported via failedTopicKeys above
-    const coveredIds = new Set((result.dispositions || []).map((d) => d.nugget_id))
+    if (!result && deferredSlugs.has(slugifyTopic(cluster.topicKey))) continue
+    const coveredIds = new Set([
+      ...(result ? (result.dispositions || []).map((d) => d.nugget_id) : []),
+      ...(Array.isArray(cluster.pointer_covered) ? cluster.pointer_covered : []),
+      ...deferredIds.map(String),
+    ])
     const uncoveredNuggets = cluster.nuggets.filter((n) => !coveredIds.has(n.id))
     if (uncoveredNuggets.length > 0) {
-      gaps.push({ topicKey: cluster.topicKey, wikiPath: result.wiki_path, uncoveredNuggets })
+      gaps.push({ topicKey: cluster.topicKey, wikiPath: result ? result.wiki_path : undefined, uncoveredNuggets })
     }
   }
   return gaps
@@ -2269,7 +2284,7 @@ function findFoldedDecisions(clusters, results) {
 
 phase('coverage-gate')
 const totalAssignedNuggets = clusters.reduce((n, c) => n + c.nuggets.length, 0)
-const coverageGaps = findCoverageGaps(clusters, synthResults)
+const coverageGaps = findCoverageGaps(clusters, synthResults, deferredTopics, deferredNuggetIds)
 const foldedDecisions = findFoldedDecisions(clusters, synthResults)
 const totalUncoveredNuggets = coverageGaps.reduce((n, g) => n + g.uncoveredNuggets.length, 0)
 const unsynthesizedTopicKeys = clusters
@@ -2302,7 +2317,9 @@ if (remainingGaps.length > 0) {
 phase('promote')
 const promoteManifest = buildPromoteManifest(RUN_ID, synthResults, synthReturns.filter(Boolean), topicSourceHashes)
 const promotedByDriver = Array.isArray(RAW_ARGS_INPUT.promoted)
-if (promoteManifest.synth_results.length > 0 && !promotedByDriver) {
+// A sharded shard 0 stops here even with no synth results: finalize's merge refuses a missing shard index.
+const shardedRun = Boolean(LAUNCH_SHARD && LAUNCH_SHARD.count > 1)
+if ((promoteManifest.synth_results.length > 0 || shardedRun) && !promotedByDriver) {
   return {
     phase_reached: 'promote-ready',
     run_id: RUN_ID,

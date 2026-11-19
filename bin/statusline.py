@@ -792,10 +792,23 @@ def _read_raw_stdin() -> bytes:
     return sys.stdin.read().encode("utf-8")
 
 
+def _stdout_utf8() -> None:
+    """The rendered line carries non-cp1252 glyphs; a cp1252 console stdout would raise on write.
+    A stdout without `reconfigure` (a test stub) is left alone."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(encoding="utf-8")
+            except (OSError, ValueError):
+                pass
+
+
 def main(argv: list[str] | None = None) -> int:
     """`argv` defaults to `sys.argv[1:]`; the warm door calls `main(argv)` uniformly across
     every `coordinator/bin/` entrypoint (`coordinator_core.warm.serve_classifier`)."""
     args = sys.argv[1:] if argv is None else argv
+    _stdout_utf8()
     if args[:1] == ["--selftest"]:
         return _selftest()
 

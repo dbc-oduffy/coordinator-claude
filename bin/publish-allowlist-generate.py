@@ -839,7 +839,8 @@ def main(argv=None) -> int:
                 if d["removed"]:
                     print(f"  - {len(d['removed'])} removed: {d['removed']}", file=sys.stderr)
             print(
-                "Remedy: run publish-allowlist-generate.py without --check.",
+                "Remedy: run coordinator/bin/publish-allowlist-generate.py without --check, "
+                "then commit setup/publish-targets.portable.",
                 file=sys.stderr,
             )
             return 1

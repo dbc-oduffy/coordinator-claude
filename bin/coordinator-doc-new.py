@@ -1003,6 +1003,19 @@ def _assert_scaffold_content_valid(
         body = parsed.get("body") or ""
         schemas = load_schemas(_SCHEMAS_DIR)
         match = match_schema(repo_rel, frontmatter, schemas)
+        # match_schema opts a declared-but-unregistered kind out of the glob
+        # route, and `plan` registers no kind: a `kind: plan` file under
+        # docs/plans/ would otherwise reach no schema at all. A non-sidecar
+        # docs/plans/*.md is a plan by path, so keep it on the plan schema.
+        if (
+            match is None
+            and isinstance(frontmatter, dict)
+            and frontmatter.get("kind") == "plan"
+            and "plan" in schemas
+            and repo_rel.startswith("docs/plans/")
+            and repo_rel.endswith(".md")
+        ):
+            match = {"schemaName": "plan", "schema": schemas["plan"]}
     except Exception:  # noqa: BLE001 -- fail-open on corpus-load/parse trouble, never block on infra
         return
 

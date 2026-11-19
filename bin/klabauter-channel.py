@@ -80,7 +80,19 @@ _RESOLVE_CLAUDE_KLABAUTER_DIR = _REPO_ROOT / "coordinator" / "lib" / "resolve-cl
 
 _BOOTSTRAP_DONE = False
 
-_BOOTSTRAPPED_NAMES = ("cli_shared", "_resolve_claude_klabauter", "registry_get", "same_path", "_expected_local_branch")
+_BOOTSTRAPPED_NAMES = ("cli_shared", "_resolve_claude_klabauter", "registry_get", "same_path")
+
+
+def _expected_local_branch(track_ref: str) -> str:
+    """The local branch a `track_ref` (`origin/<branch>` or a bare name) checks out as.
+
+    Kept local, not imported from `publish.py`: publish.py is not shipped to klabauter, so the
+    published copy of this CLI raised ModuleNotFoundError on that import. Must match
+    `publish._expected_local_branch`.
+    """
+    if track_ref.startswith("origin/"):
+        return track_ref[len("origin/") :]
+    return track_ref
 
 
 def _bootstrap_engine() -> None:
@@ -109,12 +121,11 @@ def _bootstrap_engine() -> None:
     if str(_REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(_REPO_ROOT))
 
-    global cli_shared, _resolve_claude_klabauter, registry_get, same_path, _expected_local_branch
+    global cli_shared, _resolve_claude_klabauter, registry_get, same_path
     import cli_shared
     import _resolve_claude_klabauter
     from coordinator_core.machine_resolver import registry_get
     from coordinator_core.win_portability import same_path
-    from publish import _expected_local_branch
 
     _BOOTSTRAP_DONE = True
 

@@ -10,8 +10,9 @@ _COORDINATOR = Path(__file__).resolve().parents[2]
 _PROFILE = _COORDINATOR / "queue-profiles" / "lessons.yaml"
 _BUDGET_CONTRACT = _COORDINATOR / "contract" / "ceremony-budget.json"
 
-# How big one single-turn triage call may be, in payload bytes (~25K tokens).
-SYNTH_BATCH_BYTES = 100000
+# How big one single-turn triage call may be, in payload bytes (~50K tokens): big enough that the
+# fixed per-call harness load is spread over 100+ lessons.
+SYNTH_BATCH_BYTES = 200000
 # How many triage calls a whole lesson queue may cost.
 MAX_SYNTH_CALLS = 3
 # How much of the whole-backlog bar one lessons slice may spend.

@@ -136,6 +136,7 @@ VENDORED_SCRIPTS = (
     "unimatrix-file-relay.py",
     "unimatrix-passphrase.py",
     "unimatrix-control.py",
+    "unimatrix-tui-status-launch.py",
     "headless-em-launch.py",
 )
 
@@ -568,9 +569,14 @@ def _mint(priv, comment, run, unencrypted, remint, on_mint=None):
             passphrase = mod.read_passphrase(mod.ensure_item(stage, run), run)
             try:
                 mod.mint_key(target, comment, passphrase)
-            except ImportError as exc:
-                raise RuntimeError(f"minting an encrypted key needs the `cryptography` package ({exc}); run "
-                                   f"`{sys.executable} -m pip install cryptography`, or pass --unencrypted-key") from exc
+            except Exception as exc:
+                # cryptography raises UnsupportedAlgorithm, not ImportError, when bcrypt (its OpenSSH
+                # key-encryption backend) is absent.
+                if not isinstance(exc, ImportError) and type(exc).__name__ != "UnsupportedAlgorithm":
+                    raise
+                raise RuntimeError(f"minting an encrypted key needs the `cryptography` and `bcrypt` packages ({exc}); "
+                                   f"run `{sys.executable} -m pip install cryptography bcrypt`, or pass "
+                                   f"--unencrypted-key") from exc
         else:
             kg = run(["ssh-keygen", "-t", "ed25519", "-N", "", "-C", comment, "-f", str(target)],
                      capture_output=True, text=True, timeout=30, creationflags=roster.no_window())
@@ -977,11 +983,12 @@ def _plugin_entry_matches(entry, tree):
     return os.path.normcase(os.path.normpath(str(entry.get("path", "")))) == os.path.normcase(os.path.normpath(str(tree.parent)))
 
 
-def seed_agy_plugin(path, tree):
-    """Register the generated agy plugin tree in agy's plugins.json; return "created", "added" or "present".
+def seed_agy_plugin(path, tree) -> str:
+    """Register the generated agy plugin tree in agy's plugins.json; return "created", "added", "pruned" or "present".
 
     agy scans each `entries` path one level deep, so the entry names the tree's parent and
-    `include_only` narrows it to the tree. Other entries and keys are preserved; a re-run adds nothing.
+    `include_only` narrows it to the tree. Entries whose path is absent or under another user profile
+    are dropped; other entries and keys are preserved; a re-run changes nothing.
     """
     path, tree = Path(path), Path(tree)
     data = {}
@@ -993,13 +1000,18 @@ def seed_agy_plugin(path, tree):
         if not isinstance(data, dict) or not isinstance(data.get("entries", []), list):
             raise ValueError(f"{path} has an unexpected shape (want an object with an `entries` list)")
     entries = data.setdefault("entries", [])
-    if any(_plugin_entry_matches(e, tree) for e in entries):
+    live = _seed().prune_dead_entries(entries)
+    pruned = len(live) != len(entries)
+    has = any(_plugin_entry_matches(e, tree) for e in live)
+    if has and not pruned:
         return "present"
-    entries.append({"path": str(tree.parent), "include_only": [tree.name]})
+    if not has:
+        live.append({"path": str(tree.parent), "include_only": [tree.name]})
+    data["entries"] = live
     existed = path.exists()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    return "added" if existed else "created"
+    return "pruned" if has else ("added" if existed else "created")
 
 
 def unseed_agy_plugin(path, tree):
@@ -1032,8 +1044,51 @@ def _quote_argv(argv):
     return subprocess.list2cmdline(argv) if os.name == "nt" else " ".join(shlex.quote(a) for a in argv)
 
 
-def _hook_command(dest_dir, script_name, *args):
-    return _quote_argv([_console_python(), str(Path(dest_dir) / script_name), *args])
+_NEUTRAL_BARE = re.compile(r"[A-Za-z0-9_@%+=:,./~-]+")
+
+
+def _neutral_arg(arg) -> str:
+    """One argument as a word bash and pwsh parse identically: forward slashes, single-quoted."""
+    arg = str(arg).replace("\\", "/")
+    if "'" not in arg:
+        return f"'{arg}'"
+    if not any(c in arg for c in '"$`'):
+        return f'"{arg}"'
+    raise ValueError(f"cannot quote {arg!r} for both bash and pwsh")
+
+
+def _short_path(exe) -> str:
+    """The Windows 8.3 form of an existing path (no spaces), else the path unchanged."""
+    if os.name != "nt":
+        return exe
+    import ctypes
+    buf = ctypes.create_unicode_buffer(32768)
+    n = ctypes.windll.kernel32.GetShortPathNameW(exe, buf, 32768)
+    return buf.value if 0 < n < 32768 else exe
+
+
+def _neutral_exe(exe) -> str:
+    """The interpreter word as _neutral_command emits it: 8.3 short form when the path needs quoting."""
+    exe = str(exe).replace("\\", "/")
+    if not _NEUTRAL_BARE.fullmatch(exe):
+        exe = _short_path(exe).replace("\\", "/")
+    if not _NEUTRAL_BARE.fullmatch(exe) and any(c in exe for c in '"$`'):
+        raise ValueError(f"cannot quote interpreter {exe!r} for bash")
+    return exe
+
+
+def _neutral_command(argv) -> str:
+    """argv as a command line bash and pwsh both run: a quoted first word is an expression in pwsh,
+    so the interpreter stays bare when it can: a path with a space takes its 8.3 short form, and
+    only when none exists is it double-quoted (bash-only)."""
+    exe, *rest = (str(a).replace("\\", "/") for a in argv)
+    exe = _neutral_exe(exe)
+    head = exe if _NEUTRAL_BARE.fullmatch(exe) else f'"{exe}"'
+    return " ".join([head, *(_neutral_arg(a) for a in rest)])
+
+
+def _hook_command(dest_dir, script_name, *args) -> str:
+    return _neutral_command([_console_python(), Path(dest_dir) / script_name, *args])
 
 
 def _engine_args(engine_root):
@@ -1052,7 +1107,7 @@ def _hook_group(dest_dir, script_name, matcher=None, args=()):
 
 
 def agy_hook_entry(dest_dir, engine_root=None):
-    """Our hooks.json value: a shell-and-edit-tool PreToolUse hook and a SessionStart hook running installed scripts.
+    """Our hooks.json value: a shell-and-edit-tool PreToolUse hook, a SessionStart hook and a PreInvocation hook (delivers the PreToolUse advisories) running installed scripts.
 
     agy groups only tool events under matcher/hooks; SessionStart takes bare handlers, and agy
     rejects the whole file ("command hook must specify 'command'") when it is grouped. The
@@ -1061,6 +1116,7 @@ def agy_hook_entry(dest_dir, engine_root=None):
     return {
         "PreToolUse": [_hook_group(dest_dir, AGY_HOOK_SCRIPT, AGY_TOOL_MATCHER, _engine_args(engine_root))],
         "SessionStart": [_hook_handler(dest_dir, AGY_SESSIONSTART_SCRIPT)],
+        "PreInvocation": [_hook_handler(dest_dir, AGY_HOOK_SCRIPT, "--event", "PreInvocation")],
     }
 
 
@@ -1086,9 +1142,9 @@ def external_session_capability(engine_root):
     return True, "published registration, context, advisory and usage lifecycle present"
 
 
-def codex_hook_events(dest_dir, engine_root=None):
+def codex_hook_events(dest_dir, engine_root=None) -> dict:
     """Transport discovery plus engine lifecycle registration and shell guard."""
-    start = _hook_group(dest_dir, CODEX_SESSIONSTART_SCRIPT)
+    start = _hook_group(dest_dir, CODEX_SESSIONSTART_SCRIPT, args=_engine_args(engine_root))
     start["hooks"].append({**_hook_handler(
         dest_dir, EXTERNAL_SESSION_SCRIPT, "--event", "SessionStart", *_engine_args(engine_root)), "timeout": 3})
     end = _hook_group(dest_dir, EXTERNAL_SESSION_SCRIPT,
@@ -1284,11 +1340,11 @@ def _codex_expected_handlers(hooks_path):
     return expected
 
 
-_STATUS_DEFAULT = ["thread-name", "model-with-reasoning", "context-remaining"]
+_STATUS_DEFAULT = ["thread-name"]
 _STATUS_PATHS = {"current-dir", "project-root", "project", "project-name"}
 
 
-def _status_profile(current):
+def _status_profile(current) -> list[str]:
     if current is None or current == []:
         return list(_STATUS_DEFAULT)
     if not isinstance(current, list) or not all(isinstance(item, str) for item in current):
@@ -1300,10 +1356,6 @@ def _status_profile(current):
             result.append(item)
     if "thread-name" not in result:
         result.insert(0, "thread-name")
-    if "model-with-reasoning" not in result and not ("reasoning" in result and any(item in result for item in ("model", "model-name"))):
-        result.append("model-with-reasoning")
-    if "context-remaining" not in result:
-        result.append("context-remaining")
     return result
 
 
@@ -1394,7 +1446,7 @@ def _footer_state(path):
     return state
 
 
-def seed_codex_status_line(config_path, *, uninstall=False):
+def seed_codex_status_line(config_path, *, uninstall=False) -> str:
     """Own only the footer value; restore only while it remains our exact value."""
     path = Path(config_path)
     state_path = path.with_name(".coordinator-status-line.json")
@@ -1416,7 +1468,15 @@ def seed_codex_status_line(config_path, *, uninstall=False):
         _footer_write(path, replacement)
         state_path.unlink()
         return "restored"
-    wanted = _status_profile(current)
+    prior = None
+    if state_path.exists():
+        try:
+            prior = _footer_state(state_path)
+        except ValueError:
+            prior = None
+    # A footer we seeded earlier re-derives from its pre-install value, dropping natives we added.
+    base = prior["original"] if prior is not None and current == prior["managed"] else current
+    wanted = _status_profile(base)
     if wanted == current:
         return "present"
     replacement = _status_edit(text, wanted)
@@ -1451,7 +1511,7 @@ def grok_rules_path():
 
 
 def grok_present():
-    """True when grok is on PATH or its home directory ($GROK_HOME, default ~/.grok) exists."""
+    """True when grok is on PATH; a leftover $GROK_HOME (default ~/.grok) alone is not presence."""
     # Trap: Path.is_file() swallows only not-found errors; an unreadable PATH entry (EACCES on /usr/local/bin/grok
     # on the Mini) raises and aborted the install, so every probe reads an OSError as absent.
     def _is(probe):
@@ -1460,9 +1520,8 @@ def grok_present():
         except OSError:
             return False
 
-    on_path = any(_is((Path(d) / n).is_file) for d in os.environ.get("PATH", "").split(os.pathsep) if d
-                  for n in ("grok", "grok.exe", "grok.cmd"))
-    return on_path or _is(grok_config_path().parent.is_dir)
+    return any(_is((Path(d) / n).is_file) for d in os.environ.get("PATH", "").split(os.pathsep) if d
+               for n in ("grok", "grok.exe", "grok.cmd"))
 
 
 GROK_SYSTEM_BIN = Path("/usr/local/bin")
@@ -1504,6 +1563,179 @@ def link_grok_local_bin(home=None, path_env=None, system_bin=None):
         link.unlink()
     link.symlink_to(src)
     return "linked"
+
+
+def _on_path(names):
+    return any((Path(d) / n).is_file() for d in os.environ.get("PATH", "").split(os.pathsep) if d for n in names)
+
+
+def host_present(host):
+    """True when `host` is present: codex and grok only when on PATH (a leftover home directory is not presence), agy
+    on PATH or its home directory; the one predicate gating every hook, status line, doctrine and rules write."""
+    if host == "grok":
+        return grok_present()
+    if host == "codex":
+        return _on_path(("codex", "codex.exe", "codex.cmd"))
+    if host == "agy":
+        return _on_path(("agy", "agy.exe", "agy.cmd")) or agy_hooks_path().parent.parent.is_dir()
+    return True
+
+
+def _is_windowsapps(path):
+    return "windowsapps" in str(path).replace("/", "\\").lower().split("\\")
+
+
+def pwsh_alias_remedy(environ=None, platform=None):
+    """On win32, the install-time warning when the first `pwsh` on PATH is the Store/MSIX alias (it cannot run DISM
+    cmdlets and a codex sandbox cannot launch it); None otherwise."""
+    environ = os.environ if environ is None else environ
+    if (platform or sys.platform) != "win32":
+        return None
+    for entry in (environ.get("PATH") or environ.get("Path") or "").split(os.pathsep):
+        if entry and (Path(entry) / "pwsh.exe").is_file():
+            if not _is_windowsapps(entry):
+                return None
+            return (f"pwsh resolves first to the Store/MSIX alias {Path(entry) / 'pwsh.exe'}; remedy: "
+                    "winget install Microsoft.PowerShell --scope machine --installer-type wix (elevated), "
+                    "which installs %ProgramFiles%\\PowerShell\\7, and put that directory ahead of WindowsApps in PATH")
+    return None
+
+
+def powershell_host(environ=None, platform=None):
+    """The PowerShell host to drive Windows setup scripts: MSI pwsh, else a non-WindowsApps pwsh on PATH, else
+    Windows PowerShell 5.1; never the MSIX alias. None off Windows or when none exists."""
+    environ = os.environ if environ is None else environ
+    if (platform or sys.platform) != "win32":
+        return None
+    base = environ.get("ProgramFiles")
+    if base and (Path(base) / "PowerShell" / "7" / "pwsh.exe").is_file():
+        return str(Path(base) / "PowerShell" / "7" / "pwsh.exe")
+    path = environ.get("PATH") or environ.get("Path") or ""
+    for entry in path.split(os.pathsep):
+        if entry and not _is_windowsapps(entry) and (Path(entry) / "pwsh.exe").is_file():
+            return str(Path(entry) / "pwsh.exe")
+    root = environ.get("SystemRoot")
+    if root and (Path(root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe").is_file():
+        return str(Path(root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe")
+    return None
+
+
+OPENSSH_NEEDS_ADMIN_RC = 3
+OPENSSH_FIREWALL_RULE = "OpenSSH-Server-In-TCP"
+OPENSSH_STATE_SCRIPT = r"""
+$ErrorActionPreference = 'SilentlyContinue'
+$svc = Get-Service sshd
+$exe = Join-Path $env:SystemRoot 'System32\OpenSSH\sshd.exe'
+$fw = @(Get-NetFirewallRule -Direction Inbound -Action Allow -Enabled True | Get-NetFirewallPortFilter |
+        Where-Object { $_.Protocol -eq 'TCP' -and ($_.LocalPort -contains '22') }).Count -gt 0
+$f = Join-Path $env:ProgramData 'ssh\administrators_authorized_keys'
+$exists = Test-Path $f
+$acl = $null
+if ($exists) { $acl = Get-Acl $f }
+$sids = @()
+if ($acl) { $sids = @($acl.Access | ForEach-Object { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } | Sort-Object -Unique) }
+[pscustomobject]@{
+  installed = [bool]($svc -or (Test-Path $exe))
+  running = [bool]($svc -and $svc.Status -eq 'Running')
+  automatic = [bool]($svc -and $svc.StartType -eq 'Automatic')
+  firewall22 = $fw
+  keys_exists = $exists
+  keys_protected = [bool]($acl -and $acl.AreAccessRulesProtected)
+  keys_sids = $sids
+} | ConvertTo-Json -Compress
+"""
+OPENSSH_APPLY_SCRIPT = r"""
+$ErrorActionPreference = 'Stop'
+$p = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { Write-Output 'NEEDS_ADMIN'; exit 3 }
+if (-not (Get-Service sshd -ErrorAction SilentlyContinue)) { Add-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0' | Out-Null }
+Set-Service -Name sshd -StartupType Automatic
+if ((Get-Service sshd).Status -ne 'Running') { Start-Service sshd }
+if (-not (Get-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -ErrorAction SilentlyContinue)) {
+  New-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -DisplayName 'OpenSSH Server (sshd)' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 | Out-Null
+}
+$f = Join-Path $env:ProgramData 'ssh\administrators_authorized_keys'
+if (-not (Test-Path $f)) { New-Item -ItemType File -Path $f -Force | Out-Null }
+& icacls.exe $f /inheritance:r /grant '*S-1-5-32-544:F' '*S-1-5-18:F' | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "icacls exited $LASTEXITCODE" }
+Write-Output 'OK'
+"""
+_ADMIN_SIDS = ["S-1-5-18", "S-1-5-32-544"]
+
+
+def _run_powershell(script, run=subprocess.run, host=None, timeout=120):
+    exe = host or powershell_host()
+    if exe is None:
+        raise OSError("no PowerShell host: neither MSI pwsh nor Windows PowerShell 5.1 found (the Store/MSIX pwsh alias is never used)")
+    return run([exe, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+               capture_output=True, text=True, timeout=timeout, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
+def openssh_state(run=subprocess.run, host=None):
+    """The OpenSSH Server receive-side state as a dict (installed, running, automatic, firewall22, keys_*)."""
+    done = _run_powershell(OPENSSH_STATE_SCRIPT, run, host, timeout=60)
+    if done.returncode != 0:
+        raise OSError(f"OpenSSH state query exited {done.returncode}: {(done.stderr or done.stdout or '').strip()[:200]}")
+    return json.loads(done.stdout.strip().splitlines()[-1])
+
+
+def openssh_problems(state):
+    """(finding name, text) for each receive-side requirement `state` does not meet; empty when complete."""
+    out = []
+    if not state.get("installed"):
+        out.append(("openssh-server-installed", "OpenSSH Server (sshd) is not installed"))
+    if not state.get("running"):
+        out.append(("openssh-sshd-running", "the sshd service is not running"))
+    if not state.get("automatic"):
+        out.append(("openssh-sshd-automatic", "the sshd service start type is not Automatic"))
+    if not state.get("firewall22"):
+        out.append(("openssh-firewall-22", "no enabled inbound allow rule for TCP 22"))
+    sids = sorted(state.get("keys_sids") or [])
+    if not state.get("keys_exists"):
+        out.append(("openssh-admin-keys-acl", "administrators_authorized_keys does not exist"))
+    elif sids != _ADMIN_SIDS or not state.get("keys_protected"):
+        out.append(("openssh-admin-keys-acl", "administrators_authorized_keys ACL is not Administrators+SYSTEM with inheritance removed"))
+    return out
+
+
+def apply_openssh_receive(run=subprocess.run, host=None):
+    """Install, start and wire OpenSSH Server for receiving (service automatic, firewall 22, admin keys file ACL).
+
+    Returns (rc, output); rc OPENSSH_NEEDS_ADMIN_RC means the shell was not elevated and nothing changed."""
+    done = _run_powershell(OPENSSH_APPLY_SCRIPT, run, host, timeout=600)
+    return done.returncode, ((done.stdout or "") + (done.stderr or "")).strip()
+
+
+def openssh_receive_report(out, run=subprocess.run, apply=False, host=None):
+    """Print the receive-side status (and, with `apply`, the repair); returns 0 when complete, else 1."""
+    try:
+        problems = openssh_problems(openssh_state(run, host))
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        print(f"WARN: openssh receive side not checked: {exc}", file=out)
+        return 1
+    if problems and apply:
+        try:
+            rc, text = apply_openssh_receive(run, host)
+        except (OSError, subprocess.SubprocessError) as exc:
+            print(f"WARN: openssh receive side not repaired: {exc}", file=out)
+            return 1
+        if rc == OPENSSH_NEEDS_ADMIN_RC:
+            print("openssh receive side needs an elevated shell: re-run `unimatrix-install.py --openssh-receive` as Administrator", file=out)
+            return 1
+        if rc != 0:
+            print(f"WARN: openssh receive side repair exited {rc}: {text[:300]}", file=out)
+            return 1
+        try:
+            problems = openssh_problems(openssh_state(run, host))
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            print(f"WARN: openssh receive side not re-checked: {exc}", file=out)
+            return 1
+    if problems:
+        print("openssh receive side incomplete: " + "; ".join(f"{n}: {t}" for n, t in problems)
+              + "; remedy: run `unimatrix-install.py --openssh-receive` in an elevated shell", file=out)
+        return 1
+    print("openssh receive side complete: sshd installed, running, automatic; firewall 22; administrators_authorized_keys ACL", file=out)
+    return 0
 
 
 def grok_hooks_path():
@@ -1569,6 +1801,22 @@ def seed_grok_hook(hooks_path, dest_dir, engine_root=None):
     return "created" if not existed else "updated" if had_owned else "added"
 
 
+def refresh_grok_hook(hooks_path, dest_dir, engine_root=None) -> str:
+    """Bring an installed Grok group to current emitter output; return "absent", "present" or "updated".
+
+    One small JSON read and no spawn. Creates nothing: a file with no owned group is "absent" and stays
+    untouched, and a current file is not rewritten. An unresolved engine root is "absent" too, so a
+    working `--engine-root` is never rendered away."""
+    path = Path(hooks_path)
+    if engine_root is None or not path.is_file():
+        return "absent"
+    hooks = _load_hooks(path).get("hooks")
+    events = hooks.get("PreToolUse") if isinstance(hooks, dict) else None
+    if not isinstance(events, list) or not any(_grok_group_ours(g) for g in events):
+        return "absent"
+    return seed_grok_hook(path, dest_dir, engine_root)
+
+
 def unseed_grok_hook(hooks_path):
     """Remove only our handler from PreToolUse; return "removed" or "absent"."""
     path = Path(hooks_path)
@@ -1587,21 +1835,48 @@ def unseed_grok_hook(hooks_path):
 
 
 TUI_STATUS_MODULE = "coordinator_core.tui_status"
+TUI_STATUS_LAUNCHER = "unimatrix-tui-status-launch.py"
 # Trap: agy and Grok run the status line from a cwd with no coordinator_core on sys.path, so a bare
-# `-m` fails on every render; the engine root rides in argv and is put on sys.path first.
+# `-m` fails on every render; the launcher puts the engine root on sys.path. agy on Windows splits a
+# `-c` one-liner at its spaces and quotes, so no argument may hold either. The -c form below is kept
+# only to recognise (and replace) entries an earlier install wrote.
 _TUI_STATUS_BOOT = ("import runpy,sys;sys.path.insert(0,sys.argv.pop(1));"
                     f"runpy.run_module('{TUI_STATUS_MODULE}',run_name='__main__')")
 
 
-def _tui_status_command(host, engine_root=None):
+GROK_STATUS_SCRIPT = "coordinator-statusline.ps1"
+
+
+def _grok_ps1_form(host) -> bool:
+    """True when this host's status line is a path-only `.ps1`: Grok on Windows starts `command` as one process image."""
+    return host == "grok" and os.name == "nt"
+
+
+def _grok_status_script_text(engine_root, dest_dir=None) -> str:
+    """The `.ps1` body: stdin piped through the console python to the launcher, every path single-quoted."""
+    launcher = (Path(dest_dir) if dest_dir else settings_home() / "unimatrix") / TUI_STATUS_LAUNCHER
+    q = lambda v: "'" + str(v).replace("'", "''") + "'"
+    return (f"$py = {q(_console_python())}\r\n$launcher = {q(launcher)}\r\n$root = {q(engine_root)}\r\n"
+            "$input | & $py $launcher $root 'grok'\r\n")
+
+
+def _tui_status_command(host, engine_root=None, dest_dir=None, config_dir=None) -> str:
+    """The status-line command: the installed launcher script run by the console python, one bare word per argument.
+
+    Grok on Windows (with a `config_dir`) gets only the path of the `.ps1` that runs it.
+    """
+    if engine_root and config_dir and _grok_ps1_form(host):
+        script = Path(config_dir) / GROK_STATUS_SCRIPT
+        return (_short_path(str(script)) if " " in str(script) and script.exists() else str(script)).replace("\\", "/")
     if engine_root:
-        argv = [_console_python(), "-c", _TUI_STATUS_BOOT, str(engine_root), host]
+        launcher = (Path(dest_dir) if dest_dir else settings_home() / "unimatrix") / TUI_STATUS_LAUNCHER
+        argv = [_console_python(), launcher, str(engine_root), host]
     else:
         argv = [_console_python(), "-m", TUI_STATUS_MODULE, host]
-    return _quote_argv(argv)
+    return _quote_argv([(_short_path(str(a)) if " " in str(a) else str(a)).replace("\\", "/") for a in argv])
 
 
-def _status_command_ours(value, host):
+def _status_command_ours(value, host) -> bool:
     """True when a host's status-line value is one this installer wrote, in any engine root or form."""
     cmd = value.get("command") if isinstance(value, dict) else None
     if not isinstance(cmd, str):
@@ -1611,7 +1886,11 @@ def _status_command_ours(value, host):
     except ValueError:
         return False
     argv = [a.strip('"') for a in argv]
+    if len(argv) == 1 and host == "grok" and Path(argv[0].replace("\\", "/")).name == GROK_STATUS_SCRIPT:
+        return True
     if argv[-3:] == ["-m", TUI_STATUS_MODULE, host]:
+        return True
+    if len(argv) == 4 and Path(argv[1].replace("\\", "/")).name == TUI_STATUS_LAUNCHER and argv[3] == host:
         return True
     return len(argv) == 5 and argv[1] == "-c" and argv[2] == _TUI_STATUS_BOOT and argv[4] == host
 
@@ -1659,7 +1938,7 @@ def _host_status_state(path):
     return state
 
 
-def seed_host_status_line(config_path, host, *, uninstall=False, engine_root=None):
+def seed_host_status_line(config_path, host, *, uninstall=False, engine_root=None, dest_dir=None) -> str:
     """Own only the agy `statusLine` / Grok `[ui.status_line]` value; restore only while it remains our exact value.
 
     The ownership record keeps the pre-install text, so an untouched file returns byte for byte; a file
@@ -1668,7 +1947,8 @@ def seed_host_status_line(config_path, host, *, uninstall=False, engine_root=Non
     path = Path(config_path)
     state_path = path.with_name(f".coordinator-status-line-{host}.json")
     text = path.read_bytes().decode("utf-8") if path.exists() else None
-    command = _tui_status_command(host, engine_root)
+    command = _tui_status_command(host, engine_root, dest_dir, path.parent)
+    script = path.with_name(GROK_STATUS_SCRIPT)
     if uninstall:
         if not state_path.exists():
             return "absent"
@@ -1699,6 +1979,7 @@ def seed_host_status_line(config_path, host, *, uninstall=False, engine_root=Non
             tomllib.loads(replacement)
             _footer_write(path, replacement)
         state_path.unlink()
+        script.unlink(missing_ok=True)
         return "restored"
     current, wanted = _host_status_value(host, text, command)
     if current == wanted:
@@ -1707,8 +1988,10 @@ def seed_host_status_line(config_path, host, *, uninstall=False, engine_root=Non
     if current is not None and _status_command_ours(current, host) and (state is None or text != state["after"]):
         # Our own older value (another engine root, or the bare `-m` form) in an edited file: swap
         # only the command literal so the user's other edits survive.
-        old_literal = json.dumps(current["command"], ensure_ascii=False)
-        if old_literal not in text:
+        old_cmd = current["command"]
+        old_literal = next((lit for lit in (json.dumps(old_cmd, ensure_ascii=False), f"'''{old_cmd}'''", f"'{old_cmd}'")
+                            if lit in text), None)
+        if old_literal is None:
             return "retained-customized"
         base = state["before"] if state else text
         existed = state["existed"] if state else True
@@ -1724,14 +2007,17 @@ def seed_host_status_line(config_path, host, *, uninstall=False, engine_root=Non
     if _host_status_value(host, replacement, command)[0] != wanted:
         raise ValueError("status-line edit did not address the host's status line")
     path.parent.mkdir(parents=True, exist_ok=True)
+    if engine_root and _grok_ps1_form(host):
+        _footer_write(script, _grok_status_script_text(engine_root, dest_dir))
     record = {"version": 1, "host": host, "existed": existed, "before": base, "after": replacement, "managed": wanted}
     _footer_write(state_path, json.dumps(record, ensure_ascii=False) + "\n")
     _footer_write(path, replacement)
     return "updated" if text is not None else "created"
 
 
-AGY_ALLOW_RULE = "command(coordinator-invoke engine_ask.submit --params-file .coordinator-local/em-submit.json)"
+AGY_ALLOW_RULE = "command(coordinator-invoke engine_ask.submit)"
 AGY_LEGACY_ALLOW_RULE = "command(coordinator-invoke *)"
+AGY_PRIOR_ALLOW_RULE = "command(coordinator-invoke engine_ask.submit --params-file .coordinator-local/em-submit.json)"
 
 
 def invoke_launcher_path():
@@ -1745,39 +2031,40 @@ def agy_absolute_allow_rule():
     return AGY_ALLOW_RULE.replace("command(coordinator-invoke ", f"command({exe} ", 1)
 
 
-def agy_resolves_bare_invoke():
-    """True when a bare `coordinator-invoke` resolves in agy's login-shell environment; probed once, at install.
+def launcher_sac_blocked() -> bool:
+    """True when Windows Smart App Control is enforcing, so the unsigned `.exe` launcher an allow rule names cannot run.
 
-    Windows has no login-shell probe, so it reads this process's PATH.
+    Reads one registry value; no process is spawned. Any other platform, an unreadable value or an evaluation-mode state is False.
     """
-    if sys.platform == "win32":
-        return shutil.which("coordinator-invoke") is not None
-    shell = os.environ.get("SHELL") or "/bin/sh"
-    try:
-        out = subprocess.run([shell, "-lc", "command -v coordinator-invoke"], capture_output=True, text=True,
-                             timeout=10, stdin=subprocess.DEVNULL)
-    except (OSError, subprocess.SubprocessError):
+    if sys.platform != "win32":
         return False
-    return out.returncode == 0 and bool(out.stdout.strip())
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\CI\Policy") as key:
+            return winreg.QueryValueEx(key, "VerifiedAndReputablePolicyState")[0] == 1
+    except (OSError, ImportError):
+        return False
 
 
-def agy_allow_rule(bare_resolves=None):
-    """The exact grant to write: the bare line when `coordinator-invoke` resolves for agy, else the absolute-path line."""
-    if bare_resolves is None:
-        bare_resolves = agy_resolves_bare_invoke()
-    return AGY_ALLOW_RULE if bare_resolves else agy_absolute_allow_rule()
+AGY_TOOL_PERMISSION_KEY = "toolPermission"
+AGY_BYPASS_VALUE = "always-proceed"
 
 
-def seed_agy_allow_rule(config_path, *, uninstall=False, rule=None):
+def seed_agy_allow_rule(config_path, *, uninstall=False, rule=None) -> str:
     """Own one entry in agy's `permissions.allow`, so a headless `agy --print` can run the coordinator door.
 
-    `rule` is the grant to write (default: the bare line). Every form this installer has written, the
-    legacy wildcard included, is owned and migrated or removed; operator entries are never touched.
-    The ownership record keeps the pre-install text: an untouched file returns byte for byte; a file
-    edited since is repaired structurally.
+    `rule` is the grant to write (default: the absolute-path line). Every form this installer has written,
+    the bare and legacy-wildcard lines included, is owned and migrated or removed; operator entries are
+    never touched. A `toolPermission: always-proceed` value, which approves everything regardless of
+    mode, is removed and its prior value kept in the ownership record for uninstall to restore. The
+    record also keeps the pre-install text: an untouched file returns byte for byte; a file edited since
+    is repaired structurally.
     """
-    rule = rule or AGY_ALLOW_RULE
-    owned = (AGY_ALLOW_RULE, agy_absolute_allow_rule(), AGY_LEGACY_ALLOW_RULE)
+    rule = rule or agy_absolute_allow_rule()
+    owned = (
+        AGY_ALLOW_RULE, agy_absolute_allow_rule(), AGY_LEGACY_ALLOW_RULE, AGY_PRIOR_ALLOW_RULE,
+        AGY_PRIOR_ALLOW_RULE.replace("command(coordinator-invoke ", f"command({invoke_launcher_path()} ", 1),
+    )
     path = Path(config_path)
     state_path = path.with_name(".coordinator-allow-rule-agy.json")
     text = path.read_bytes().decode("utf-8") if path.exists() else None
@@ -1805,6 +2092,9 @@ def seed_agy_allow_rule(config_path, *, uninstall=False, rule=None):
                 del perms["allow"]
             if not perms:
                 del data["permissions"]
+            prior = state["managed"].get(AGY_TOOL_PERMISSION_KEY)
+            if prior is not None and AGY_TOOL_PERMISSION_KEY not in data:
+                data[AGY_TOOL_PERMISSION_KEY] = prior
             _footer_write(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
         state_path.unlink()
         return "restored"
@@ -1818,19 +2108,27 @@ def seed_agy_allow_rule(config_path, *, uninstall=False, rule=None):
     if not isinstance(allow, list):
         raise ValueError("agy settings permissions.allow must be a list")
     stale = state_path.exists() and any(r in allow for r in owned if r != rule)
-    if rule in allow and not stale:
+    bypass = data.get(AGY_TOOL_PERMISSION_KEY) == AGY_BYPASS_VALUE
+    if rule in allow and not stale and not bypass:
         return "present"
     if stale:
         allow[:] = [r for r in allow if r not in owned or r == rule]
     if rule not in allow:
         allow.append(rule)
+    if bypass:
+        del data[AGY_TOOL_PERMISSION_KEY]
     replacement = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     path.parent.mkdir(parents=True, exist_ok=True)
     record = {"version": 1, "host": "agy", "existed": text is not None, "before": text or "",
               "after": replacement, "managed": {"allow": rule}}
-    if stale:
+    if bypass:
+        record["managed"][AGY_TOOL_PERMISSION_KEY] = AGY_BYPASS_VALUE
+    if state_path.exists() and (stale or bypass):
         prior = _host_status_state(state_path)
         record["existed"], record["before"] = prior["existed"], prior["before"]
+        carried = prior["managed"].get(AGY_TOOL_PERMISSION_KEY)
+        if carried is not None:
+            record["managed"][AGY_TOOL_PERMISSION_KEY] = carried
     _footer_write(state_path, json.dumps(record, ensure_ascii=False) + "\n")
     _footer_write(path, replacement)
     return "updated" if text is not None else "created"
@@ -1851,9 +2149,9 @@ def codex_exec_rule_path():
     return codex_hooks_path().parent / "rules" / "unimatrix.rules"
 
 
-def render_codex_exec_rule(dest_dir):
+def render_codex_exec_rule(dest_dir) -> str:
     """An allow rule for the send command alone, so a Codex reply to a peer needs no approval prompt."""
-    argv = [_console_python(), str(Path(dest_dir) / SEND_SCRIPT)]
+    argv = [_neutral_exe(_console_python()), str(Path(dest_dir) / SEND_SCRIPT).replace("\\", "/")]
     return ("# unimatrix: lets Codex answer a peer agent with the send command, without an approval prompt.\n"
             "# Only this one script. Written by unimatrix-install.py --install, removed by --uninstall.\n"
             f"prefix_rule(pattern={json.dumps(argv)}, decision=\"allow\")\n")
@@ -1926,12 +2224,14 @@ def _write_pin(interp):
     return rec.returncode == 0
 
 
-def record_python_pin(agent_dir=None):
-    """Pin `unimatrix.python` when unset; return the recorded interpreter, else None (a pin, even a stale
-    one, is never overwritten). The pin is the interpreter the login agent already runs (it holds the macOS
-    Local Network grant), else this installer's: later reinstalls from another python keep that binary."""
+def record_python_pin(agent_dir=None) -> str | None:
+    """Pin `unimatrix.python` when unset or when the pinned file is absent; return the recorded interpreter,
+    else None (a pin naming an existing file is never overwritten). The pin is the interpreter the login agent
+    already runs (it holds the macOS Local Network grant), else this installer's: later reinstalls from
+    another python keep that binary."""
     try:
-        if _pin_raw():
+        raw = _pin_raw()
+        if raw and os.path.isfile(raw):
             return None
     except (OSError, subprocess.SubprocessError):
         return None
@@ -2574,8 +2874,11 @@ def trust_codex_hook(hooks_path, timeout=30):
 def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
          codex_hooks=None, codex_trust=None, codex_rules=None, agy_rules=None, codex_exec_rule=None,
          agy_skills_json=None, codex_skills=None, agent_dir=None, schtasks=None, pair_run=None,
-         router_live=None, restart_router=None, launchctl=None, relay_ps=None, relay_kill=None, authorized_keys=None):
-    """`authorized_keys` overrides the local file whose stale forced-command interpreters --install rewrites;
+         router_live=None, restart_router=None, launchctl=None, relay_ps=None, relay_kill=None, authorized_keys=None,
+         openssh_run=None, sac_blocked=None):
+    """`sac_blocked` (() -> bool) replaces the Smart App Control probe that gates the agy allow rule.
+    `openssh_run` (argv -> CompletedProcess) replaces the PowerShell run behind the Windows OpenSSH receive-side
+    check, which an overridden `hooks_path` otherwise skips. `authorized_keys` overrides the local file whose stale forced-command interpreters --install rewrites;
     an overridden `hooks_path` otherwise skips it. `launchctl` (argv tail -> CompletedProcess), `relay_ps` (() -> ps text) and `relay_kill` (pid -> None)
     replace the real launchctl, `ps` and SIGTERM, which an overridden `hooks_path` otherwise skips.
     `router_live(dest) -> bool` and `restart_router(dest, say) -> dict` replace the installed autolink's
@@ -2627,9 +2930,17 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--install", action="store_true", help="copy the vendored scripts into the settings home")
     ap.add_argument("--uninstall", action="store_true", help="remove everything --install seeded for Codex and agy")
+    ap.add_argument("--refresh-hooks", action="store_true", help="re-render an already-installed Grok hook to the current emitter output "
+                    "(session-start and adoption trigger; creates nothing, no script copy, no Claude gate)")
     ap.add_argument("--force", action="store_true", help="warn instead of refusing outside the verified range")
-    ap.add_argument("--hosts", help="comma list of claude,codex,agy,grok (grok installs a status line, the peer doctrine rules file and a PreToolUse host-guard hook); default codex,agy,grok with the Claude range gate. "
-                    "Naming no claude skips the gate when `claude` is not on PATH")
+    ap.add_argument("--hosts", help="comma list of claude,codex,agy,grok (grok installs a status line, the peer doctrine rules file and a PreToolUse host-guard hook); "
+                    "--install seeds only the relay and no host unless named here (--uninstall and --refresh-hooks default to all hosts). "
+                    "Naming no claude skips the Claude range gate when `claude` is not on PATH")
+    ap.add_argument("--autolink", action="store_true", help="with --install: register the login autolink (Windows Run key, "
+                    "macOS launch agent); default off")
+    ap.add_argument("--openssh-receive", action="store_true", help="Windows: install and start OpenSSH Server, set it "
+                    "Automatic, open firewall TCP 22 and ACL administrators_authorized_keys to Administrators+SYSTEM "
+                    "(needs an elevated shell; driven through MSI pwsh or Windows PowerShell 5.1, never the MSIX alias)")
     ap.add_argument("--pair", metavar="ALIAS", help="mint or read the pair key for a far box and print its "
                     "authorized_keys line and ssh config block")
     ap.add_argument("--file-key", action="store_true", help="mint (or read) this box's file-transfer key, "
@@ -2653,6 +2964,11 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
                     "and in so the messaging set relaunches at nice 0; no sudo")
     args = ap.parse_args(argv)
     skills_root = Path(args.plugin_root) / "skills" if args.plugin_root else SKILLS_ROOT
+    if args.openssh_receive:
+        if sys.platform != "win32":
+            print("openssh receive side: Windows only; nothing to do", file=out)
+            return 0
+        return openssh_receive_report(out, openssh_run or subprocess.run, apply=True)
     if args.bounce:
         try:
             names = [n for n, _ in _sibling("unimatrix-roster.py").live_sessions()]
@@ -2749,6 +3065,18 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
     want_agy = hosts is None or "agy" in hosts
     want_grok = hosts is None or "grok" in hosts
 
+    if args.refresh_hooks:
+        if not want_grok:
+            return 0
+        try:
+            res = refresh_grok_hook(grok_hp, Path(dest_dir) if dest_dir else settings_home() / "unimatrix",
+                                    resolve_engine_root()[0])
+        except (ValueError, OSError) as exc:
+            print(f"REFUSE: {exc}; grok hook not refreshed", file=out)
+            return 4
+        print(f"grok hook {res} in {grok_hp}", file=out)
+        return 0
+
     if args.uninstall:
         hp = Path(hooks_path) if hooks_path else agy_hooks_path()
         steps = []
@@ -2815,7 +3143,20 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
     if not args.install:
         return 0
 
+    want_codex, want_agy, want_grok = (hosts is not None and h in hosts for h in ("codex", "agy", "grok"))
+    absent = [h for h, wanted in (("codex", want_codex), ("agy", want_agy), ("grok", want_grok))
+              if wanted and not host_present(h)]
+    for h in absent:
+        why = f"no {h} home" if h == "agy" else "a leftover home does not count"
+        print(f"{h} hook skipped: {h} not on PATH and {why}; no {h} status line, doctrine or rules written", file=out)
+    want_codex, want_agy, want_grok = (want_codex and "codex" not in absent, want_agy and "agy" not in absent,
+                                       want_grok and "grok" not in absent)
     print(NATIVE_RC_NOTICE, file=out)
+    alias_warning = pwsh_alias_remedy()
+    if alias_warning:
+        print(f"WARN: {alias_warning}", file=out)
+    if sys.platform == "win32" and (hooks_path is None or openssh_run is not None):
+        openssh_receive_report(out, openssh_run or subprocess.run)
     dest = Path(dest_dir) if dest_dir else settings_home() / "unimatrix"
     digest_before = router_closure_digest(dest)
     try:
@@ -2873,9 +3214,7 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
             linked = f"not linked ({exc})"
         if linked in ("linked", "absent") or linked.startswith("not linked"):
             print(f"grok ~/.local/bin link {linked}", file=out)
-    if want_grok and not grok_present():
-        print("grok hook skipped: grok not on PATH and no grok home", file=out)
-    elif want_grok:
+    if want_grok:
         try:
             res = seed_grok_hook(grok_hp, dest, engine_root)
         except ValueError as exc:
@@ -2915,16 +3254,19 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
         if not wanted:
             continue
         try:
-            res = seed_host_status_line(config, host, engine_root=engine_root)
+            res = seed_host_status_line(config, host, engine_root=engine_root, dest_dir=dest)
             print(f"{label} status line {res} in {config}", file=out)
         except (OSError, ValueError) as exc:
             missing.append(f"{label} status line")
             print(f"WARN: {label} status line not installed: {exc}", file=out)
     if want_agy:
         try:
-            agy_rule = agy_allow_rule()
-            print(f"agy allow rule {seed_agy_allow_rule(agy_status, rule=agy_rule)} in {agy_status}", file=out)
-            print(f"agy allow rule granted: {agy_rule}", file=out)
+            if (sac_blocked or launcher_sac_blocked)():
+                print("agy allow rule skipped: Smart App Control blocks the coordinator-invoke forwarder", file=out)
+            else:
+                agy_rule = agy_absolute_allow_rule()
+                print(f"agy allow rule {seed_agy_allow_rule(agy_status, rule=agy_rule)} in {agy_status}", file=out)
+                print(f"agy allow rule granted: {agy_rule}", file=out)
         except (OSError, ValueError) as exc:
             missing.append("agy allow rule")
             print(f"WARN: agy allow rule not installed: {exc}", file=out)
@@ -2970,11 +3312,12 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
     pinned = record_python_pin(agent_dir)
     if pinned:
         print(f"unimatrix.python pinned: {pinned}", file=out)
-    try:
-        state, where = register_login_agent(dest, agent_dir, schtasks, launchctl)
-        print(f"login agent {state}: {where}" if state != "skipped" else f"WARN: login agent not registered: {where}", file=out)
-    except OSError as exc:
-        print(f"WARN: login agent not registered: {exc}", file=out)
+    if args.autolink:
+        try:
+            state, where = register_login_agent(dest, agent_dir, schtasks, launchctl)
+            print(f"login agent {state}: {where}" if state != "skipped" else f"WARN: login agent not registered: {where}", file=out)
+        except OSError as exc:
+            print(f"WARN: login agent not registered: {exc}", file=out)
     try:
         for label in remove_legacy_login_agents(agent_dir, launchctl):
             print(f"legacy login agent removed: {label}", file=out)

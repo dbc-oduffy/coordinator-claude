@@ -154,28 +154,47 @@ function triageBriefFor(payload) {
 
 Return the schema object: exactly one verdicts[] entry per lesson id in the payload, id copied ` +
     `exactly, verdict one of the schema's enum, target the wiki page or file the verdict acts on ('' ` +
-    `when none), evidence one sentence citing the payload, tests the test names a code-edit verdict ` +
-    `needs ([] otherwise). A lesson you cannot judge from the payload is left out of verdicts, never guessed.
+    `when none), evidence at most 12 words citing the payload, tests the test names a code-edit verdict ` +
+    `needs ([] otherwise). A wiki-append or dedupe target must be copied exactly from that lesson's ` +
+    `homes[], the only pages that exist for it; when no home fits, the verdict is wiki-new with the page to ` +
+    `create as target. A lesson you cannot judge from the payload is left out of verdicts, never guessed.
 
 Payload:
 ${JSON.stringify(payload)}
 `
 }
 
+// Verdicts the check skips: finalize proves their target on disk (a wiki-append target must be one of
+// the lesson's homes[] and index-reachable; a wiki-new page must not pre-exist, and a sibling wiki-new
+// naming the same new page appends to it), so a model check adds cost, not safety.
+const UNCHECKED_VERDICTS = ['wiki-new', 'wiki-append']
+const REFUTE_EXCERPT_CHARS = 300
+
+// Pure: the slim rows the check judges -- the lesson's title, a body excerpt and homes beside its verdict;
+// never the full payload a second time.
+function refuteRowsFor(payload, verdicts) {
+  const rows = payload && Array.isArray(payload.lessons) ? payload.lessons : []
+  const byId = new Map(rows.filter((r) => r && typeof r === 'object').map((r) => [r.id, r]))
+  return verdicts.map((v) => {
+    const l = byId.get(v.id) || {}
+    return {
+      id: v.id, title: l.title || '', excerpt: String(l.body || '').slice(0, REFUTE_EXCERPT_CHARS),
+      homes: l.homes || [], verdict: v.verdict, target: v.target || '', evidence: v.evidence || '',
+    }
+  })
+}
+
 function refuteBriefFor(payload, verdicts) {
   return `You are the single-turn refute step of /learn-lessons, the adversarial check on a triage. ` +
-    `You have no tools: do not read, search or run anything. For each verdict below, try to refute it ` +
-    `from its lesson's text in the payload: a verdict the lesson does not support, a target the lesson ` +
-    `does not name, or a close the evidence does not justify is 'overturned'; otherwise 'upheld'.
+    `You have no tools: do not read, search or run anything. For each row below, try to refute its ` +
+    `verdict from the lesson's title and excerpt: a verdict the lesson does not support, a target that is ` +
+    `neither named by the lesson nor in its homes[], or a close the evidence does not justify is 'overturned'; otherwise 'upheld'.
 
-Return the schema object: exactly one verdicts[] entry {id, verdict, reason} per verdict below, id ` +
-    `copied exactly.
+Return the schema object: exactly one verdicts[] entry {id, verdict, reason} per row, id ` +
+    `copied exactly, reason at most 12 words.
 
-Lessons:
-${JSON.stringify(payload)}
-
-Verdicts to refute:
-${JSON.stringify(verdicts)}
+Rows:
+${JSON.stringify(refuteRowsFor(payload, verdicts))}
 `
 }
 
@@ -239,8 +258,16 @@ for (let i = 0; i < PAYLOADS.length; i++) {
   }
 
   phase('refute')
-  const refuteBrief = refuteBriefFor(payload, triage.value.verdicts)
-  const refuteProjected = estimateTokens(refuteBrief) + REFUTE_OUTPUT_TOKENS_PER_LESSON * triage.value.verdicts.length
+  const checked = triage.value.verdicts.filter((v) => !UNCHECKED_VERDICTS.includes(v && v.verdict))
+  const passed = triage.value.verdicts
+    .filter((v) => UNCHECKED_VERDICTS.includes(v && v.verdict))
+    .map((v) => ({ id: v.id, verdict: 'upheld', reason: `unchecked: ${v.verdict} target is proven by finalize` }))
+  if (checked.length === 0) {
+    synthResults.push({ batch_id: batchId, ids, status: 'refuted', triage: triage.value, refute: { verdicts: passed } })
+    continue
+  }
+  const refuteBrief = refuteBriefFor(payload, checked)
+  const refuteProjected = estimateTokens(refuteBrief) + REFUTE_OUTPUT_TOKENS_PER_LESSON * checked.length
   if (!ledger.admit(refuteProjected, `refute-${i + 1}`)) {
     exhausted = true
     log(`refute-${i + 1}: refused, projected ${refuteProjected} tokens would pass budget ${ledger.budget_tokens} (spent ${ledger.spent})`)
@@ -258,7 +285,8 @@ for (let i = 0; i < PAYLOADS.length; i++) {
     synthResults.push({ batch_id: batchId, ids, status: 'refute-failed', triage: triage.value, refute: null })
     continue
   }
-  synthResults.push({ batch_id: batchId, ids, status: 'refuted', triage: triage.value, refute: refute.value })
+  synthResults.push({ batch_id: batchId, ids, status: 'refuted', triage: triage.value,
+    refute: { verdicts: [...refute.value.verdicts, ...passed] } })
 }
 
 for (const line of ledger.checkpoint_lines) log(line)

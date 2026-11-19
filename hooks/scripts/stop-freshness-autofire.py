@@ -28,6 +28,7 @@ from pathlib import Path
 _HERE = Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
+from _win_portability import no_console_spawn_kwargs  # noqa: E402
 
 STATE_SUBDIR = os.path.join(".coordinator-local", "freshness-autofire")
 STAMP_NAME = "last-check.json"
@@ -125,10 +126,6 @@ def _probe_bin() -> str:
     return path if os.path.isfile(path) else ""
 
 
-def _no_window() -> int:
-    return getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
-
 def _spawn_child(root: str, session_id: str, due_dir: str) -> None:
     kwargs: dict = {
         "stdin": subprocess.DEVNULL,
@@ -137,7 +134,9 @@ def _spawn_child(root: str, session_id: str, due_dir: str) -> None:
         "cwd": root,
     }
     if sys.platform == "win32":
-        kwargs["creationflags"] = _no_window() | getattr(subprocess, "DETACHED_PROCESS", 0)
+        hidden = no_console_spawn_kwargs()
+        hidden["creationflags"] = hidden.get("creationflags", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+        kwargs.update(hidden)
     else:
         kwargs["start_new_session"] = True
     subprocess.Popen(
@@ -187,7 +186,7 @@ def _run_probe(bin_path: str, verb: str, root: str) -> int:
     try:
         done = subprocess.run(
             [bin_path, verb], cwd=root, capture_output=True, timeout=PROBE_TIMEOUT_S,
-            creationflags=_no_window(),
+            **no_console_spawn_kwargs(),
         )
         return done.returncode
     except (OSError, subprocess.SubprocessError):

@@ -169,6 +169,7 @@ _BOOTSTRAPPED_NAMES = (
     "find_import_closure_violations",
     "find_commit_from_import_name_violations",
     "find_commit_module_attr_violations",
+    "commit_blob_reads",
     "CommitReadError",
     "bin_lib_imports",
     "check_plugin_payload",
@@ -263,6 +264,10 @@ def _bootstrap_engine() -> None:
             )
         except ImportError:
             find_commit_module_attr_violations = None
+        try:
+            from percolate.import_closure import commit_blob_reads  # noqa: E402
+        except ImportError:
+            commit_blob_reads = None
         from percolate import bin_lib_imports  # noqa: E402
         from percolate.doc_path_refs import (  # noqa: E402
             check_payload as check_plugin_payload,
@@ -3550,7 +3555,7 @@ def _gate_result_cache(target, gate_module, gate_id, pct_engine, params):
     return cache, pct_engine._transform_identity(params)  # noqa: SLF001
 
 
-def _gate_cache_for(target, gate_module, gate_id):
+def _gate_cache_for(target, gate_module, gate_id) -> "Optional[object]":
     """The destination repo's `GateResultCache` for `gate_module` (keyed on its source
     hash), or None when there is no destination repo."""
     dest_dir = getattr(target, "dest_dir", None)
@@ -3559,7 +3564,10 @@ def _gate_cache_for(target, gate_module, gate_id):
     if git_dir is None or not git_dir.is_dir():
         return None
     from coordinator_core.percolate.gate_result_cache import GateResultCache, gate_version_of
-    return GateResultCache(git_dir / "claude-klabauter-gate-result", gate_id, gate_version_of(gate_module.__file__))
+    # A module that names its fact builders keys on them alone; its other edits keep the cache warm.
+    facts_version = getattr(gate_module, "facts_version", None)
+    version = facts_version() if callable(facts_version) else gate_version_of(gate_module.__file__)
+    return GateResultCache(git_dir / "claude-klabauter-gate-result", gate_id, version)
 
 
 def _import_closure_gate(target, restricted_tmp_src):
@@ -4240,7 +4248,7 @@ def _argv_parity_pairing_origin(repo_root: Path, rel_module: str) -> str:
         result = subprocess.run(
             ["git", "-C", str(repo_root), "status", "--porcelain", "--", rel_module],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=10,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
@@ -5221,11 +5229,19 @@ def coordinator_bin_default(percolate_root: Path) -> Path:
 _PUBLISH_REPRODUCIBLE_TRIPWIRE = "A-PUBLISH-IS-REPRODUCIBLE-ONLY-FROM-PUSHED-SOURCE"
 
 
+def _utf8_child_env() -> "dict[str, str]":
+    """Environment for a spawned python child: UTF-8 stdio so the parent's utf-8 decode matches."""
+    env = dict(os.environ)
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    return env
+
+
 def _ro_git(root: Path, *args: str) -> "subprocess.CompletedProcess":
     """Read-only git (`--no-optional-locks`) in `root`."""
     return subprocess.run(
         ["git", "--no-optional-locks", "-C", str(root), *args],
-        capture_output=True, text=True, errors="replace",
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
 
@@ -6183,6 +6199,7 @@ def check_version_consistency(
         text=True,
         encoding="utf-8",
         errors="replace",
+        env=_utf8_child_env(),
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     if result.stdout:
@@ -6442,6 +6459,24 @@ def _narrow_allowlist_to_shadow(
     return ",".join(kept)
 
 
+def _blob_reads_note(repo: Path, sha: str) -> str:
+    """`, N blob(s) read so far` for the commit's shared listing, empty when the pinned lib cannot count."""
+    reads = commit_blob_reads(repo, sha) if commit_blob_reads is not None else None
+    return "" if reads is None else f", {reads} blob(s) read so far"
+
+
+_COMMIT_GATE_RESULTS: "dict[tuple[str, str, str], tuple[int, list]]" = {}
+
+
+def _once_per_commit(gate: str, target: "ResolvedTarget", sha: str, compute: "Callable[[], tuple[int, list]]") -> "tuple[int, list]":
+    """A commit gate's verdict depends only on (repo, sha), never on the row: every row of a
+    round shares one computation instead of re-reading and re-resolving the whole commit."""
+    key = (gate, str(target.source_dir.parent), sha)
+    if key not in _COMMIT_GATE_RESULTS:
+        _COMMIT_GATE_RESULTS[key] = compute()
+    return _COMMIT_GATE_RESULTS[key]
+
+
 def _commit_import_name_gate(
     target: "ResolvedTarget",
     sha: str,
@@ -6459,13 +6494,23 @@ def _commit_import_name_gate(
             file=out,
         )
         return True
+    lib = sys.modules[find_commit_from_import_name_violations.__module__]
     try:
-        examined, violations = find_commit_from_import_name_violations(target.source_dir.parent, sha)
+        cache = _gate_cache_for(target, lib, "commit-from-import")
+    except Exception:  # noqa: BLE001 - a cache is an optimisation, never a verdict
+        cache = None
+    try:
+        examined, violations = _once_per_commit(
+            "from-import", target, sha,
+            lambda: find_commit_from_import_name_violations(target.source_dir.parent, sha, cache=cache),
+        )
     except CommitReadError as exc:
         print(f"  Error: commit import-name gate could not read {sha}: {exc}", file=err)
         return False
+    if cache is not None:
+        cache.flush()
     print(
-        f"  Commit import-name gate: {len(violations)} violation(s) over {examined} importer file(s) examined @ {sha}.",
+        f"  Commit import-name gate: {len(violations)} violation(s) over {examined} importer file(s) examined @ {sha}{_blob_reads_note(target.source_dir.parent, sha)}.",
         file=out,
     )
     if not violations:
@@ -6505,11 +6550,14 @@ def _commit_module_attr_gate(
     except Exception:  # noqa: BLE001 - a cache is an optimisation, never a verdict
         cache = None
     try:
-        examined, violations = find_commit_module_attr_violations(
-            target.source_dir.parent,
-            sha,
-            cache=cache,
-            progress=_gate_heartbeat(f"{target.name} commit module-attr", out=out),
+        examined, violations = _once_per_commit(
+            "module-attr", target, sha,
+            lambda: find_commit_module_attr_violations(
+                target.source_dir.parent,
+                sha,
+                cache=cache,
+                progress=_gate_heartbeat(f"{target.name} commit module-attr", out=out),
+            ),
         )
     except CommitReadError as exc:
         print(f"  Error: commit module-attr gate could not read {sha}: {exc}", file=err)
@@ -6517,7 +6565,7 @@ def _commit_module_attr_gate(
     if cache is not None:
         cache.flush()
     print(
-        f"  Commit module-attr gate: {len(violations)} violation(s) over {examined} importer file(s) examined @ {sha}.",
+        f"  Commit module-attr gate: {len(violations)} violation(s) over {examined} importer file(s) examined @ {sha}{_blob_reads_note(target.source_dir.parent, sha)}.",
         file=out,
     )
     if not violations:
@@ -8264,9 +8312,40 @@ def _refresh_source_ref(source_root: Path, pinned_shas: "dict[str, str]") -> str
     key = str(Path(top)) if top is not None else ""
     if key in pinned_shas:
         return pinned_shas[key]
-    if key and key == _engine_toplevel_key() and _source_ref_override:
-        return _source_ref_override
-    return "HEAD"
+    return _source_ref_for(key) or "HEAD"
+
+
+def _source_ref_for(key: str) -> str:
+    """The `--source-ref` commit for the git toplevel *key*: the target source repo's own pin, else
+    claude-klabauter's commit for the engine toplevel, else empty (the round pins HEAD)."""
+    if not key:
+        return ""
+    return _SOURCE_REF_PINS.get(key) or (_source_ref_override if key == _engine_toplevel_key() else "")
+
+
+def _resolve_target_source_ref(targets: "Iterable[Any]", ref: str, engine_holds: bool = False) -> "dict[str, str]":
+    """`{git toplevel: full sha}` of *ref* in each target's source repo where it resolves.
+    Raises RuntimeError when it resolves in none of them: `--source-ref` names a commit of the repo
+    holding `source_dir`, never of claude-klabauter unless the target is sourced from claude-klabauter. With no
+    resolvable target toplevel the ref is accepted only when the engine repo holds it."""
+    _bootstrap_engine()
+    pins: "dict[str, str]" = {}
+    tops: "list[str]" = []
+    for target in targets:
+        top = _resolve_show_toplevel(str(target.source_dir))
+        key = str(Path(top)) if top is not None else ""
+        if not key or key in tops:
+            continue
+        tops.append(key)
+        try:
+            pins[key] = _resolve_round_commit(Path(key), ref)
+        except RuntimeError:
+            continue
+    if tops and not pins:
+        raise RuntimeError(f"--source-ref {ref!r} is not a commit in the target source repo ({', '.join(tops)})")
+    if not tops and not engine_holds:
+        raise RuntimeError(f"--source-ref {ref!r} is not a commit in the target source repo (no target has a git toplevel)")
+    return pins
 
 
 def _root_fully_published(
@@ -8546,7 +8625,7 @@ def _git_rev_parse_detailed(path: Path, *args: str) -> _GitRevParseResult:
         result = subprocess.run(
             ["git", "-C", str(path), "rev-parse", *args],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
@@ -8566,7 +8645,7 @@ def _git_capture(path: Path, *args: str) -> Optional[str]:
         result = subprocess.run(
             ["git", "-C", str(path), *args],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
@@ -8657,7 +8736,7 @@ def _tracked_paths_at_sha(toplevel: Path, sha: str) -> "set":
     result = subprocess.run(
         ["git", "-C", str(toplevel), "ls-tree", "-r", "--name-only", sha],
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         check=False,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
@@ -8997,7 +9076,7 @@ def _extract_git_archive(toplevel: Path, sha: str) -> Path:
                 result = subprocess.run(
                     _archive_cmd,
                     capture_output=True,
-                    text=True,
+                    text=True, encoding="utf-8", errors="replace",
                     check=False,
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
@@ -9046,6 +9125,10 @@ _source_ref_override = ""
 #: Set by `_main`: True when `--commit`/`--source-ref` was given (gates the engine export and the
 #: published-engine pin, which the default round keeps).
 _source_ref_explicit = False
+
+#: Set by `_main` under `--source-ref`: git toplevel -> full sha of the ref in each target source
+#: repo it resolves in. `_source_ref_override` stays claude-klabauter's commit (the engine toplevel's pin).
+_SOURCE_REF_PINS: "dict[str, str]" = {}
 
 #: Set by `_main` from `--withheld-paths-json`: path -> pre-checkpoint sha (None: absent there),
 #: applied to the shadow of the pinned source commit; empty outside a withholding round.
@@ -9098,7 +9181,7 @@ def _skip_remote_refresh_for_originless_scratch(repo_root: Path) -> bool:
     try:
         result = subprocess.run(
             ["git", "-C", str(repo_root), "config", "--get-all", "remote.origin.url"],
-            capture_output=True, text=True, check=False, timeout=10,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", check=False, timeout=10,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.TimeoutExpired):
@@ -9279,8 +9362,8 @@ def _round_pin_source_sha(
     if cached is not None:
         return cached
 
-    if _source_ref_override and key == _engine_toplevel_key():
-        pinned = _source_ref_override
+    pinned = _source_ref_for(key)
+    if pinned:
         pinned_shas[key] = pinned
         label = "Round source (pinned late)" if late else "Round source pinned"
         print(f"  {label}: {toplevel} @ {pinned}", file=out)
@@ -9389,6 +9472,17 @@ def _scoped_engine_stamp_sha(root: Path, pinned_sha: str, *, out: IO[str] = sys.
     source = "scoped-match-pin" if scoped == pinned_sha else "scoped-earlier-than-pin"
     print(f"  Engine build stamp: sha={scoped} source={source} (round pin {pinned_sha})", file=out)
     return scoped
+
+
+#: Store-owned shadow toplevel -> (store, key). Read-only after adopt: `_cleanup_shadow_roots` must
+#: never rmtree one, so an entry stays here for the process lifetime.
+_STORE_SHADOWS: "dict[Path, tuple[Any, str]]" = {}
+
+
+def _shadow_store(toplevel: Path) -> "Any":
+    from coordinator_core.percolate.shadow_store import ShadowStore  # noqa: PLC0415
+
+    return ShadowStore(toplevel)
 
 
 def _withheld_digest(withheld: "Mapping[str, Optional[str]]") -> str:
@@ -9514,6 +9608,17 @@ def _git_materialize_ref(root: Path, ref: str = "HEAD", withheld: "Optional[Mapp
     )
     shadow_toplevel = _MATERIALIZED_REF_CACHE.get(cache_key)
     if shadow_toplevel is None:
+        store = _shadow_store(toplevel)
+        store_key = store.key(
+            toplevel, sha, _required_pathspec_for_toplevel(toplevel, sha),
+            _withheld_digest(withheld) if withheld else "",
+        )
+        stored = store.lookup(store_key)
+        if stored is not None:
+            print("  [timing] _git_materialize_ref: store HIT", file=sys.stdout)
+            _STORE_SHADOWS[stored] = (store, store_key)
+            _MATERIALIZED_REF_CACHE[cache_key] = stored
+            return stored / prefix
         # a single post-extraction line carries the same MISS signal as
         # the removed pre-extraction print, without reading as two separate events.
         _materialize_start = time.perf_counter()
@@ -9529,6 +9634,13 @@ def _git_materialize_ref(root: Path, ref: str = "HEAD", withheld: "Optional[Mapp
             f"{time.perf_counter() - _materialize_start:.3f}s",
             file=sys.stdout,
         )
+        from coordinator_core.percolate.shadow_store import ShadowStoreError  # noqa: PLC0415
+
+        try:
+            shadow_toplevel = store.adopt(store_key, shadow_toplevel)
+            _STORE_SHADOWS[shadow_toplevel] = (store, store_key)
+        except ShadowStoreError as exc:
+            print(f"  [timing] _git_materialize_ref: store adopt skipped ({exc})", file=sys.stdout)
         _MATERIALIZED_REF_CACHE[cache_key] = shadow_toplevel
     else:
         print(f"  [timing] _git_materialize_ref: cache HIT for {cache_key!r}", file=sys.stdout)
@@ -9552,12 +9664,19 @@ def _cleanup_shadow_roots(shadow_roots: "tuple[Path, ...]") -> None:
     a directory that no longer exists; evicting instead makes that next
     lookup a cache miss, which re-extracts rather than reading a deleted
     tree.
+
+    A shadow owned by the cross-process `ShadowStore` is evicted from the process dict only and
+    handed to `retain()`; another process may be reading it. Any other shadow is removed.
     """
     for shadow_root in shadow_roots:
-        shutil.rmtree(shadow_root, ignore_errors=True)
+        owned = _STORE_SHADOWS.get(shadow_root)
+        if owned is None:
+            shutil.rmtree(shadow_root, ignore_errors=True)
         for cache_key, cached_path in list(_MATERIALIZED_REF_CACHE.items()):
             if cached_path == shadow_root:
                 del _MATERIALIZED_REF_CACHE[cache_key]
+        if owned is not None:
+            owned[0].retain(owned[1])
 
 
 def _hash_bytes_of(path: Path) -> str:
@@ -10861,7 +10980,7 @@ def _dest_checked_out_ref(repo_root: Path) -> Optional[str]:
         result = subprocess.run(
             ["git", "-C", str(repo_root), "symbolic-ref", "--short", "HEAD"],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
@@ -10887,7 +11006,7 @@ def _resolve_remote_default_branch(repo_root: Path) -> Optional[str]:
         result = subprocess.run(
             ["git", "-C", str(repo_root), "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
@@ -11285,7 +11404,7 @@ def _git_rev_list_count(repo_root: Path, range_spec: str) -> Optional[int]:
         result = subprocess.run(
             ["git", "-C", str(repo_root), "rev-list", "--count", range_spec],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
@@ -11311,7 +11430,7 @@ def _git_merge_base_date(repo_root: Path, ref_a: str, ref_b: str) -> Optional[da
         mb_result = subprocess.run(
             ["git", "-C", str(repo_root), "merge-base", ref_a, ref_b],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
@@ -11326,7 +11445,7 @@ def _git_merge_base_date(repo_root: Path, ref_a: str, ref_b: str) -> Optional[da
         date_result = subprocess.run(
             ["git", "-C", str(repo_root), "log", "-1", "--format=%cI", sha],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
@@ -13197,8 +13316,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "The commit every source ships and stamps; defaults to the source HEAD "
-            "at start. Overrides the published-engine pin when given. Uncommitted "
-            "edits never ship either way."
+            "at start. Names a commit of the target's own source repo (the one holding "
+            "source_dir). The engine stays at its own HEAD unless the engine repo holds "
+            "the ref too, which then also overrides the published-engine pin. Refused "
+            "when no target source repo holds it. Uncommitted edits never ship either way."
         ),
     )
     p.add_argument(
@@ -15368,7 +15489,14 @@ def _run_round(
 _DRY_REFIRE_GATE_EXIT = 4
 
 _WIN_BELOW_NORMAL_PRIORITY_CLASS = 0x4000
-_WIN_PROCESS_MODE_BACKGROUND_BEGIN = 0x100000
+# Trap: SetPriorityClass(PROCESS_MODE_BACKGROUND_BEGIN) also pins a HARD 32 MB working-set max
+# (QUOTA_LIMITS_HARDWS_MAX_ENABLE) on the process; a publish that walks ~10k files then pages
+# in the kernel at ~1/100 speed (Gypsy 2026-11-17: a 70-min gate pass). Never use it; set the
+# I/O and memory priorities directly instead, which lower priority without a cap.
+_WIN_PROCESS_IO_PRIORITY = 33
+_WIN_IO_PRIORITY_VERY_LOW = 0
+_WIN_PROCESS_MEMORY_PRIORITY = 0
+_WIN_MEMORY_PRIORITY_VERY_LOW = 1
 _POSIX_BACKGROUND_NICE = 10
 _IOPRIO_SYSCALL_NR = {"x86_64": 251, "amd64": 251, "aarch64": 30, "arm64": 30}
 
@@ -15392,13 +15520,25 @@ def lower_process_priority_self() -> None:
             import ctypes
 
             kernel32 = ctypes.WinDLL("kernel32")
+            ntdll = ctypes.WinDLL("ntdll")
             kernel32.GetCurrentProcess.restype = ctypes.c_void_p
             kernel32.GetCurrentProcess.argtypes = []
             kernel32.SetPriorityClass.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
             kernel32.SetPriorityClass.restype = ctypes.c_int
+            kernel32.SetProcessInformation.argtypes = [
+                ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+            kernel32.SetProcessInformation.restype = ctypes.c_int
+            ntdll.NtSetInformationProcess.argtypes = [
+                ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+            ntdll.NtSetInformationProcess.restype = ctypes.c_long
             handle = kernel32.GetCurrentProcess()
             kernel32.SetPriorityClass(handle, _WIN_BELOW_NORMAL_PRIORITY_CLASS)
-            kernel32.SetPriorityClass(handle, _WIN_PROCESS_MODE_BACKGROUND_BEGIN)
+            io = ctypes.c_ulong(_WIN_IO_PRIORITY_VERY_LOW)
+            ntdll.NtSetInformationProcess(
+                handle, _WIN_PROCESS_IO_PRIORITY, ctypes.byref(io), ctypes.sizeof(io))
+            mem = ctypes.c_ulong(_WIN_MEMORY_PRIORITY_VERY_LOW)
+            kernel32.SetProcessInformation(
+                handle, _WIN_PROCESS_MEMORY_PRIORITY, ctypes.byref(mem), ctypes.sizeof(mem))
             return
         os.nice(_POSIX_BACKGROUND_NICE)
         if sys.platform == "darwin":
@@ -15568,11 +15708,14 @@ def _main(argv: Optional[List[str]] = None) -> int:
     _explicit = bool(_source_ref_arg)
     try:
         _resolved_commit = _resolve_round_commit(_REPO_ROOT, _source_ref_arg)
-    except RuntimeError as exc:
-        if _explicit:
-            print(f"publish: refused -- {exc}", file=sys.stderr)
-            return 1
-        _resolved_commit = ""
+    except RuntimeError:
+        # A ref claude-klabauter lacks may name a commit of the target's source repo; `_resolve_target_source_ref`
+        # refuses it once the rows are loaded. The engine stays at its own HEAD meanwhile.
+        _explicit = False
+        try:
+            _resolved_commit = _resolve_round_commit(_REPO_ROOT, "")
+        except RuntimeError:
+            _resolved_commit = ""
     if _resolved_commit and not _BOOTSTRAP_DONE and not _commit_clone_module().is_commit_clone(_REPO_ROOT):
         # Trap: a clean live tree still runs here, not from a clone; the `coordinator-publish` door
         # always clones, so only a direct `publish.py` call on a clean tree reaches live code.
@@ -15601,7 +15744,7 @@ def _main(argv: Optional[List[str]] = None) -> int:
         _MID_STAGE_OVERRIDE.update(
             flag="--swap-over-mid-stage-runs", reason=args.swap_over_mid_stage_runs, mid_stage_runs=[]
         )
-    if args.commit and args.source_ref and args.commit != args.source_ref:
+    if isinstance(args.commit, str) and args.source_ref and args.commit != args.source_ref:
         print("publish: --commit and --source-ref differ; give one", file=sys.stderr)
         return 2
 
@@ -15645,8 +15788,9 @@ def _main(argv: Optional[List[str]] = None) -> int:
 
     _inherited_slots_token = os.environ.pop(PUBLISH_SLOT_INHERITED_ENV, "")
 
-    global _source_ref_override, _source_ref_explicit, _PERCOLATE_ROOT_OVERRIDE
+    global _source_ref_override, _source_ref_explicit, _PERCOLATE_ROOT_OVERRIDE, _SOURCE_REF_PINS
     global _WITHHELD_PATHS, _WITHHELD_WALK_BASE, _WITHHELD_TOPLEVEL
+    _SOURCE_REF_PINS = {}
     _WITHHELD_PATHS, _WITHHELD_WALK_BASE, _WITHHELD_TOPLEVEL = {}, None, None
     if args.withheld_paths_json:
         try:
@@ -15782,6 +15926,17 @@ def _main(argv: Optional[List[str]] = None) -> int:
                 f"{', '.join(resolved_names) if resolved_names else '(none)'}.",
                 file=sys.stderr,
             )
+            return 1
+
+    if _source_ref_arg:
+        try:
+            _SOURCE_REF_PINS = _resolve_target_source_ref(
+                [parse_target_row(r) for r in rows if not requested_names or r.split("|", 1)[0] in requested_names],
+                _source_ref_arg,
+                engine_holds=_explicit,
+            )
+        except (RuntimeError, TargetsError) as exc:
+            print(f"publish: refused -- {exc}", file=sys.stderr)
             return 1
 
     # Klabauter parity-group ordering pre-flight (C3): refuse loudly before any
@@ -16124,6 +16279,8 @@ def _main(argv: Optional[List[str]] = None) -> int:
         )
         if _source_ref_override:
             round_pinned_shas.setdefault(_engine_toplevel_key(), _source_ref_override)
+        for _pin_key, _pin_sha in _SOURCE_REF_PINS.items():
+            round_pinned_shas.setdefault(_pin_key, _pin_sha)
     except PublishedEnginePinError as exc:
         print(f"[publish.py] Error: published-engine pin: {exc}", file=sys.stderr)
         return 1

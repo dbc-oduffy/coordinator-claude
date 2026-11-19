@@ -133,9 +133,9 @@ exclusive with `message`. Paths outside the safe pathspec drop silently.
 `coordinator-complete-entry` (title, prose of eight sentences or fewer, nature) — once per session.
 Capture lessons (`lesson` CLI) here.
 
-**Then drain — MANDATORY, and the last act of this step.** Run `sweep-terminal-handoffs` once,
-after every stamp above is written. **The close condition is checkable and you check it: `state/handoffs/` holds no
-record carrying a terminal `deployment_state` when you report.** Idempotent; it drains other sessions'
+**Then drain — MANDATORY, and the last act of this step.** Run `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/sweep-terminal-handoffs"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\sweep-terminal-handoffs.exe"`) once,
+after every stamp above is written. Terminal batons land at `archive/handoffs/YYYY-MM/<file>.md`, month keyed on the filename's leading date, never the stamp date. **The close condition is checkable and you check it: `state/handoffs/` holds no
+record carrying a terminal `deployment_state` when you report.** Live batons sit only at `state/handoffs/YYYY-MM/<file>.md`. Idempotent; it drains other sessions'
 residue too.
 `[[terminal-batons-are-swept-at-close-not-left-to-the-next-ceremony]]`
 

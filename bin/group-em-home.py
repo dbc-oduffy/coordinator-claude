@@ -44,7 +44,11 @@ def _place_engine_on_path() -> str:
         spec.loader.exec_module(engine_root)
         # Trap: the publish stem rewrite renames the engine stem in identifiers AND string literals,
         # but the mirror's seam keeps the unrewritten name; the split literal is rewrite-stable.
-        root = getattr(engine_root, "resolve_" + "mak" + "ima" + "_root")()
+        with_provenance = getattr(engine_root, "resolve_" + "mak" + "ima" + "_root_with_provenance", None)
+        if with_provenance is not None:
+            root = with_provenance()[0]
+        else:
+            root = getattr(engine_root, "resolve_" + "mak" + "ima" + "_root")()
         if not root:
             raise RuntimeError("engine root unresolved")
         return engine_root.place_engine_root_on_path(root)

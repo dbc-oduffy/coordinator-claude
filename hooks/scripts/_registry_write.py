@@ -57,6 +57,8 @@ _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 
+from _win_portability import no_console_spawn_kwargs  # noqa: E402
+
 try:
     from _engine_root import _find_plugin_root, _settings_home
 except Exception:  # pragma: no cover - partial-deploy defence
@@ -118,7 +120,7 @@ def machine_local_set(key: str, value: str) -> None:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             timeout=_SPAWN_TIMEOUT_SECONDS,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **no_console_spawn_kwargs(),
         )
     except Exception:
         return

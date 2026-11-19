@@ -16,6 +16,9 @@ caller classes are covered simultaneously:
 | **cmd.exe-side** | `cmd.exe` / PowerShell `ShellExecute` fallback, PATHEXT-aware lookup | the same `python3.exe` PE as the CreateProcess-side row below — a real `.exe` satisfies a PATHEXT-aware lookup too | see CreateProcess-side row |
 | **CreateProcess-side** | Python `subprocess.run(["python3", …])` (list form) / any Win32 `CreateProcess` caller, including `hooks.json` exec-form registrations | a real `python3.exe` PE (hardlink/copy of the python.org `python.exe`), placed ahead of `%LOCALAPPDATA%\Microsoft\WindowsApps` on PATH | the engine repo's `coordinator_core/ops/ensure_python3_exe_shim.py`, picked up by the `coordinator/bin/install-health-run.py` drop-in orchestrator (Phase 3 Step 1b) |
 
+The plugin's own hook registrations and install fences do not need `python3.exe`: a host with only
+`python.exe` or `py.exe` resolves through the ladder `python3`, `python`, `py -3`.
+
 `python3.cmd` is retired — it is not the cmd.exe-side fix any more. A reader who does not know
 that will restore it to fix the `CreateProcess`/`PATHEXT` problem, which is real; the correct
 answer is a real `python3.exe` PE (hardlink/copy of the python.org `python.exe`) placed beside the

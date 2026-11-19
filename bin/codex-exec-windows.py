@@ -5,7 +5,9 @@ Usage: codex-exec-windows.py --prompt FILE --events FILE [codex exec args ...]
 
 Drops every PATH entry containing WindowsApps (App Execution Alias stubs shadow
 the real binaries), prepends the directory of a non-WindowsApps pwsh when one is
-found, feeds the prompt file on stdin to `codex exec <args>`, writes codex's
+found, shapes the child env as an engine stage worker (seeded CODEX_HOME holding no
+AGENTS.md under `<-C dir or cwd>/scratch/codex-home`; exit 126 if refused), feeds the
+prompt file on stdin to `codex exec <args>`, writes codex's
 stdout to the events file byte-for-byte (codex emits utf8 JSONL), and exits with
 codex's exit code. Exit 127 when no codex resolves on the cleaned PATH.
 """
@@ -20,6 +22,7 @@ import sys
 from pathlib import Path
 
 _NO_CODEX_RC = 127
+_REFUSED_RC = 126
 
 
 def clean_path(path_value: str) -> str:
@@ -31,6 +34,29 @@ def clean_path(path_value: str) -> str:
         pwsh_dir = str(Path(pwsh).parent)
         cleaned = os.pathsep.join([pwsh_dir, *[e for e in kept if e != pwsh_dir]])
     return cleaned
+
+
+def writable_root_of(codex_args: list[str]) -> Path:
+    """Return the launch context's working root: the `-C/--cd` value in `codex_args`, else the cwd."""
+    for i, a in enumerate(codex_args):
+        if a in ("-C", "--cd") and i + 1 < len(codex_args):
+            return Path(codex_args[i + 1])
+        if a.startswith("--cd="):
+            return Path(a[len("--cd="):])
+    return Path.cwd()
+
+
+def _shape_worker_env(env: dict[str, str], writable_root: Path) -> dict[str, str]:
+    """Shape `env` through the engine's worker isolation: CODEX_HOME becomes a seeded home with no AGENTS.md."""
+    lib_dir = str(Path(__file__).resolve().parent / "lib")
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
+    from cc_invoke import place_engine_root_on_path
+
+    place_engine_root_on_path(str(Path(__file__).resolve().parents[2]))
+    from coordinator_core.codex_runner.codex_spawn_env import shape_codex_child
+
+    return shape_codex_child(env, writable_root=writable_root, environ=os.environ)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -61,16 +87,26 @@ def main(argv: list[str] | None = None) -> int:
 
     env = dict(os.environ)
     env["PATH"] = path_value
-    with open(args.prompt, "rb") as stdin_fh, open(args.events, "wb") as events_fh:
-        proc = subprocess.run(
-            [codex, "exec", *codex_args],
-            stdin=stdin_fh,
-            stdout=events_fh,
-            env=env,
-            shell=False,
-            check=False,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
+    try:
+        env = _shape_worker_env(env, writable_root_of(codex_args))
+    except Exception as exc:  # refuse: an unshaped env would load the real home's AGENTS.md
+        print(f"codex-exec-windows.py: worker env refused: {exc}", file=sys.stderr)
+        return _REFUSED_RC
+    from coordinator_core.codex_runner.codex_spawn_env import writeback_codex_auth
+
+    try:
+        with open(args.prompt, "rb") as stdin_fh, open(args.events, "wb") as events_fh:
+            proc = subprocess.run(
+                [codex, "exec", *codex_args],
+                stdin=stdin_fh,
+                stdout=events_fh,
+                env=env,
+                shell=False,
+                check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+    finally:
+        writeback_codex_auth(env)
     return proc.returncode
 
 

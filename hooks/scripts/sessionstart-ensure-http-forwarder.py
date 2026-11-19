@@ -80,7 +80,7 @@ from pathlib import Path
 from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _win_portability import no_console_creationflags  # noqa: E402
+from _win_portability import no_console_spawn_kwargs  # noqa: E402
 
 _FORWARDER_MODULE_PATH = Path(__file__).resolve().parents[1] / "http_hook_forwarder.py"
 
@@ -200,7 +200,7 @@ def _pid_is_a_forwarder(pid: int) -> Optional[bool]:
             timeout=10,
             # SessionStart runs headless; without this the query flashes a console window on
             # every boot that reaches it.
-            **no_console_creationflags(),
+            **no_console_spawn_kwargs(),
         )
     except Exception:
         return None
@@ -356,14 +356,17 @@ def _spawn_forwarder_detached() -> bool:
     )
     try:
         if os.name == "nt":
-            flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+            hidden = no_console_spawn_kwargs()
+            flags = hidden.pop("creationflags") | subprocess.CREATE_NEW_PROCESS_GROUP
             try:
-                subprocess.Popen(argv, creationflags=flags | subprocess.CREATE_BREAKAWAY_FROM_JOB, **kwargs)
+                subprocess.Popen(argv, creationflags=flags | subprocess.CREATE_BREAKAWAY_FROM_JOB, **hidden, **kwargs)
             except OSError:
                 # The current job forbids breakaway; the forwarder may then die with the session.
-                subprocess.Popen(argv, creationflags=flags, **kwargs)
+                hidden = no_console_spawn_kwargs()
+                hidden.pop("creationflags")
+                subprocess.Popen(argv, creationflags=flags, **hidden, **kwargs)
         else:
-            subprocess.Popen(argv, start_new_session=True, **kwargs)
+            subprocess.Popen(argv, start_new_session=True, **no_console_spawn_kwargs(), **kwargs)
         return True
     except Exception:
         return False

@@ -20,7 +20,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Callable, Optional, Sequence
+from typing import Callable, Mapping, Optional, Sequence
 
 _HERE = Path(__file__).resolve().parent
 PINS_PATH = _HERE / "lsp_front_pins.json"
@@ -122,17 +122,39 @@ def _default_runner(argv: Sequence[str]) -> "tuple[int, str]":
     return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
 
 
+def _off_path_dirs(env: Optional[Mapping[str, str]] = None) -> list[Path]:
+    """Directories where `uv tool` / `npm -g` leave binaries that PATH may not include."""
+    env = os.environ if env is None else env
+    dirs = [Path(env[k]) for k in ("UV_TOOL_BIN_DIR", "XDG_BIN_HOME") if env.get(k)]
+    dirs.append(Path.home() / ".local" / "bin")
+    if env.get("APPDATA"):
+        dirs.append(Path(env["APPDATA"]) / "npm")
+    return dirs
+
+
+def locate_off_path(binary: str, dirs: Optional[Sequence[Path]] = None) -> Optional[str]:
+    """First existing `binary` (with Windows executable suffixes) in the tool-install directories."""
+    for d in dirs if dirs is not None else _off_path_dirs():
+        for name in (binary, binary + ".exe", binary + ".cmd"):
+            candidate = d / name
+            if candidate.is_file():
+                return str(candidate)
+    return None
+
+
 def binary_status(
     pins: Optional[dict] = None,
     which: Callable[[str], Optional[str]] = shutil.which,
     runner: Runner = _default_runner,
+    locate: Callable[[str], Optional[str]] = locate_off_path,
 ) -> list[dict]:
-    """Per tool: resolved path, found version, pinned version, ok, and the install command on mismatch."""
+    """Per tool: resolved path, found version, pinned version, ok, `off_path` (installed but not on PATH), and the install command on mismatch."""
     pins = pins if pins is not None else load_pins()
     rows = []
     for tool, pin_key, binary, tail, install in _BINARIES:
         pinned = pins[pin_key]
         resolved = which(binary)
+        off_path = None if resolved else locate(binary)
         found = None
         if resolved:
             code, out = runner([resolved, *tail])
@@ -144,6 +166,7 @@ def binary_status(
             {
                 "tool": tool,
                 "path": resolved,
+                "off_path": off_path,
                 "found": found,
                 "pinned": pinned,
                 "ok": ok,
@@ -191,8 +214,12 @@ def install_backends(
             lines.append(f"installer {argv[0]} missing (needed for {tool})")
             ok = False
             continue
+        if argv[:3] == ["uv", "tool", "install"]:
+            argv.insert(3, "--force")
         code, out = install_runner([resolved, *argv[1:]])
-        if code != 0:
+        if code != 0 and "already exists" in out:
+            lines.append(f"install {tool}: already exists, continuing to verify")
+        elif code != 0:
             tail = out.strip().splitlines()[-1:] or [""]
             lines.append(f"install {tool} failed (exit {code}): {tail[0]}")
             ok = False
@@ -211,12 +238,15 @@ def doctor_backends(
     pins: Optional[dict] = None,
     which: Callable[[str], Optional[str]] = shutil.which,
     runner: Runner = _default_runner,
+    locate: Callable[[str], Optional[str]] = locate_off_path,
 ) -> dict:
     """One line per front backend; `ok` is False when any backend is unresolved (off-pin is reported, not failed)."""
-    rows = [r for r in binary_status(pins, which=which, runner=runner) if r["tool"] in FRONT_BACKENDS]
+    rows = [r for r in binary_status(pins, which=which, runner=runner, locate=locate) if r["tool"] in FRONT_BACKENDS]
     lines = []
     for row in rows:
-        if not row["path"] or row["found"] is None:
+        if not row["path"] and row.get("off_path"):
+            lines.append(f"backend {row['tool']} installed at {row['off_path']}, not on PATH")
+        elif not row["path"] or row["found"] is None:
             lines.append(f"backend {row['tool']} missing")
         elif not row["ok"]:
             lines.append(f"backend {row['tool']} at {row['found']}, pinned {row['pinned']}")
@@ -266,6 +296,8 @@ def _render(report: dict) -> str:
             lines.append(f"  {row['tool']}: ok {row['found']} ({row['path']})")
         else:
             found = row["found"] or ("not on PATH" if not row["path"] else "version unreadable")
+            if not row["path"] and row.get("off_path"):
+                found = f"installed at {row['off_path']}, not on PATH"
             lines.append(f"  {row['tool']}: MISMATCH {found}, pinned {row['pinned']}; install: {row['install']}")
     return "\n".join(lines)
 

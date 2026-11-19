@@ -7,7 +7,7 @@
 # TRAP: the extensionless Python resolver is the source of truth; mirror every rung,
 # subcommand and divergence-rule change here by hand. Keep the `$cmd = $args[0]` line
 # intact -- test_settings_home_ps1_resolves_symlinks.py slices the script at it.
-#   $env:COORDINATOR_SETTINGS_HOME  — explicit override (sandboxes/CI/XDG users)
+#   $env:COORDINATOR_SETTINGS_HOME  -- explicit override (sandboxes/CI/XDG users)
 #   ($env:CLAUDE_HOME or $env:HOME or $env:USERPROFILE or $HOME) + '\.coordinator-claude-settings'
 
 

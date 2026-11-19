@@ -2,18 +2,23 @@
 """agy PreToolUse hook: the Klabauter guard first, then keep a live agy leg for this conversation.
 
 Order: unimatrix-host-guard.py (loaded as a sibling; `--engine-root <path>` selects the engine) answers
-first. A guard answer other than "ask" (a deny) is returned unchanged with no rewrite. An "ask" answer,
-including the guard's own degraded neutral "ask", falls through to the leg bootstrap below; a guard
-reason and the bootstrap rewrite then share one "ask". The one "allow" is a peer reply: a run_command that
-is exactly this interpreter and the installed unimatrix-send.py beside this hook, plain arguments, no shell
-operator or expansion (mirrors the Codex unimatrix.rules send rule); it is never a fallback.
+first. A guard answer other than "ask" (a deny, an allow) is returned unchanged with no rewrite. A
+guard-authored "ask" falls through to the leg bootstrap below; a guard reason and the bootstrap rewrite
+then share one "ask". A peer reply (a run_command that is exactly this interpreter and the installed
+unimatrix-send.py beside this hook, plain arguments, no shell operator or expansion; mirrors the Codex
+unimatrix.rules send rule) answers "allow". A no-verdict answer (guard unrunnable, bad payload, worker
+exception, expired wall) is an allow whose reason keeps "guard did not run": an "ask" has no approver in
+a subagent conversation and reads as a hook failure (DR-402: irreversible denies stay with the backstop).
 
 Hooks do not receive agy's language-server address or token, but run_command children do. When no
 current leg exists, the hook prefixes the command the agent is about to run with a detached start of
 unimatrix-agy-hook-launch.py, which inherits the token. That rewrite answers "ask": the user sees and
-approves the exact command. Every other path also answers "ask": agy fails closed on a non-zero exit,
-invalid JSON, or a reply without `decision`, and "ask" keeps agy's own approval behaviour where
-"allow" would silently widen it.
+approves the exact command. agy fails closed on a non-zero exit, invalid JSON, or a reply without
+`decision`, so every path emits one JSON object with `decision`.
+
+`--event PreInvocation` runs the same script as the PreInvocation hook: it drains the advisories the
+adapter stashed at PreToolUse (agy documents no `injectSteps` on a PreToolUse answer) and injects them as
+`systemMessage` steps; stash format is `coordinator_core/host_hooks/agy_adapter.py :: stash_advisory`.
 
 A headless agy (`-p`/`--print` on the agy ancestor's command line) gets no rewrite and no launcher
 spawn: the guard's answer passes through so agy's own permissions.allow decides.
@@ -44,7 +49,8 @@ HOOK_WALL_SECS = 1.0
 _hard_exit = os._exit
 HERE = Path(__file__).resolve().parent
 LAUNCH = HERE / "unimatrix-agy-hook-launch.py"
-PASS = {"decision": "ask"}
+FAIL_OPEN_REASON = "coordinator: guard did not run, allowing"
+PASS = {"decision": "allow", "reason": FAIL_OPEN_REASON}
 CONV_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
@@ -115,16 +121,25 @@ def _proc_reader():
     return read
 
 
-def agy_ancestor_pid(read=None, start=None, max_depth=MAX_ANCESTOR_DEPTH):
+def _is_agy_name(name) -> bool:
+    """True for the agy CLI exe or its daemon (`agy-*`, `agy_*`, `antigravity*`)."""
+    n = str(name).lower()
+    return n in AGY_EXE_NAMES or n.startswith(("agy-", "agy_", "antigravity"))
+
+
+def agy_ancestor_pid(read=None, start=None, max_depth=MAX_ANCESTOR_DEPTH) -> int | None:
     """Pid of the nearest ancestor of `start` (default: this process) whose exe is agy, else None.
 
     The hook's direct parent is an intermediate launcher that exits with the hook, so getppid() is
     never taken. `read(pid)` returns (parent pid, name) or None; it is the injected process table.
-    No agy ancestor within max_depth, or no table: None, noted on stderr.
+    An ancestor whose exe is the agy CLI (AGY_EXE_NAMES) wins over a nearer daemon; a daemon-named
+    ancestor (agy-*, agy_*, antigravity*) is the fallback when no CLI ancestor exists within max_depth.
+    No agy ancestor within max_depth, or no table: None, silently; stderr stays empty on every path.
     """
     read = read or _proc_reader()
     pid = os.getpid() if start is None else start
     seen = {pid}
+    daemon = None
     for _ in range(max_depth):
         row = read(pid) if read else None
         if not row:
@@ -134,10 +149,11 @@ def agy_ancestor_pid(read=None, start=None, max_depth=MAX_ANCESTOR_DEPTH):
             break
         seen.add(pid)
         parent = read(pid)
-        if parent and str(parent[1]).lower() in AGY_EXE_NAMES:
-            return pid
-    print(f"unimatrix-agy-hook: no agy ancestor within {max_depth} levels; agy_pid not recorded", file=sys.stderr)
-    return None
+        if parent and _is_agy_name(parent[1]):
+            if str(parent[1]).lower() in AGY_EXE_NAMES:
+                return pid
+            daemon = daemon or pid
+    return daemon
 
 
 def _nt_cmdline(pid):
@@ -204,12 +220,53 @@ def process_cmdline(pid):
 PRINT_FLAG_RE = re.compile(r"\s(?:-p|--print)(?:[=\s]|$)")
 
 
-def agy_print_mode(agy_pid, read=None):
-    """True when the agy process runs headless (`-p`/`--print`). Unknown agy pid or unreadable line: False."""
+def child_pids(pid) -> list:
+    """Direct children of `pid` from one process-table read (Windows snapshot, Linux /proc, macOS one `ps`); [] on failure."""
+    if sys.platform == "win32":
+        return [p for p, (ppid, _n) in _nt_process_table().items() if ppid == pid]
+    out = []
+    if sys.platform == "darwin":
+        try:
+            table = subprocess.run(["ps", "-axo", "pid=,ppid="], capture_output=True, text=True, timeout=2,
+                                   stdin=subprocess.DEVNULL).stdout
+        except (OSError, subprocess.SubprocessError):
+            return []
+        for row in table.splitlines():
+            cols = row.split()
+            if len(cols) == 2 and cols[0].isdigit() and cols[1].isdigit() and int(cols[1]) == pid:
+                out.append(int(cols[0]))
+        return out
+    try:
+        for d in Path("/proc").iterdir():
+            if d.name.isdigit():
+                try:
+                    stat = (d / "stat").read_text(encoding="utf-8", errors="replace")
+                    if int(stat[stat.rindex(")") + 2:].split()[1]) == pid:
+                        out.append(int(d.name))
+                except (OSError, ValueError, IndexError):
+                    continue
+    except OSError:
+        pass
+    return out
+
+
+def _is_print_line(line) -> bool:
+    return bool(line and PRINT_FLAG_RE.search(" " + line))
+
+
+def agy_print_mode(agy_pid, read=None) -> bool:
+    """True when the agy process runs headless (`-p`/`--print`). Unknown agy pid or unreadable line: False.
+
+    A hook runs under agy's daemon, whose own argv carries no `-p`: when the pid's line is not a print
+    line, its child processes are read too, and any print-mode child makes the answer True (a wrong True
+    skips one leg bootstrap; a wrong False rewrites a headless run's command and breaks its permissions.allow match).
+    """
     if agy_pid is None:
         return False
-    line = (read or process_cmdline)(agy_pid)
-    return bool(line and PRINT_FLAG_RE.search(" " + line))
+    read = read or process_cmdline
+    if _is_print_line(read(agy_pid)):
+        return True
+    return any(_is_print_line(read(c)) for c in child_pids(agy_pid))
 
 
 def pid_alive(pid):
@@ -314,8 +371,8 @@ def load_sibling(name):
     return mod
 
 
-def run_guard(raw, engine_root):
-    """The host guard's agy answer for the raw payload text; the neutral "ask" when it cannot run."""
+def run_guard(raw, engine_root) -> dict:
+    """The host guard's agy answer for the raw payload text; the fail-open allow when it cannot run."""
     try:
         answer, _state = load_sibling("unimatrix-host-guard").guard("agy", raw, engine_root)
     except Exception:
@@ -427,8 +484,43 @@ def engine_root_arg(argv):
     return None
 
 
-def _answer(argv, result):
-    """Worker body: the decision into `result["out"]`; any failure is the neutral "ask"."""
+def advisory_dir() -> Path:
+    return settings_home() / "unimatrix" / "agy-advisories"
+
+
+def pre_invocation_reply(payload) -> dict:
+    """`injectSteps` carrying each distinct stashed advisory for the payload's conversation, then drained; {} when none."""
+    conv = payload.get("conversationId") if isinstance(payload, dict) else None
+    if not isinstance(conv, str) or not CONV_RE.match(conv):
+        return {}
+    folder = advisory_dir() / conv
+    texts = []
+    try:
+        for path in sorted(folder.glob("*.txt")):
+            try:
+                text = path.read_text(encoding="utf-8").strip()
+                path.unlink()
+            except OSError:
+                continue
+            if text and text not in texts:
+                texts.append(text)
+    except OSError:
+        return {}
+    return {"injectSteps": [{"systemMessage": {"systemMessage": t}} for t in texts]} if texts else {}
+
+
+def _pre_invocation_main() -> int:
+    try:
+        out = pre_invocation_reply(json.loads(sys.stdin.read()))
+    except Exception:
+        out = {}
+    print(json.dumps(out))
+    sys.stdout.flush()
+    return 0
+
+
+def _answer(argv, result) -> None:
+    """Worker body: the decision into `result["out"]`; any failure is the fail-open allow."""
     try:
         raw = sys.stdin.read()
         result["out"] = decide(json.loads(raw), agy_ancestor_pid(), engine_root_arg(argv), raw)
@@ -436,13 +528,14 @@ def _answer(argv, result):
         result["out"] = dict(PASS)
 
 
-def _wall_expired():
-    """The advisory ask for a hook that outran HOOK_WALL_SECS, after one hook_wall degrade row."""
+def _wall_expired() -> dict:
+    """The fail-open allow for a hook that outran HOOK_WALL_SECS, after one hook_wall degrade row."""
     try:
         load_sibling("unimatrix-host-guard")._record_degrade("agy", "hook_wall", HOOK_WALL_SECS, None)
     except Exception:
         pass
-    return {"decision": "ask", "reason": "coordinator: guard did not finish within the hook wall; engine cold or unreachable"}
+    return {"decision": "allow",
+            "reason": "coordinator: guard did not run, allowing (did not finish within the hook wall; engine cold or unreachable)"}
 
 
 def main(argv=None):
@@ -451,6 +544,8 @@ def main(argv=None):
     decide() runs on a daemon thread joined at HOOK_WALL_SECS; a slow or stuck engine answers the
     advisory ask and the process exits hard, so no worker can hold it past agy's hook timeout."""
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:2] == ["--event", "PreInvocation"]:
+        return _pre_invocation_main()
     result = {}
     worker = threading.Thread(target=_answer, args=(argv, result), daemon=True)
     worker.start()

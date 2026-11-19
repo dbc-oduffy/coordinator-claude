@@ -256,8 +256,15 @@ def main(argv: list[str] | None = None) -> int:
     `main(argv)` uniformly across every `coordinator/bin/` entrypoint
     (`coordinator_core.warm.serve_classifier :: _main_arity_ok`)."""
     del argv
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if reconfigure is not None:
+        try:
+            reconfigure(encoding="utf-8")
+        except (OSError, ValueError):
+            pass
     try:
-        payload = json.load(sys.stdin)
+        buffer = getattr(sys.stdin, "buffer", None)
+        payload = json.loads(buffer.read().decode("utf-8")) if buffer is not None else json.load(sys.stdin)
     except (json.JSONDecodeError, ValueError):
         # ValueError also catches UnicodeDecodeError from a genuinely undecodable stdin
         # byte stream (e.g. a non-UTF-8 Windows console) -- same exit-0, emit-nothing path.

@@ -93,6 +93,10 @@ from pathlib import Path
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
+from _win_portability import (  # noqa: E402
+    no_console_spawn_kwargs,
+    noninteractive_git_env,
+)
 try:
     from _engine_root import (  # noqa: E402
         arm_lazy_ops as _arm_lazy_ops,
@@ -129,13 +133,13 @@ def _resolve_this_repo_root() -> str | None:
         return walked
     import subprocess
 
-    no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
-            creationflags=no_window,
+            env=noninteractive_git_env(),
+            **no_console_spawn_kwargs(),
             timeout=10,
         )
     except (OSError, subprocess.TimeoutExpired):

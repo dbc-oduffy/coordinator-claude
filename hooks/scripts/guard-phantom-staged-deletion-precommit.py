@@ -61,6 +61,10 @@ from _phantom_staged_deletion import (  # noqa: E402
     parse_name_status_z,
     render_report,
 )
+from _win_portability import (  # noqa: E402
+    no_console_spawn_kwargs,
+    noninteractive_git_env,
+)
 
 
 
@@ -73,7 +77,8 @@ def _git(*args: str) -> "subprocess.CompletedProcess[bytes]":
             cmd,
             capture_output=True,
             check=False,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            env=noninteractive_git_env(),
+            **no_console_spawn_kwargs(),
             timeout=30,
         )
     except subprocess.TimeoutExpired:
@@ -97,7 +102,8 @@ def _ignored_by_staged_rules(rows, deleted) -> set[str]:
         input="\0".join(deleted).encode("utf-8", "surrogateescape"),
         capture_output=True,
         check=False,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        env=noninteractive_git_env(),
+        **no_console_spawn_kwargs(),
         timeout=30,
     )
     return {p for p in probe.stdout.decode("utf-8", "surrogateescape").split("\0") if p}

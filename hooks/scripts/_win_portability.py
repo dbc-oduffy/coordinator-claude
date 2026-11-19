@@ -45,7 +45,11 @@ from __future__ import annotations
 
 import os
 
-__all__ = ["no_console_creationflags"]
+__all__ = [
+    "no_console_creationflags",
+    "no_console_spawn_kwargs",
+    "noninteractive_git_env",
+]
 
 
 def _is_windows() -> bool:
@@ -74,3 +78,46 @@ def no_console_creationflags() -> dict:
     import subprocess
 
     return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)}
+
+
+def no_console_spawn_kwargs() -> dict:
+    """Kwargs to splat as `**no_console_spawn_kwargs()` into a child launch so
+    it shows no console window, steals no focus, and does not flip the cursor
+    to AppStarting (the busy arrow).
+
+    POSIX: `{}`. Windows: `creationflags` = CREATE_NO_WINDOW plus a
+    `startupinfo` with `STARTF_USESHOWWINDOW | STARTF_FORCEOFFFEEDBACK` and
+    `wShowWindow = SW_HIDE`. `no_console_creationflags()` stays as the
+    creationflags-only primitive; this is the full route.
+
+    Invariant: a NEW `STARTUPINFO` per call -- `Popen` mutates `dwFlags` (adds
+    `STARTF_USESTDHANDLES`), so a shared object leaks state between spawns.
+
+    Trap: CREATE_NO_WINDOW leaves a child with no console, so a call that
+    wires no stdin/stdout/stderr/capture_output loses its output. Wire the
+    streams explicitly, or do not splat this into that call.
+    """
+    if not _is_windows():
+        return {}
+
+    import subprocess
+
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0x1) | 0x80
+    startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+    return {
+        "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
+        "startupinfo": startupinfo,
+    }
+
+
+def noninteractive_git_env(base: dict | None = None) -> dict:
+    """Copy of `base` (default `os.environ`) with `GIT_TERMINAL_PROMPT=0` and
+    `GCM_INTERACTIVE=never`, so a git child fails fast instead of opening a
+    credential prompt window. Applied on every OS; harmless off Windows. Never
+    mutates `base`.
+    """
+    env = dict(os.environ if base is None else base)
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    env["GCM_INTERACTIVE"] = "never"
+    return env

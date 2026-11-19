@@ -92,6 +92,7 @@ names — all three are this plan's Anti-scope, shared with
 from __future__ import annotations
 
 import ast
+import functools
 import re
 import sys
 from collections.abc import Callable
@@ -751,7 +752,7 @@ def _list_commit_py_entries(
     """`([(path, blob_sha)], dirs)`: every `.py` blob under `roots` in `commit`
     and every directory any tracked entry sits in. One `ls-tree` spawn."""
     listing = _git_bytes(repo, ["ls-tree", "-r", "-z", commit, "--", *roots])
-    dirs: set[str] = set()
+    parents: set[str] = set()
     wanted: list[tuple[str, str]] = []
     for entry in listing.split(b"\0"):
         if not entry:
@@ -759,40 +760,111 @@ def _list_commit_py_entries(
         meta, _, raw_path = entry.partition(b"\t")
         mode, kind, sha = meta.decode("ascii").split()
         path = raw_path.decode("utf-8", "surrogateescape")
-        parts = path.split("/")
-        for i in range(1, len(parts)):
-            dirs.add("/".join(parts[:i]))
+        parents.add(path.rpartition("/")[0])
         if kind == "blob" and mode != "120000" and path.endswith(".py"):
             wanted.append((path, sha))
+    dirs: set[str] = set()
+    for parent in parents:
+        while parent and parent not in dirs:
+            dirs.add(parent)
+            parent = parent.rpartition("/")[0]
     return wanted, dirs
 
 
-def _read_commit_py_blobs(repo: Path, commit: str, roots: tuple[str, ...]) -> tuple[dict[str, str], set[str]]:
-    """`(py_sources, dirs)` for `commit`: every `.py` blob under `roots` keyed by
-    repo-relative posix path, and every directory any tracked entry sits in.
-    Two git spawns total (`ls-tree`, one batched `cat-file`); the worktree is
-    never read."""
+_FULL_SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+# Last full-sha listing plus its loaded blobs, so the commit gates of one publish round share them.
+_blob_read_memo: dict[tuple[str, str, tuple[str, ...]], tuple["_CommitBlobs", set[str]]] = {}
+
+
+class _CommitBlobs:
+    """Read-only mapping of a commit's `.py` entries; a blob's text is read only
+    when asked for (`prefetch` batches the asks), so a gate whose parse facts are
+    cached by blob sha reads none. Text is held by blob sha: duplicates read once."""
+
+    def __init__(self, repo: Path, entries: list[tuple[str, str]]):
+        self._repo = repo
+        self._entries = dict(entries)
+        self._text: dict[str, str] = {}
+        self.reads = 0
+        self.key_memo: dict[tuple[int, str, str], str] = {}
+
+    def __contains__(self, path):
+        return path in self._entries
+
+    def __iter__(self):
+        return iter(self._entries)
+
+    def __len__(self):
+        return len(self._entries)
+
+    def __getitem__(self, path):
+        sha = self._entries[path]
+        if sha not in self._text:
+            self.prefetch([path])
+        return self._text[sha]
+
+    def blob_key(self, path: str) -> bytes:
+        """Content identity of `path`'s blob: its git object id."""
+        return b"git-blob:" + self._entries[path].encode("ascii")
+
+    def prefetch(self, paths) -> None:
+        """Read every not-yet-loaded blob of `paths` in `cat-file --batch` chunks."""
+        todo = list(dict.fromkeys(s for s in (self._entries[p] for p in paths) if s not in self._text))
+        # Trap: one cat-file over every blob (~11500 at 2026-11) measured 1.6-1.8s per ~2400 and timed
+        # out at 19s under publish load against run_git's 2s local budget, refusing the engine row.
+        # Chunks keep each spawn inside that budget; the budget is never widened. 400 (0.66s idle) timed out
+        # twice at 100% box CPU on 11-15, refusing the engine row; 100 keeps a 4x margin.
+        for start in range(0, len(todo), _CAT_FILE_CHUNK):
+            chunk = todo[start : start + _CAT_FILE_CHUNK]
+            stream = _git_bytes(self._repo, ["cat-file", "--batch"], "".join(f"{s}\n" for s in chunk).encode("ascii"))
+            pos = 0
+            self.reads += len(chunk)
+            for sha in chunk:
+                eol = stream.index(b"\n", pos)
+                header = stream[pos:eol].split()
+                if len(header) != 3 or header[1] != b"blob":
+                    raise CommitReadError(f"cat-file returned {stream[pos:eol]!r} for {sha}")
+                size = int(header[2])
+                self._text[sha] = stream[eol + 1 : eol + 1 + size].decode("utf-8", "replace")
+                pos = eol + 1 + size + 1
+
+
+def _read_commit_py_blobs(repo: Path, commit: str, roots: tuple[str, ...]) -> tuple["_CommitBlobs", set[str]]:
+    """`(py_sources, dirs)` for `commit`: a mapping of every `.py` blob under
+    `roots` keyed by repo-relative posix path, and every directory any tracked
+    entry sits in. One `ls-tree` spawn; blob text is read lazily and in chunks.
+    The worktree is never read. A full-sha read is remembered (one entry), so a
+    second gate over the same commit lists and reads nothing twice; callers must
+    not mutate the result. A ref name is never memoized: it can move."""
+    if not _FULL_SHA_RE.match(commit):
+        return _read_commit_py_blobs_uncached(repo, commit, roots)
+    key = (str(repo), commit, tuple(roots))
+    hit = _blob_read_memo.get(key)
+    if hit is None:
+        hit = _read_commit_py_blobs_uncached(repo, commit, roots)
+        _blob_read_memo.clear()
+        _blob_read_memo[key] = hit
+    return hit
+
+
+def commit_blob_reads(repo: Path, commit: str) -> int | None:
+    """Blobs read so far from `commit`'s shared listing (0 when every parse fact was cached);
+    None when that full sha was never listed."""
+    for (memo_repo, memo_commit, _roots), (blobs, _dirs) in _blob_read_memo.items():
+        if memo_repo == str(repo) and memo_commit == commit:
+            return blobs.reads
+    return None
+
+
+def _read_commit_py_blobs_uncached(
+    repo: Path, commit: str, roots: tuple[str, ...]
+) -> tuple["_CommitBlobs", set[str]]:
+    """The `ls-tree` listing behind `_read_commit_py_blobs`."""
     wanted, dirs = _list_commit_py_entries(repo, commit, roots)
-    sources: dict[str, str] = {}
-    # Trap: one cat-file over every blob (~2400 at 2026-11) measured 1.6-1.8s alone and timed out
-    # at 19s under publish load against run_git's 2s local budget, refusing the engine row.
-    # Chunks keep each spawn inside that budget; the budget is never widened. 400 (0.66s idle) timed out
-    # twice at 100% box CPU on 11-15, refusing the engine row; 100 keeps a 4x margin.
-    for start in range(0, len(wanted), _CAT_FILE_CHUNK):
-        chunk = wanted[start : start + _CAT_FILE_CHUNK]
-        stream = _git_bytes(repo, ["cat-file", "--batch"], "".join(f"{s}\n" for _, s in chunk).encode("ascii"))
-        pos = 0
-        for path, _sha in chunk:
-            eol = stream.index(b"\n", pos)
-            header = stream[pos:eol].split()
-            if len(header) != 3 or header[1] != b"blob":
-                raise CommitReadError(f"cat-file returned {stream[pos:eol]!r} for {path}")
-            size = int(header[2])
-            sources[path] = stream[eol + 1 : eol + 1 + size].decode("utf-8", "replace")
-            pos = eol + 1 + size + 1
-    return sources, dirs
+    return _CommitBlobs(repo, wanted), dirs
 
 
+@functools.lru_cache(maxsize=None)
 def _is_test_path(path: str) -> bool:
     parts = path.split("/")
     name = parts[-1]
@@ -864,7 +936,7 @@ def _module_defined_names(tree: ast.Module) -> tuple[set[str], bool]:
 
 
 def find_commit_from_import_name_violations(
-    repo: Path, commit: str, roots: tuple[str, ...] = COMMIT_NAME_ROOTS
+    repo: Path, commit: str, roots: tuple[str, ...] = COMMIT_NAME_ROOTS, cache=None
 ) -> tuple[int, list[tuple[str, str]]]:
     """Check every level-0, unguarded `from coordinator_core[.X] import a` in a
     non-test `.py` under `roots` against the blobs of `commit` (never the
@@ -875,9 +947,11 @@ def find_commit_from_import_name_violations(
     `a` resolves when X's top-level namespace defines it or X is a package
     holding submodule `a`. A namespace package (directory without
     `__init__.py`) and a module defining `__getattr__` or star-importing never
-    flag. Raises `CommitReadError` on a failed git read: callers fail closed."""
+    flag. Raises `CommitReadError` on a failed git read: callers fail closed.
+    `cache` (a `GateResultCache`, or None) serves each blob's parse facts by
+    its content hash; resolution still runs against `commit` every time."""
     sources, dirs = _read_commit_py_blobs(repo, commit, roots)
-    return _from_import_violations(sources, dirs, sorted(sources))
+    return _from_import_violations(sources, dirs, sorted(sources), cache)
 
 
 # Textual pre-filter: a blob with no import line naming the package (and no line continuation that
@@ -885,11 +959,29 @@ def find_commit_from_import_name_violations(
 _MAY_IMPORT_PACKAGE = re.compile(r"\b(?:from|import)\b[^\n]*\bcoordinator_core\b")
 _ATTR_NS_DIGEST = "commit-module-attr-namespace"
 _ATTR_IMPORTER_DIGEST = "commit-module-attr-importer"
+# Own digests, not the attr gate's: that namespace also counts `global`-declared names, and
+# sharing it would loosen this gate's verdict.
+_FROM_NS_DIGEST = "commit-from-import-namespace"
+_FROM_IMPORTER_DIGEST = "commit-from-import-importer"
 
 
-def _attr_cached(cache, source: str, digest: str, build):
-    """`build()` served from `cache` keyed on the blob's bytes; a malformed hit is rebuilt."""
-    key = cache.key("", source.encode("utf-8"), digest) if cache is not None else None
+def _facts_key(cache, sources, path: str, digest: str):
+    """`cache`'s key for `path`'s blob: its git object id when `sources` knows it, else its text."""
+    memo = getattr(sources, "key_memo", None)
+    memo_key = (id(cache), digest, path)
+    if memo is not None and memo_key in memo:
+        return memo[memo_key]
+    blob_key = getattr(sources, "blob_key", None)
+    material = blob_key(path) if blob_key is not None else sources[path].encode("utf-8")
+    key = cache.key("", material, digest)
+    if memo is not None:
+        memo[memo_key] = key
+    return key
+
+
+def _attr_cached(cache, sources, path: str, digest: str, build):
+    """`build()` served from `cache` keyed on the blob's identity; a malformed hit is rebuilt."""
+    key = _facts_key(cache, sources, path, digest) if cache is not None else None
     if key is not None:
         hit = cache.get(key)
         if isinstance(hit, dict):
@@ -898,6 +990,22 @@ def _attr_cached(cache, source: str, digest: str, build):
     if key is not None:
         cache.put(key, facts)
     return facts
+
+
+def _prefetch_uncached(cache, sources, importers: list[str], digest: str, include_tests: bool = False) -> None:
+    """Read, in chunks, the blobs of `importers` (non-test unless `include_tests`) whose `digest` facts `cache` lacks."""
+    prefetch = getattr(sources, "prefetch", None)
+    if prefetch is None:
+        return
+    prefetch(
+        [
+            p
+            for p in importers
+            if p in sources
+            and (include_tests or not _is_test_path(p))
+            and not (cache is not None and isinstance(cache.get(_facts_key(cache, sources, p, digest)), dict))
+        ]
+    )
 
 
 def _attr_namespace_facts(source: str, path: str) -> dict:
@@ -997,7 +1105,7 @@ def find_commit_module_attr_violations(
     attrs, aliases rebound by any non-import binding in the importer or bound
     to two different modules in it, and modules defining `__getattr__` or
     star-importing never flag. Raises `CommitReadError` on a failed git read.
-    Reads are one `ls-tree` plus batched `cat-file`. `cache` (a
+    Reads are one `ls-tree` plus batched `cat-file` of the blobs `cache` lacks. `cache` (a
     `GateResultCache`, or None) serves each blob's parse facts by its content
     hash, so an unchanged blob is never re-parsed; resolution runs against
     `commit` every time. The caller keys the cache on this module's source hash
@@ -1020,29 +1128,65 @@ def _module_attr_violations(
     def namespace_of(path: str) -> tuple[set[str], bool]:
         if path not in namespace_cache:
             facts = _attr_cached(
-                cache, sources[path], _ATTR_NS_DIGEST, lambda: _attr_namespace_facts(sources[path], path)
+                cache, sources, path, _ATTR_NS_DIGEST, lambda: _attr_namespace_facts(sources[path], path)
             )
             namespace_cache[path] = (set(facts.get("names", ())), bool(facts.get("opaque", True)))
         return namespace_cache[path]
 
+    module_files: dict[str, tuple[str, bool] | None] = {}
+
     def module_file(dotted: str) -> tuple[str, bool] | None:
+        if dotted in module_files:
+            return module_files[dotted]
         base = dotted.replace(".", "/")
         if f"{base}/__init__.py" in sources:
-            return f"{base}/__init__.py", True
-        if f"{base}.py" in sources:
-            return f"{base}.py", False
-        return None
+            found: tuple[str, bool] | None = (f"{base}/__init__.py", True)
+        elif f"{base}.py" in sources:
+            found = (f"{base}.py", False)
+        else:
+            found = None
+        module_files[dotted] = found
+        return found
 
     violations: set[tuple[str, str]] = set()
     examined = 0
+    _prefetch_uncached(cache, sources, importers, _ATTR_IMPORTER_DIGEST)
+
+    def importer_facts(importer: str) -> dict:
+        return _attr_cached(
+            cache, sources, importer, _ATTR_IMPORTER_DIGEST, lambda: _attr_importer_facts(sources[importer], importer)
+        )
+
+    namespace_paths: list[str] = []
+    for importer in importers:
+        if _is_test_path(importer) or importer not in sources:
+            continue
+        facts = importer_facts(importer)
+        read_aliases = {alias_name for alias_name, _attr in facts.get("reads", ())}
+        for kind, module, *rest in facts.get("imports", ()):
+            if kind == "from":
+                name, asname = rest
+                target = module_file(f"{module}.{name}")
+                if name == "*" or target is None:
+                    continue
+                parent = module_file(module)
+                if parent is not None:
+                    namespace_paths.append(parent[0])
+                if (asname or name) in read_aliases:
+                    namespace_paths.append(target[0])
+            else:
+                target = module_file(module)
+                if target is not None and rest[0] in read_aliases:
+                    namespace_paths.append(target[0])
+    _prefetch_uncached(cache, sources, namespace_paths, _ATTR_NS_DIGEST, include_tests=True)
+    for path in dict.fromkeys(namespace_paths):
+        namespace_of(path)
     for done, importer in enumerate(importers, 1):
         if progress is not None:
             progress(done, len(importers))
-        if _is_test_path(importer) or importer not in sources or "coordinator_core" not in sources[importer]:
+        if _is_test_path(importer) or importer not in sources:
             continue
-        facts = _attr_cached(
-            cache, sources[importer], _ATTR_IMPORTER_DIGEST, lambda: _attr_importer_facts(sources[importer], importer)
-        )
+        facts = importer_facts(importer)
         if facts.get("syntax_error"):
             continue
         aliases: dict[str, str] = {}
@@ -1127,6 +1271,28 @@ def find_would_be_tree_from_import_violations(
     return _from_import_violations(sources, dirs, importers)
 
 
+def _from_namespace_facts(tree: ast.Module | None) -> dict:
+    """`{"names": sorted, "opaque": bool}` of a module blob's top-level namespace."""
+    if tree is None:
+        return {"names": [], "opaque": True}
+    names, opaque = _module_defined_names(tree)
+    return {"names": sorted(names), "opaque": opaque}
+
+
+def _from_importer_facts(tree: ast.Module | None) -> dict:
+    """`{"imports": [[module, [name, ...]], ...]}`, one row per unguarded level-0 package from-import."""
+    if tree is None:
+        return {"syntax_error": True}
+    imports: list[list] = []
+    for node in _unguarded_import_nodes(tree):
+        if not isinstance(node, ast.ImportFrom) or node.level or not node.module:
+            continue
+        if node.module != PACKAGE_NAME and not node.module.startswith(PACKAGE_NAME + "."):
+            continue
+        imports.append([node.module, [a.name for a in node.names]])
+    return {"imports": imports}
+
+
 def find_would_be_tree_violations(
     repo: Path, base_commit: str, overlay: dict, reader, roots: tuple[str, ...] = COMMIT_NAME_ROOTS
 ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
@@ -1154,13 +1320,14 @@ def _would_be_tree(repo: Path, base_commit: str, overlay: dict, reader, roots: t
     return sources, dirs, importers
 
 
-def _from_import_violations(sources, dirs: set[str], importers: list[str]) -> tuple[int, list[tuple[str, str]]]:
+def _from_import_violations(
+    sources, dirs: set[str], importers: list[str], cache=None
+) -> tuple[int, list[tuple[str, str]]]:
     """Shared resolution: `importers` checked against the `sources` mapping
-    (`in` / `[]` by repo-relative path) and `dirs`."""
-    # A module may be both an importer and another importer's target. The
-    # namespace cache alone used to parse that same committed source again.
-    # All readers below are read-only, so share its AST for this one immutable
-    # commit snapshot; do not retain it across calls/commits or read worktree data.
+    (`in` / `[]` by repo-relative path) and `dirs`. Parse facts are keyed on blob
+    bytes, so a hit is valid for any commit; only resolution is per-commit."""
+    # On a cache miss a module that is both importer and target is parsed once for this call;
+    # the AST is read-only and never outlives it.
     parsed_cache: dict[str, ast.Module | None] = {}
     namespace_cache: dict[str, tuple[set[str], bool]] = {}
 
@@ -1174,28 +1341,28 @@ def _from_import_violations(sources, dirs: set[str], importers: list[str]) -> tu
 
     def namespace_of(path: str) -> tuple[set[str], bool]:
         if path not in namespace_cache:
-            tree = parsed(path)
-            namespace_cache[path] = _module_defined_names(tree) if tree is not None else (set(), True)
+            facts = _attr_cached(cache, sources, path, _FROM_NS_DIGEST, lambda: _from_namespace_facts(parsed(path)))
+            namespace_cache[path] = (set(facts.get("names", ())), bool(facts.get("opaque", True)))
         return namespace_cache[path]
 
     violations: list[tuple[str, str]] = []
     examined = 0
+
+    def importer_facts(path: str) -> dict:
+        if not _COMMIT_FROM_IMPORT_RE.search(sources[path]):
+            return {"unmatched": True}
+        return _from_importer_facts(parsed(path))
+
+    _prefetch_uncached(cache, sources, importers, _FROM_IMPORTER_DIGEST)
     for importer in importers:
         if _is_test_path(importer) or importer not in sources:
             continue
-        source = sources[importer]
-        if not _COMMIT_FROM_IMPORT_RE.search(source):
-            continue
-        tree = parsed(importer)
-        if tree is None:
+        facts = _attr_cached(cache, sources, importer, _FROM_IMPORTER_DIGEST, lambda: importer_facts(importer))
+        if facts.get("unmatched") or facts.get("syntax_error"):
             continue
         examined += 1
-        for node in _unguarded_import_nodes(tree):
-            if not isinstance(node, ast.ImportFrom) or node.level or not node.module:
-                continue
-            if node.module != PACKAGE_NAME and not node.module.startswith(PACKAGE_NAME + "."):
-                continue
-            base = node.module.replace(".", "/")
+        for module, names in facts.get("imports", ()):
+            base = module.replace(".", "/")
             init_path, file_path = f"{base}/__init__.py", f"{base}.py"
             if init_path in sources:
                 module_path, is_package = init_path, True
@@ -1204,13 +1371,12 @@ def _from_import_violations(sources, dirs: set[str], importers: list[str]) -> tu
             elif base in dirs:
                 continue
             else:
-                violations.append((importer, node.module))
+                violations.append((importer, module))
                 continue
             defined, opaque = namespace_of(module_path)
             if opaque:
                 continue
-            for alias in node.names:
-                name = alias.name
+            for name in names:
                 if name == "*" or name in defined:
                     continue
                 if is_package and (
@@ -1219,7 +1385,7 @@ def _from_import_violations(sources, dirs: set[str], importers: list[str]) -> tu
                     or f"{base}/{name}" in dirs
                 ):
                     continue
-                violations.append((importer, f"{node.module}.{name}"))
+                violations.append((importer, f"{module}.{name}"))
     return examined, violations
 
 
@@ -1341,3 +1507,27 @@ def find_union_closure_violations(assembled_root: Path) -> tuple[int, list[tuple
                         if not _resolves_in_tree(coordinator_core_root, entry):
                             violations.append((rel, entry))
     return examined, violations
+
+# Every function and constant a cached per-blob fact is built from. Trap: a builder that
+# gains a new helper must list it here, or an edit to that helper serves stale facts.
+_FACT_BUILDERS = (
+    _exception_type_names, _is_bare_reraise, _handler_catches_import_error, _iter_statements,
+    _pytest_raises_aliases, _is_pytest_raises_import_error_guard, _is_type_checking_guard,
+    _unguarded_import_nodes, _extract_from_tree, _first_party_candidates, _init_attribute_names,
+    _file_facts, _bound_target_names, _module_defined_names, _attr_namespace_facts,
+    _attr_importer_facts, _from_namespace_facts, _from_importer_facts,
+)
+
+
+def facts_version() -> str:
+    """Cache identity of the per-blob facts: the builders' source, not the whole module, so an
+    edit to resolution or reporting code keeps every cached parse (a cold pass is minutes)."""
+    import hashlib
+    import inspect
+
+    digest = hashlib.sha256()
+    for fn in _FACT_BUILDERS:
+        digest.update(inspect.getsource(fn).encode("utf-8"))
+    for const in (PACKAGE_NAME, _FACT_FIELDS, _MAY_IMPORT_PACKAGE.pattern, _COMMIT_FROM_IMPORT_RE.pattern):
+        digest.update(repr(const).encode("utf-8"))
+    return digest.hexdigest()

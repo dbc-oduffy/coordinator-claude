@@ -35,6 +35,7 @@ from pathlib import Path
 _HOOKS_DIR = Path(__file__).resolve().parent
 if str(_HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(_HOOKS_DIR))
+from _win_portability import no_console_spawn_kwargs  # noqa: E402
 
 _PREVIEW_BUDGET_CHARS = 1_400
 _REENTRY_SOURCES = frozenset({"resume", "clear", "compact"})
@@ -65,7 +66,7 @@ def _spawn_autolink() -> None:
             stderr=subprocess.DEVNULL,
             close_fds=True,
             start_new_session=sys.platform != "win32",
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **no_console_spawn_kwargs(),
         )
     except Exception:  # noqa: BLE001
         pass

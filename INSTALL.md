@@ -1,3 +1,4 @@
+<!-- GENERATED FILE: do not edit. -->
 
 # Installing coordinator-claude
 

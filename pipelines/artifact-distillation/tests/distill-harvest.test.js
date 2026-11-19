@@ -2633,16 +2633,35 @@ test('coverage gate logs carry the full uncovered nugget ids and unsynthesized t
   const src = extractBlockSource(SOURCE, 'const totalAssignedNuggets =', "`nugget(s) uncovered by any landed op or record — ` +\n    `${remainingGaps.map((g) => `${g.topicKey} [${g.uncoveredNuggets.map((n) => n.id).join(', ')}]`).join('; ')}`)\n}");
   const lines = [];
   const ids = Array.from({ length: 30 }, (_, i) => `n-${i}`);
-  new Function('clusters', 'synthResults', 'findCoverageGaps', 'findFoldedDecisions', 'sameTopic', 'deferredTopics', 'log', `${src}`)(
+  new Function('clusters', 'synthResults', 'findCoverageGaps', 'findFoldedDecisions', 'sameTopic', 'deferredTopics', 'deferredNuggetIds', 'log', `${src}`)(
     [{ topicKey: 't1', nuggets: ids.map((id) => ({ id })) }, { topicKey: 't2', nuggets: [] }, { topicKey: 't3', nuggets: [] }],
     [{ topic_key: 't1' }],
     () => [{ topicKey: 't1', uncoveredNuggets: ids.map((id) => ({ id })) }],
     () => [],
     (a, b) => a === b,
-    [], (l) => lines.push(l));
+    [], [], (l) => lines.push(l));
   const text = lines.join('\n');
   for (const id of ids) assert.ok(text.includes(id), `missing ${id}`);
   assert.match(text, /without a synth entry \(t2, t3\)/);
+});
+
+test('findCoverageGaps: an unsent topic is a gap unless deferred or pointer-covered', () => {
+  const findCoverageGaps = new Function(`const slugifyTopic = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-'); ${extractFunctionSource(SOURCE, 'findCoverageGaps')}; return findCoverageGaps;`)();
+  const clusters = [
+    { topicKey: 'sent', nuggets: [{ id: 'a' }, { id: 'b' }] },
+    { topicKey: 'unsent', nuggets: [{ id: 'c' }, { id: 'd' }] },
+    { topicKey: 'deferred', nuggets: [{ id: 'e' }] },
+    { topicKey: 'pointed', nuggets: [{ id: 'f' }], pointer_covered: ['f'] },
+    { topicKey: 'half', nuggets: [{ id: 'g' }, { id: 'h' }], pointer_covered: ['g'] },
+  ];
+  const results = [{ topic_key: 'sent', wiki_path: 'w.md', dispositions: [{ nugget_id: 'a' }, { nugget_id: 'b' }] }];
+  const gaps = findCoverageGaps(clusters, results, ['deferred']);
+  assert.deepEqual(gaps.map((g) => [g.topicKey, g.uncoveredNuggets.map((n) => n.id)]),
+    [['unsent', ['c', 'd']], ['half', ['h']]]);
+  // Default deferred list: the deferred topic is no longer exempt.
+  assert.ok(findCoverageGaps(clusters, results).some((g) => g.topicKey === 'deferred'));
+  // A deferred judge batch names no cluster: its nugget ids exempt the unsent clusters' nuggets.
+  assert.deepEqual(findCoverageGaps(clusters, results, ['deferred'], ['c', 'd', 'h']), []);
 });
 
 // ---------------------------------------------------------------------------
@@ -4134,6 +4153,38 @@ test('launch shard index 1: a failed synth call halts synth-partial-failure and 
   const { result } = await runWholeScript(shardPrepared(marker), async () => null);
   assert.equal(result.halted, 'synth-partial-failure');
   assert.deepEqual(result.failed_synth_calls, ['synth-1']);
+});
+
+// Shard 0 runs the full scan path; its only cluster is unchanged, so it reaches promote with zero synth results.
+function shard0Prepared(shard) {
+  return {
+    runId: 'run-shard', repoRoot: '/repo', wikiDirs: ['docs/wiki'], wikiSlugs: {}, wikiSlugCount: 0,
+    launchShard: shard,
+    batches: [{ batchId: 'b1', description: 'd', files: ['a/one.md'] }], batch_count: 1, total_file_count: 1,
+    clusters: [{ topicKey: 'alpha', slug: 'alpha', homed: true, wikiPath: 'docs/wiki/alpha.md',
+      nuggets: [{ id: 'b1-001-01', type: 'KNOWLEDGE', source: 'a/one.md', content: 'alpha body' }] }],
+    sourceHashes: { alpha: { sha256: 'hash-alpha', unchanged: true } },
+    candidates: [],
+    curated: { verdicts: [], counts: { total: 0 } },
+    synth: { schema: { type: 'object' }, deferred_topics: [], payloads: [] },
+  };
+}
+
+test('launch shard index 0 of a sharded run stops at promote-ready even with no synth results', async () => {
+  // Finalize's merge refuses a missing shard index, so shard 0 must always return its manifest.
+  const marker = { index: 0, count: 2, run_id: 'run-shard' };
+  const { result, phases, calls } = await runWholeScript(shard0Prepared(marker), async () => null);
+  assert.equal(calls.length, 0);
+  assert.equal(phases[phases.length - 1], 'promote');
+  assert.equal(result.phase_reached, 'promote-ready');
+  assert.deepEqual(result.promote_manifest.shard, marker);
+  assert.equal(result.promote_manifest.synth_results.length, 0);
+});
+
+test('an unsharded run with no synth results continues past promote instead of stopping there', async () => {
+  const { result, phases } = await runWholeScript(shard0Prepared({ index: 0, count: 1, run_id: 'run-shard' }), async () => null);
+  assert.notEqual(result.phase_reached, 'promote-ready');
+  assert.ok(phases.includes('promote'));
 });
 
 test('no launchShard: the unsharded path still demands batches, so a batch-less prepared halts empty-input-batches', async () => {

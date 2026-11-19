@@ -35,6 +35,20 @@ def _no_console_kw() -> dict:
     return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 
+#: Literal duplicate of `coordinator_core.telemetry.op_latency.ROUTE_ENV` / `WARM_SERVER`
+#: (bin/ must not import coordinator_core). The warm server sets it at boot and its pool
+#: workers inherit it.
+_ROUTE_ENV = "COORDINATOR_EXECUTION_ROUTE"
+_WARM_SERVER = "warm_server"
+
+#: A `--help` probe that outlives this is treated as "not this candidate", never awaited.
+_PROBE_TIMEOUT_S = 15
+
+
+def _running_in_warm_engine() -> bool:
+    return os.environ.get(_ROUTE_ENV) == _WARM_SERVER
+
+
 def find_cli_cmd(
     caller_dir: str, cli_name: str, *, sibling_only: bool = False
 ) -> list[str] | None:
@@ -92,7 +106,14 @@ def find_cli_cmd(
     holds none, for any CLI, so a zero hit is the expected answer and carries
     no information about the source. Reading one as if it were that CLI's
     artifact produced exactly one wrong root cause here already.
+
+    INSIDE THE WARM ENGINE THE PATH PROBES ARE SKIPPED. A bareword there is the
+    door, which dispatches back into the same engine that is blocked waiting on
+    this probe: a self-deadlock (coordinator-content-repo-0e, workstream-complete apply with a
+    lesson, 2026-11-17). Running warm, the sibling is already the in-engine copy.
     """
+    if _running_in_warm_engine():
+        sibling_only = True
     if not sibling_only:
         for candidate in (cli_name, cli_name + ".py"):
             try:
@@ -100,9 +121,10 @@ def find_cli_cmd(
                     [candidate, "--help"],
                     capture_output=True,
                     text=True,
+                    timeout=_PROBE_TIMEOUT_S,
                     **_no_console_kw(),
                 )
-            except OSError:
+            except (OSError, subprocess.TimeoutExpired):
                 continue
             if result.returncode == 0:
                 return [candidate]
@@ -120,11 +142,12 @@ def find_cli_cmd(
                 [interpreter, sibling, "--help"],
                 capture_output=True,
                 text=True,
+                timeout=_PROBE_TIMEOUT_S,
                 **_no_console_kw(),
             )
             if result.returncode == 0:
                 return [interpreter, sibling]
-        except OSError:
+        except (OSError, subprocess.TimeoutExpired):
             pass
 
     return None

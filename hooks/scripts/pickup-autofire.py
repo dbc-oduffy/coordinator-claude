@@ -139,6 +139,7 @@ _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 from _session_hub_path import hub_for_common  # noqa: E402
+from _win_portability import no_console_spawn_kwargs  # noqa: E402
 try:
     # Fail-open: a copy/deploy missing its sibling _engine_root.py must still
     # fail open rather than crash on import.
@@ -283,10 +284,6 @@ def first_path_token(path_string: str) -> str | None:
 _BRIEF_TIMEOUT_SECONDS = 12
 _APPLY_TIMEOUT_SECONDS = 20
 
-# Windows console-subprocess discipline: `python.exe` is a CONSOLE-subsystem
-# child. `getattr` resolves to 0 (no-op) on every non-Windows platform.
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
 _PROBE_LOG_NAME = "pickup-autofire-events.jsonl"
 _PROBE_LOG_PATH_ENV = "PICKUP_AUTOFIRE_PROBE_LOG_PATH"
 
@@ -365,7 +362,7 @@ def _run_pickup_assemble(
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
-            creationflags=_NO_WINDOW,
+            **no_console_spawn_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise _TransportFailure(str(exc)) from exc

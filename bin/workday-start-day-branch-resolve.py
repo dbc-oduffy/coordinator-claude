@@ -41,7 +41,7 @@ Subcommands:
         uses — NOT UTC, which would false-fire after ~17:00 in UTC-negative offsets;
         see the bash fragment's own comment on this, preserved below). Resolves the
         active branch via `--branch` if given, else `git branch --show-current`.
-        Parses the branch as a work/{machine}/{date-or-span} span via
+        Parses the branch as an {owner}/{machine}/{date-or-span} span via
         coordinator_core.daily_branch.parse_branch_span; if the branch doesn't parse
         as that shape (named long-lived bus, main, detached), or the parsed span's
         end-date already equals TODAY, this exits 0 with NO stdout (silent pass —
@@ -200,7 +200,10 @@ def _span_assert(branch: str, today: str, parse_branch_span, format_span_suffix,
     start, end = span
     if end == today:
         return None
-    expected = "work/" + compute_machine() + "/" + format_span_suffix(start, today)
+    from coordinator_core.daily_branch import day_branch_name
+    from coordinator_core.machine_resolver import compute_owner
+
+    expected = day_branch_name(compute_owner(), compute_machine(), format_span_suffix(start, today))
     return (
         f"Active branch `{branch}` does not cover today ({today}) — end={end}, "
         f"expected rename to `{expected}`. Step 0 Check 4 did not fire. The "

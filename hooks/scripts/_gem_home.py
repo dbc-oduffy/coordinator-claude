@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 import _engine_root
+from _win_portability import no_console_spawn_kwargs, noninteractive_git_env
 
 KEY = "coordinator.group_em_home"
 # LEGACY_*: read-only fallback. LEGACY_KEY is read, never written; the LEGACY_DIRNAME dir is
@@ -196,7 +197,8 @@ def ensure_home(template: Path | None = None, refresh: bool = False) -> Path:
             ["git", "init", "-q", str(home)],
             check=True,
             capture_output=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            env=noninteractive_git_env(),
+            **no_console_spawn_kwargs(),
         )
     (home / "state").mkdir(exist_ok=True)
     _ensure_ignored(home)

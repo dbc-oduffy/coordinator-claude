@@ -47,6 +47,10 @@ schema = 1
 "repos.general_work"           = ""
 # G-EM group-em home; empty means <settings-home>/group-em. Must lie outside every repo.
 "coordinator.group_em_home" = ""
+# empty means discover the gh user's group-em repo at install; never created.
+"coordinator.group_em_home_remote_url" = ""
+# empty means discover the gh user's .claude repo at install; never created.
+"coordinator.claude_home_remote_url" = ""
 # empty means _general-work beside the registered repos (else under the user home), created on demand; must lie outside every repo and the group-em home.
 "coordinator.general_work_root" = ""
 # empty means git init; a git URL or path makes a root with no .git clone from it (non-interactive, 20 s bound, init on failure).
@@ -222,6 +226,8 @@ concerns = ["project_rag", "unreal"]
 "coordinator.contributor_slug" = "idempotent-regeneratable"
 "coordinator.python"           = "idempotent-regeneratable"
 "coordinator.group_em_home"    = "session-accumulated-must-survive-crash"
+"coordinator.group_em_home_remote_url" = "session-accumulated-must-survive-crash"
+"coordinator.claude_home_remote_url" = "session-accumulated-must-survive-crash"
 "coordinator.general_work_root" = "session-accumulated-must-survive-crash"
 "coordinator.general_work_remote" = "session-accumulated-must-survive-crash"
 # read-only legacy key (fallback for the group_em_home rename)

@@ -169,7 +169,7 @@ def iter_all_mirror_rows(
     """Every row targeting `dest_sigil`, including rows sourced from the meta-repo root.
 
     `PublishRow.source_subpath` is coordinator-relative for sigil-sourced rows (the
-    projector's convention, preserved) and the literal `"."` for a meta-repo-root row —
+    projector's convention, preserved) and the literal `"."` for a meta-repo-root row (`"./<dir>"` for a bare relative source) —
     `row_source_root` is the only place that distinction is interpreted."""
     path = projection_mod.PUBLISH_TARGETS_PATH
     rows: "list[PublishRow]" = []
@@ -190,6 +190,9 @@ def iter_all_mirror_rows(
             source_subpath = source[len(sigil) + 1 :]
         elif source == _REPO_ROOT_SOURCE_SUBDIR:
             source_subpath = _REPO_ROOT_SOURCE_SUBDIR
+        elif source and ":" not in source and not source.startswith(("/", "\\")):
+            # A bare relative source (e.g. `install`) is meta-repo-root-relative, like `.`.
+            source_subpath = f"{_REPO_ROOT_SOURCE_SUBDIR}/{source.strip('/')}"
         else:
             continue
         rows.append(
@@ -209,6 +212,8 @@ def iter_all_mirror_rows(
 def row_source_root(row: PublishRow) -> Path:
     if row.source_subpath == _REPO_ROOT_SOURCE_SUBDIR:
         return REPO_ROOT
+    if row.source_subpath.startswith(_REPO_ROOT_SOURCE_SUBDIR + "/"):
+        return REPO_ROOT / row.source_subpath[len(_REPO_ROOT_SOURCE_SUBDIR) + 1 :]
     if row.source_subpath:
         return REPO_ROOT / "coordinator" / row.source_subpath
     return REPO_ROOT / "coordinator"

@@ -105,7 +105,7 @@ EXCLUDED_DIR_NAMES = {"tests", "test", "__pycache__", "node_modules", "dist"}
 _HISTORICAL_PAGE_DIRS = ("audit-records",)
 # First path segment naming another repo; a cite rooted there is not this repo's.
 _SIBLING_REPO_NAMES = {"coordinator-content-repo", "project-rag", "klabauter"}
-# Bare-rooted cites (`snippets/registry.toml`) into trees the coordinator content repo owns.
+# Bare-rooted cites (`snippets/<file>`) into trees the coordinator content repo owns.
 _FOREIGN_BARE_TREES = {
     "hooks", "cockpit", "skills", "commands", "agents", "snippets", "pipelines", "schemas", "whoami",
     "setup", "cockpit-contract",

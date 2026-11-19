@@ -229,11 +229,19 @@ unless nothing else claims the bare name).
   output style is the one documented mechanism purpose-built to fix exactly that failure mode. Not
   yet built; would need to verify it doesn't fight `keep-coding-instructions: true` semantics and
   survives across `/clear`/new-session boundaries (the doc says it applies only after those).
-- **Subagent rows**: the harness renders them with its default look; the `subagentStatusLine`
-  setting has no effect (the installed 2.1.323 settings schema marks it deprecated) and the
-  vendored statusline docs omit it. Per-worker progress is post-hoc through
-  `agent-completion-log.py` / `track-dispatched-agents.py`, and `/tasks` names each subagent's
-  model and configured effort (`sub-agents.md`).
+- **AgentRow hooks module** (`coordinator/hooks/modules/agent-row.js`, registered under `modules`
+  in `coordinator/hooks/hooks.json`): renders the per-subagent row body on the `ui.render`
+  `AgentRow` event from the row props (`AgentInfo & { rowIds, columns?, body?, isHidden }`: `id`,
+  `name`, `type`, `label`, `description`, `status`, `model`, `effort`, `contextWindowSize`,
+  `tokenCount`, `startTime`), porting the formatting of `coordinator/bin/subagent-statusline.py`
+  (`who · what · model · effort · elapsed · tokens · status`), so fan-out wave progress is
+  live rather than post-hoc through `agent-completion-log.py` / `track-dispatched-agents.py`.
+  The module runs in the harness's module runtime: no shell command, no plugin-root breadcrumb,
+  no POSIX `$(cat ...)` form. The plugin `settings.json` ships no `subagentStatusLine` key. The
+  `ui.render` event is in `mods-reference.md`; the `AgentRow` props live only in the harness's
+  `claude-code.d.ts`, whose header marks the mods surface EARLY ACCESS (may change between
+  releases without notice). The render re-fires on prop change, not on a timer, so the elapsed
+  segment is stale between updates.
 - **Model config** (`model-config.md`): `fallbackModel` / `--fallback-model` (up to 3, tried in
   order on overload) — zero adoption, reliability lever not a doctrine one; a PM infra-preference
   call (accept a cheaper/faster silent substitute on overload), not proposed here.

@@ -15,7 +15,7 @@ import json
 import os
 import shutil
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 DOCTRINE_BEGIN = "<!-- BEGIN coordinator-doctrine (managed by unimatrix-install; edits inside are overwritten) -->"
 DOCTRINE_END = "<!-- END coordinator-doctrine -->"
@@ -121,21 +121,79 @@ def _load_entries(skills_json):
     return data if isinstance(data, dict) else {}
 
 
-def seed_agy_skills(skills_json, skills_root):
-    """Add one {"path": skills_root} entry to agy skills.json; return "created", "added" or "present"."""
+_SYSTEM_TMP_ROOTS = (("tmp",), ("var", "tmp"), ("private", "tmp"), ("var", "folders"), ("private", "var", "folders"))
+
+
+def is_scratch_root(path) -> bool:
+    """True for a system temp root (/tmp, /var/tmp, /private/tmp, /var/folders, %LOCALAPPDATA%/Temp; the session scratchpad lives under one) or the repo-scratch shape `<repo>/scratch/...`. A `scratchpad` dir outside a temp root is not scratch."""
+    parts = [p.lower() for p in PurePosixPath(str(path).replace("\\", "/")).parts]
+    rooted = parts[1:] if parts and parts[0] == "/" else parts
+    if any(rooted[:len(root)] == list(root) for root in _SYSTEM_TMP_ROOTS):
+        return True
+    if any(parts[i:i + 3] == ["appdata", "local", "temp"] for i in range(len(parts))):
+        return True
+    return any(p == "scratch" and 0 < i < len(parts) - 1 for i, p in enumerate(parts))
+
+
+def _norm(path) -> str:
+    return os.path.normcase(os.path.normpath(str(path)))
+
+
+def _under(path, root) -> bool:
+    return path == root or path.startswith(root.rstrip("/\\") + os.sep)
+
+
+def is_other_profile_path(path, home=None) -> bool:
+    """True when path lies under a sibling of the home directory inside the shared profiles root (`Users`, `home`), outside home itself."""
+    h = Path(home) if home is not None else Path.home()
+    if h.parent == h or h.parent.name.lower() not in ("users", "home"):
+        return False
+    p = _norm(path)
+    return _under(p, _norm(h.parent)) and not _under(p, _norm(h))
+
+
+def is_dead_path(path, home=None) -> bool:
+    """True for a host-registry path that is absent or under another user profile."""
+    return not os.path.exists(str(path)) or is_other_profile_path(path, home)
+
+
+def is_coordinator_skills_tree(path, skills_root=None) -> bool:
+    """True for a coordinator skills source: skills_root, or `.../coordinator/skills` and `.../coordinator/<version>/skills` trees."""
+    if skills_root is not None and _norm(path) == _norm(skills_root):
+        return True
+    parts = [p.lower() for p in PurePosixPath(str(path).replace("\\", "/")).parts]
+    return len(parts) >= 2 and parts[-1] == "skills" and (parts[-2] == "coordinator" or (len(parts) >= 3 and parts[-3] == "coordinator"))
+
+
+def prune_dead_entries(entries, home=None) -> list:
+    """Return entries without dict items whose string `path` is absent or under another user profile."""
+    return [e for e in entries
+            if not (isinstance(e, dict) and isinstance(e.get("path"), str) and is_dead_path(e["path"], home))]
+
+
+def seed_agy_skills(skills_json, skills_root) -> str:
+    """Heal agy skills.json: drop scratch/tmp, absent, other-profile and coordinator skills-tree entries; add nothing.
+
+    The coordinator skills reach agy through the generated agy plugin in plugins.json, so skills.json
+    carries no coordinator source (a second one loads every skill twice). Returns "present" (unchanged;
+    a missing file stays missing) or "pruned".
+    """
     path = Path(skills_json)
-    existed = path.exists()
+    if not path.exists():
+        return "present"
     data = _load_entries(path)
     entries = data.get("entries")
     if not isinstance(entries, list):
-        entries = []
-    wanted = str(skills_root)
-    if any(isinstance(e, dict) and e.get("path") == wanted for e in entries):
         return "present"
-    data["entries"] = entries + [{"path": wanted}]
-    path.parent.mkdir(parents=True, exist_ok=True)
+    live = prune_dead_entries(entries)
+    kept = [e for e in live
+            if not (isinstance(e, dict) and isinstance(e.get("path"), str)
+                    and (is_scratch_root(e["path"]) or is_coordinator_skills_tree(e["path"], skills_root)))]
+    if len(kept) == len(entries):
+        return "present"
+    data["entries"] = kept
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    return "added" if existed else "created"
+    return "pruned"
 
 
 def unseed_agy_skills(skills_json, skills_root) -> str:

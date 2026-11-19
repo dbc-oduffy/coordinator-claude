@@ -309,6 +309,15 @@ def settings_home():
     return Path(os.environ.get("COORDINATOR_SETTINGS_HOME") or Path.home() / ".coordinator-claude-settings")
 
 
+def _read_registry_text(path):
+    """Registry text without blocking a concurrent replace; plain read only while no engine is importable."""
+    try:
+        from coordinator_core.shared_read import read_bytes_shared
+    except ImportError:
+        return path.read_text(encoding="utf-8")
+    return read_bytes_shared(path).decode("utf-8")
+
+
 def engine_root():
     """Published engine root: COORDINATOR_ENGINE_ROOT, else registry key repos.claude_klabauter; None on a miss."""
     env = os.environ.get("COORDINATOR_ENGINE_ROOT")
@@ -318,7 +327,7 @@ def engine_root():
     root = None
     for name in ("registry.toml", "registry.local.toml"):
         try:
-            data = tomllib.loads((ml / name).read_text(encoding="utf-8"))
+            data = tomllib.loads(_read_registry_text(ml / name))
         except (OSError, ValueError):
             continue
         repos = data.get("repos")
@@ -502,6 +511,25 @@ def _win_cmdline(argv):
     return " ".join(quote(a) for a in argv)
 
 
+GATED_EVENT = "PreToolUse"
+
+
+def _adapter_only(groups, adapted, plan) -> list:
+    """PreToolUse groups cut to the handlers whose command is a shim launcher; agy fails closed on any other handler's reply, so the rest are reported and dropped."""
+    kept = []
+    for group in groups:
+        handlers = group.get("hooks") if isinstance(group, dict) and isinstance(group.get("hooks"), list) else []
+        live = [h for h in handlers if isinstance(h, dict) and h.get("command") in adapted]
+        for h in handlers:
+            if not (isinstance(h, dict) and h.get("command") in adapted):
+                plan.miss("hook-command", "hooks/hooks.json",
+                          f"{GATED_EVENT}: command ...{str(h.get('command') if isinstance(h, dict) else h)[-60:]!r} "
+                          "dropped; it bypasses the agy adapter and agy fails closed on its reply")
+        if live:
+            kept.append({**group, "hooks": live})
+    return kept
+
+
 def _hooks(plan, plugin_root) -> None:
     src = plugin_root / "hooks" / "hooks.json"
     if not src.is_file():
@@ -514,8 +542,9 @@ def _hooks(plan, plugin_root) -> None:
     drop = set(plan.cfg["hook_drop_fields"])
 
     shim = []
+    adapted = set()
 
-    def clean(o):
+    def clean(o) -> object:
         if isinstance(o, dict):
             out = {k: clean(v) for k, v in o.items() if k not in drop}
             command = out.get("command")
@@ -530,6 +559,7 @@ def _hooks(plan, plugin_root) -> None:
                     out["command"] = neutral
                     out.pop("shell", None)
                     shim.append(True)
+                    adapted.add(neutral)
                 elif BASH_ONLY_RE.search(command):
                     plan.miss("hook-command", "hooks/hooks.json", f"bash-only syntax in command {command[:60]!r}")
             return out
@@ -550,6 +580,11 @@ def _hooks(plan, plugin_root) -> None:
             if event not in plan.cfg["tool_hook_events"]:
                 events[event] = _flatten_groups(groups, event, plan)
                 continue
+            if event == GATED_EVENT:
+                groups = events[event] = _adapter_only(groups, adapted, plan)
+                if not groups:
+                    del events[event]
+                    continue
             for group in groups:
                 if isinstance(group, dict) and isinstance(group.get("matcher"), str):
                     group["matcher"] = _hook_matcher(group["matcher"], event, plan)

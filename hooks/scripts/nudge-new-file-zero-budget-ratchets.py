@@ -107,12 +107,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 
+from _win_portability import (  # noqa: E402
+    no_console_spawn_kwargs,
+    noninteractive_git_env,
+)
 import _message_envelope as _envelope  # noqa: E402
 import _oss_payload  # noqa: E402
 import _prompt_surface_locality as _locality  # noqa: E402
@@ -144,7 +146,8 @@ def _git_ls_files_error_unmatch(repo_root: str, relpath: str) -> bool:
             capture_output=True,
             text=True,
             timeout=5.0,
-            creationflags=_NO_WINDOW,
+            env=noninteractive_git_env(),
+            **no_console_spawn_kwargs(),
         )
     except Exception:
         # Fail open toward "treat as new" -- an unresolvable git call means we cannot

@@ -170,7 +170,10 @@ except Exception:
 
     _envelope = _FallbackEnvelope()
 
-from _win_portability import no_console_creationflags  # noqa: E402
+from _win_portability import (  # noqa: E402
+    no_console_spawn_kwargs,
+    noninteractive_git_env,
+)
 from _session_hub_path import hub_for_common  # noqa: E402
 try:
     from _git_common_dir import resolve_git_common_dir as _resolve_git_common_dir  # noqa: E402
@@ -245,7 +248,7 @@ def _git_root() -> str | None:
     cannot resolve (a bare repo, or a `GIT_DIR`-driven invocation with no `.git` above cwd), not
     the default -- do not reintroduce it as a routine path.
 
-    Suppressed via `no_console_creationflags()` for structural parity with
+    Suppressed via `no_console_spawn_kwargs()` for structural parity with
     the other `_git_root()` copies in this tree (`test_no_bare_python_spawn.py`
     scope), even though git.exe itself does not AllocConsole().
     """
@@ -258,7 +261,8 @@ def _git_root() -> str | None:
             capture_output=True,
             text=True,
             timeout=1,
-            **no_console_creationflags(),
+            env=noninteractive_git_env(),
+            **no_console_spawn_kwargs(),
         )
     except Exception:
         return None
