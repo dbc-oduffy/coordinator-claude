@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """platform-localize.py — INSTALL-TIME (NOT a live SessionStart hook, despite
 some historical comment framing elsewhere) localizer for per-machine Claude
 Code settings. Trampoline over claude-klabauter coordinator_core.hooks.platform_localize.
@@ -57,6 +58,7 @@ out of reach from here and is accepted-broken per the de-bash campaign's
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 _TRANSPORT_FAILURE_EXIT = 3
@@ -117,7 +119,7 @@ def _resolve_coordinator_root() -> str:
     return proc.stdout.strip()
 
 
-def _import_main():
+def _import_main() -> Callable[[list[str]], int]:
     # Rung 0 — COORDINATOR_ENGINE_ROOT env, honored directly.
     # cc_invoke.py migrated to the engine plane with the executable surface
     # (b644d5a9), so on a post-migration content root the cc_invoke import
@@ -136,8 +138,11 @@ def _import_main():
         from cc_invoke import _resolve_engine_root
 
         engine_root = _resolve_engine_root()
-    if engine_root not in sys.path:
-        sys.path.insert(0, engine_root)
+    # Front-insert unconditionally: a membership guard is a no-op under an editable engine
+    # install, which leaves the cwd's tree to win the import.
+    if engine_root in sys.path:
+        sys.path.remove(engine_root)
+    sys.path.insert(0, engine_root)
     from coordinator_core.hooks.platform_localize import main as _op_main
 
     return _op_main

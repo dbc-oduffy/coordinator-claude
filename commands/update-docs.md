@@ -46,7 +46,7 @@ reindex).
 | 5 | Retired, no-op — placeholder keeps numbering stable. |
 | 6 (EM) | `/learn-lessons --mode=local`, run in the EM session. |
 | 7 (EM script) | `update_docs_bookkeeping.py claude-md` — "no architecture change detected" (no Phase 14 line) or one `judgment_needed` row; edit CLAUDE.md only on a real architecture/rule/build-system change. |
-| 8 (EM script) | `update_docs_bookkeeping.py handoffs` — each `archive-predecessor` row carries the guarded `housekeeping.cycle` params; run per `pipelines/update-docs/handoff-archival.md`. |
+| 8 (EM script) | `update_docs_bookkeeping.py handoffs` — each `archive-predecessor` row carries the guarded `housekeeping.cycle` params; run per `pipelines/update-docs/handoff-archival.md`. Loop `housekeeping.cycle` while its result `more` is true. On `-32004` with `error.data.reconcile_command`: run it once, re-call only on `not_received`, never blind (`A-CLEAN-RECONCILE-AFTER-AN-INDETERMINATE-IS-NOT-EVIDENCE`). |
 | 8b (EM script, then judgment agent) | `update_docs_bookkeeping.py prune` — PRUNE/KEEP inventory per `pipelines/update-docs/artifact-pruning.md`. `git rm` is EM-scope. The judgment agent takes only its `judgment_needed` rows and returns PRUNE or KEEP with a reason each; no rows, no dispatch. |
 | 9 (EM) | Resolve the whole 8b inventory first: stage every PRUNE `git rm` into the commit, record each KEEP's reason. `coordinator-safe-commit --pathspec-from-file <paths this run wrote or git rm'd> "docs maintenance"` — never `--blanket`: the tree is shared, and a peer's unverified edits would ride along and be pushed; then `coordinator-invoke push.outstanding '{}'` — decides HEAD-ahead-of-upstream and pushes only when it is; warn PM on push failure. The judgment agent MUST NOT run this. |
 | 9b (EM CLI) | `update-docs-probes repomap-gate` — resolves RAG tiering itself, prints the Phase 14 note. |
@@ -107,6 +107,7 @@ Append a line only if its condition holds:
 | `**Distillation:**` | threshold fired and `/distill` was chained — omit when "not needed" |
 | `**Cross-Repo Registry:**` | unreachable candidate(s), or skipped (cwd-gated out) — omit when clean |
 | `**Bookkeeping cost:**` | always, when 2c ran or read `no-producer`: the dispatched agent's `total_tokens` from the Agent tool's usage result (measured, never self-reported; `0 agents` when none) plus the op's `preview_chars_total` |
+| `**Repomap gate:**` | Step 9b's `update-docs-probes repomap-gate` hit its 10 s caller timeout — say the repomap was not refreshed; omit when it answered |
 | `**claudemeta Manifest:**` | regenerated on drift — omit when `--check` was clean or the generator is absent |
 
 Every other phase's count/file-list is never its own line — the commit already carries it, and

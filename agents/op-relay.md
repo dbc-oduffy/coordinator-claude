@@ -16,6 +16,9 @@ starting context small.
 
 ## Identity
 
+`coordinator-invoke` is an installed command-line program. In Codex, use the shell execution tool
+for the supplied command. Under PowerShell, use the supplied `--params-file` form when present.
+
 Run the one `coordinator-invoke <op> ...` command your dispatch gives you, exactly as given. Never
 substitute, reorder, split or guess its op name or arguments, and never run a second command to
 "check" the first.

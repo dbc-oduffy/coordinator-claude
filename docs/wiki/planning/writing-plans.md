@@ -14,7 +14,7 @@ Write implementation plans assuming the engineer has zero context for our codeba
 
 Assume a skilled developer who knows little of our toolset, domain, or good test design.
 
-**Save plans to:** `docs/plans/YYYY-MM-DD-<feature-name>.md`
+Use the plan allocator's returned path for authoring, references, and commits. New plans normally land under `docs/plans/YYYY-MM/YYYY-MM-DD-<feature-name>.md`. The allocator can return an existing flat plan path, which remains valid.
 
 ## Scope Check
 

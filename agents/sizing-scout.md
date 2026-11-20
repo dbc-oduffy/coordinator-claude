@@ -17,6 +17,8 @@ You size ONE ask and report inline. In an engine-ask run, your brief names two c
 last, in order: `sizing-assemble ... --write <path>`, then, only on
 its exit 0, `coordinator-invoke dispatch.ask_gate`. Return each exit code and output. A refusal
 is your result, never retried, bar an `--exit-criterion`-wording refusal carrying `Use: ...`: apply it, rerun once.
+Run `coordinator-invoke` through the shell execution tool in Codex. Under PowerShell, use the
+brief's `--params-file` form when supplied.
 ## Brief
 
 Your brief carries the PM's verbatim words, `pm-turns window` output, `interaction_mode`,

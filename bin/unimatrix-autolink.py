@@ -225,7 +225,7 @@ def pull_membership(roster, remote, key, run=subprocess.run):
 
     A refused snapshot is logged and notified by the library's adopt, then the error propagates."""
     mem = _membership()
-    cmd = ["ssh", "-i", key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "AddressFamily=inet",
+    cmd = ["ssh", "-n", "-i", key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "AddressFamily=inet",
            "-o", f"ConnectTimeout={PROBE_CONNECT_SECONDS}", remote, "membership", "get"]
     r = run(cmd, capture_output=True, timeout=PROBE_TIMEOUT_SECONDS, creationflags=roster.no_window())
     lines = (r.stdout or b"").decode("utf-8", "replace").splitlines()
@@ -324,7 +324,7 @@ def probe(roster, alias, key, run=subprocess.run, remote=None):
 
     `remote` overrides the dialled name (a stable-name fallback for a stale `alias`)."""
     remote = remote or roster.pick_remote(alias, roster.default_tunnel())
-    cmd = ["ssh", "-i", key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "AddressFamily=inet",
+    cmd = ["ssh", "-n", "-i", key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "AddressFamily=inet",
            "-o", f"ConnectTimeout={PROBE_CONNECT_SECONDS}", remote, "roster"]
     try:
         r = run(cmd, capture_output=True, timeout=PROBE_TIMEOUT_SECONDS, creationflags=roster.no_window())
@@ -582,7 +582,7 @@ def ipaddress_literal(name):
 
 def relay_boxes(roster, remote, key, run=subprocess.run):
     """Lower-cased `box` names the far relay's `roster` answer reports for itself, or None when it did not answer."""
-    cmd = ["ssh", "-i", key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "AddressFamily=inet",
+    cmd = ["ssh", "-n", "-i", key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "AddressFamily=inet",
            "-o", f"ConnectTimeout={PROBE_CONNECT_SECONDS}", remote, "roster"]
     try:
         r = run(cmd, capture_output=True, timeout=PROBE_TIMEOUT_SECONDS, creationflags=roster.no_window())
@@ -1100,11 +1100,14 @@ def ssh_hostname(roster, alias, run=subprocess.run):
     return None
 
 
-def member_alias(roster, box, host, aliases, hosts=None, run=subprocess.run):
+def member_alias(roster, box, host, aliases, hosts=None, run=subprocess.run, entries=None) -> str:
     """The ssh alias this box's links use for member `box` at `host`, else `box`.
 
     An alias in `aliases` qualifies when its own name or its `ssh -G` HostName equals `host` (case-insensitive,
-    `.local` ignored). `hosts` caches alias -> normalised HostName across calls."""
+    `.local` ignored); else when a known_hosts host key recorded for the alias or its HostName equals one
+    recorded for `host`. Trap: the second rule is what keeps an alias whose HostName is pinned to an IP
+    matching; without it the link silently falls back to the default key. `hosts` caches alias ->
+    normalised HostName across calls."""
     if not host:
         return box
     hosts = {} if hosts is None else hosts
@@ -1114,6 +1117,12 @@ def member_alias(roster, box, host, aliases, hosts=None, run=subprocess.run):
             hosts[alias] = _host_key(ssh_hostname(roster, alias, run=run) or "")
         if _host_key(alias) == want or hosts[alias] == want:
             return alias
+    entries = _known_hosts_entries() if entries is None else entries
+    recorded = known_host_keys([host], entries)
+    if recorded:
+        for alias in aliases:
+            if recorded & known_host_keys([alias, hosts[alias]], entries):
+                return alias
     return box
 
 

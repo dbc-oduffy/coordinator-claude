@@ -185,7 +185,7 @@ on)?". The answer is stored as the machine-local key `coordinator.forwarder_rout
 The default is `exe` only when the registry reads SAC off; enforcing, evaluation or unreadable
 default to `py`. A blocked launch surfaces as `WinError 4551` ("An Application Control policy has
 blocked this file"), or from Git Bash as a bare `Permission denied` that is not a chmod problem.
-The engine's `scripts/setup.py --check` launches one forwarder and reports a blocked launch as
+The engine's `python3 scripts/setup.py --check` launches one forwarder and reports a blocked launch as
 `FAIL [forwarder-launch]` naming SAC; an install step that hits the block reports BLOCKED:
 "re-run the install and choose forwarder_route=py (works with Smart App Control on), or turn
 Smart App Control off for the .exe route, then retry". `--check` fails only on the execution
@@ -422,6 +422,23 @@ falls through to any sibling engine checkout it can find.
 
 **Do not run the engine's installer here.** Cloning and registering is all this step does.
 
+### 1e on an existing machine: keep the engine channel
+
+The `engine.target main` above is the cold-box default. On a machine that already has a
+registered engine, `engine.target` is shared fleet routing: do not force it to `main`. Read
+`machine-local get engine.target` and `git -C <klabauter-clone> branch --show-current`, report
+both, and keep the existing channel.
+
+### 1e inside the Windows Codex sandbox: sandbox artifacts
+
+Two failures here are sandbox artifacts, not machine faults:
+
+- `git` reports `dubious ownership` on the sibling engine checkout.
+- `gh auth status` reports `token invalid` beside a socket access denial.
+
+Retry the same read-only command outside the sandbox (approved, as the Windows owner) first.
+Change `git safe.directory` or reauthenticate only if it still fails there.
+
 ## Step 2 — No Claude restart gate
 
 The restart gate and the pasted `/coordinator:install` are Claude Code's; this host has neither.
@@ -514,6 +531,23 @@ chain-complete banner. It installs nothing; run earlier it fails loud with "engi
 satisfied." It is a Claude Code slash command: run it from a Claude Code session after the
 engine install. Until then, the engine installer's `PASS`/`FAIL` output is the only engine verdict.
 
+### Step 4 on Windows with Codex: force UTF-8
+
+On Windows, run the engine setup and every chain-walker command with `PYTHONUTF8=1` and
+`PYTHONIOENCODING=utf-8` set for the whole process tree (PowerShell: `$env:PYTHONUTF8 = "1"`;
+`$env:PYTHONIOENCODING = "utf-8"` before the command). This is a documented workaround until
+the engine fix lands.
+
+### Step 4 on Codex: what an engine refresh changes in the shared profile
+
+Expect an engine refresh to touch shared profile state, not only the engine checkout:
+
+- Git performance defaults in the user's git configuration.
+- A merge driver registered for coordinator-managed files.
+- The `C:/dev/dot-claude.lnk` shortcut on Windows.
+
+List these in the install report as expected effects, not faults.
+
 
 ## Step 5 — Configure the host
 
@@ -540,6 +574,9 @@ is the checkout or installed plugin directory that holds `bin/unimatrix-install.
 python3 <plugin-root>/bin/unimatrix-install.py --install --hosts codex --plugin-root <plugin-root>   # Windows: python
 python3 <plugin-root>/bin/unimatrix-install.py --uninstall   # removes every managed entry
 ```
+
+This script is the legacy hook, trust and footer seeding. It is not supported Codex
+enrollment (§ Codex EMs and workers), which needs the published engine verified first.
 
 ### What lands
 
@@ -673,6 +710,12 @@ entry is pre-seeded for them, and the live `project_file` check in item 3 needs 
 gate (project-rag): pre-seed per-host entries for registered checkouts where the host CLI is
 absent, with the Codex and agy locations confirmed.
 
+### Step 6 does not apply to a publish-mirror checkout
+
+A publish-mirror checkout such as `coordinator-claude` is not enrolled in project-rag. When the
+registration command prints `Skipping source registration`, that is the verdict, even if
+`registry entry written` follows it. Do not treat the later line as a registration.
+
 ## Verifying your install
 
 Don't infer coordinator is live from the absence of errors:
@@ -685,6 +728,13 @@ Don't infer coordinator is live from the absence of errors:
    native execution. Verify actual hook discovery from inside the host session.
 3. **Do not count a configured host as governed** until its own hooks are shown to fire.
    For Grok, whether `hooks/hooks.json` executes at all is unverified.
+
+### Codex launch modes
+
+Interactive `codex` sessions and ephemeral `codex exec` sessions are two launch modes; verify
+each separately. An interactive session gets the `SessionStart` and `PreToolUse` hooks, peer
+registration and the footer. `codex exec` injects no coordinator role or peer address, so its
+silence is not an install fault.
 
 ### Codex fresh session
 

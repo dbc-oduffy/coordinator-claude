@@ -1303,7 +1303,10 @@ def sync_mirror(
     if dst_dir.is_dir():
         non_dot_dst = [
             p for p in sorted(dst_dir.iterdir())
-            if p.is_dir() and not p.name.startswith(".") and not _is_structural_build_artifact(p.name)
+            if p.is_dir()
+            and not p.name.startswith(".")
+            and p.name.casefold() not in {"scratch", "state"}
+            and not _is_structural_build_artifact(p.name)
         ]
         orphans = [
             p for p in non_dot_dst

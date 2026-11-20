@@ -58,7 +58,7 @@ _Condition: a planning trigger has arrived; decide whether a plan doc is the rig
 
 ## Exit — Route-Selected Terminal
 
-_Condition: body drafted and saved to `docs/plans/YYYY-MM-DD-<slug>.md`. The inbound sizing route selects which terminal fires. `shape`/`roadmap`/`pm-decision` never reach here — Branch A diverted them before Branch B._
+_Condition: body drafted and saved to the path returned by the plan scaffold. The inbound sizing route selects which terminal fires. `shape`/`roadmap`/`pm-decision` never reach here — Branch A diverted them before Branch B._
 
 `DELIVERY-MEANS-IT-RAN-END-TO-END` (`wiki/planning/wiring-table.md`): a plan with a runtime seam declares `wiring:` (wired, not_built, blocked, off_route; `built_path`, `runs_evidence`, `consumes`, `produces`).
 
@@ -67,13 +67,13 @@ _Condition: body drafted and saved to `docs/plans/YYYY-MM-DD-<slug>.md`. The inb
 **Invocation point 1 — scaffold.** The generator is the single emission point for frontmatter — never hand-author field lists against `schemas/plan.schema.json`; hand-authored frontmatter is conformed through the same invocation.
 Invoke the `.exe` launcher by absolute path via the PowerShell call operator (Shape W; ladder: `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.exe" --type plan --title "<title>" --sizing-object state/sizings/<the-object-that-routed-you-here>.yaml --out docs/plans/YYYY-MM-DD-<slug>.md`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.exe" --type plan --title "<title>" --sizing-object "<path-to-the-routing-sizing>"`
 
 **Pass `--sizing-object`.** `coordinator-doc-new --type plan` hard-refuses without an explicit `--sizing-object`/`--no-sizing-object`, exit 1, nothing written; the flag also writes the reverse edge onto the cited sizing.
-`Read` the scaffolded file before authoring the body. Never declare gitignored `state/perf/` readings as a row's writes (`GITIGNORED-PERF-READINGS-ARE-EVIDENCE-NEVER-A-SHIPPED-WRITE`).
+`Read` the path returned by the scaffold before authoring the body. Never declare gitignored `state/perf/` readings as a row's writes (`GITIGNORED-PERF-READINGS-ARE-EVIDENCE-NEVER-A-SHIPPED-WRITE`).
 
 **Invocation point 2 — commit.** Commit the moment the body is saved, *then* proceed to review, per
-`snippets/scoped-commit-route.md` — pathspec exactly `docs/plans/<slug>.md`, subject
+`snippets/scoped-commit-route.md` — pathspec exactly the returned plan path, subject
 `plan(<slug>): draft`; never a sweep commit.
 
 ---

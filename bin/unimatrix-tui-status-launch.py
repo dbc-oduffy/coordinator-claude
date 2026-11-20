@@ -13,8 +13,12 @@ TUI_STATUS_MODULE = "coordinator_core.tui_status"
 
 def main(argv=None) -> int:
     args = sys.argv[1:] if argv is None else list(argv)
+    usage = "usage: unimatrix-tui-status-launch.py <engine-root> <host>"
+    if args[:1] in (["--help"], ["-h"]):
+        print(usage)
+        return 0
     if len(args) < 2:
-        print("usage: unimatrix-tui-status-launch.py <engine-root> <host>", file=sys.stderr)
+        print(usage, file=sys.stderr)
         return 2
     sys.path.insert(0, args[0])
     sys.argv = [sys.argv[0], *args[1:]]

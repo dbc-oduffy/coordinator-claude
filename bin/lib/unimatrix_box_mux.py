@@ -120,8 +120,8 @@ def ssh_argv(box, key, host, extra=()):
     """The ssh argv up to (not including) the remote command: key, batch mode, HostKeyAlias=<box>, keepalive.
 
     `extra` leads the options: ssh keeps the first value of a repeated -o, so a caller's keepalive overrides the default."""
-    return ["ssh", *extra, "-i", key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", f"HostKeyAlias={box}",
-            "-o", "StrictHostKeyChecking=accept-new", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
+    return ["ssh", *extra, "-i", key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "AddressFamily=inet",
+            "-o", f"HostKeyAlias={box}", "-o", "StrictHostKeyChecking=accept-new", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
             host]
 
 

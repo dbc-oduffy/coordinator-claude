@@ -53,6 +53,9 @@ or a useful short candidate list; name omitted scope and failed sources.
 
 ## When a delivery check is requested
 
+Address replies and probes by the peer name shown in `ListAgents` or `unimatrix-send.py --list`.
+An inbound `from=` socket path can go stale, so resolve replies through the current roster.
+
 Use the exact discovered recipient and existing supported send tool. Send one short probe carrying
 a fresh nonce and ask the peer to reply with that nonce plus its identity, repository, role and
 current task. For example: `Discovery probe <nonce>; please reply Discovery response <nonce>

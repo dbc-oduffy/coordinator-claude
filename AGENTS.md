@@ -25,7 +25,7 @@ The playbook for your agent type tells you:
 - How to validate the result
 - What to tell the user before they restart
 - The command to run after the restart, if your agent type has one (Claude Code: `/coordinator:install` in a fresh session)
-- The engine step — installing the required engine, `claude-klabauter`, from its own public repo, **after** the restart and setup, never before
+- The engine step — installing the required engine, `claude-klabauter`, from its own public repo, at the point your agent's playbook places it (step ordering is per host; follow `install/<agent>.md`, never another host's order)
 
 ## Why this file exists
 
@@ -46,9 +46,10 @@ coordinator-claude has one hard dependency: the engine, published as `claude-kla
 `python3 <klabauter-clone>/scripts/setup.py --i-am-agent` (the non-interactive agent path), then verify with
 `python3 <klabauter-clone>/scripts/setup.py --check`. `pip install .` is NOT the engine install — do not use it.
 
-Do this **only after** the restart and `/coordinator:setup` complete Step 3 of the playbook; run
-it earlier and the engine's dependency check exits 127 (`resolver not installed`) because
-coordinator-claude's `machine-local` forwarder has no resolver yet.
+Step ordering belongs to each host's playbook, `install/<agent>.md`; follow your host's order and do
+not apply another host's. Claude Code's own case: run the engine only after the restart and
+`/coordinator:setup` complete Step 3 of its playbook; earlier, the engine's dependency check exits 127
+(`resolver not installed`) because coordinator-claude's `machine-local` forwarder has no resolver yet.
 
 Windows: `python <klabauter-clone>\scripts\setup.py` with the same flags, and disable the Python App Execution Alias
 stubs first (Settings › Apps › App execution aliases › turn off `python`/`python3`) — left on,

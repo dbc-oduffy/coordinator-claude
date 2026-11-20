@@ -60,7 +60,7 @@ def verify_argv(box, target, key=None):
     argv = ["ssh"]
     if key:
         argv += ["-i", key, "-o", "IdentitiesOnly=yes"]
-    argv += ["-o", "BatchMode=yes", "-o", f"HostKeyAlias={box}", "-o", "StrictHostKeyChecking=yes",
+    argv += ["-o", "BatchMode=yes", "-o", "AddressFamily=inet", "-o", f"HostKeyAlias={box}", "-o", "StrictHostKeyChecking=yes",
              "-o", "ConnectTimeout=3", target, "roster"]
     return argv
 

@@ -171,7 +171,7 @@ REMEDY_ONE = "remedy: another source reaches it; check this box's network link a
 
 def source_reaches(run, src, host, no_window=0):
     """True when `src` (another box we can ssh to) gets an ssh banner from `host` port 22."""
-    cmd = ["ssh", "-o", "BatchMode=yes", "-o", "AddressFamily=inet", "-o", "ConnectTimeout=5", src, "ssh-keyscan", "-T", "5", "-p", "22", host]
+    cmd = ["ssh", "-n", "-o", "BatchMode=yes", "-o", "AddressFamily=inet", "-o", "ConnectTimeout=5", src, "ssh-keyscan", "-T", "5", "-p", "22", host]
     try:
         r = run(cmd, capture_output=True, timeout=15, creationflags=no_window)
     except (OSError, subprocess.SubprocessError):
@@ -191,7 +191,7 @@ def default_far_sshd_log(run, no_window=0, routes=()):
     relay key, a refusal or empty output on every route reads as None."""
     def read(remote, host):
         for target in dict.fromkeys([*routes, remote]):
-            cmd = ["ssh", "-o", "BatchMode=yes", "-o", "AddressFamily=inet", "-o", "ConnectTimeout=5", target, FAR_LOG_CMD]
+            cmd = ["ssh", "-n", "-o", "BatchMode=yes", "-o", "AddressFamily=inet", "-o", "ConnectTimeout=5", target, FAR_LOG_CMD]
             try:
                 r = run(cmd, capture_output=True, timeout=15, creationflags=no_window)
             except (OSError, subprocess.SubprocessError):
@@ -399,7 +399,7 @@ def address_fallback(remote, name, key, ctx):
         return True
 
     def verify(target):
-        cmd = ["ssh", "-i", key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", f"HostKeyAlias={box}",
+        cmd = ["ssh", "-n", "-i", key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", f"HostKeyAlias={box}",
                "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=3", target, "roster"]
         try:
             r = run(cmd, capture_output=True, timeout=15, creationflags=roster.no_window())
@@ -473,11 +473,13 @@ def check_target(remote, name, host, key, ctx, peer_epoch_check, outbound=None):
     al, roster, run = ctx["autolink"], ctx["roster"], ctx["run"]
     probs = []
     try:
-        ctx["resolve"](host, 22)
+        infos = list(ctx["resolve"](host, 22))
     except OSError as ex:
         return failed_primary(remote, name, key, ctx, f"{name}: {host} does not resolve ({type(ex).__name__})")
+    infos.sort(key=lambda i: i[0] != socket.AF_INET)
+    target = (infos[0][4][0].split("%", 1)[0], 22) if infos else (host, 22)
     try:
-        ctx["connect"]((host, 22), timeout=TCP_SECONDS).close()
+        ctx["connect"](target, timeout=TCP_SECONDS).close()
     except TimeoutError as ex:
         return failed_primary(remote, name, key, ctx, lambda: classify_link(remote, name, host, ctx, type(ex).__name__))
     except OSError as ex:
@@ -597,7 +599,7 @@ def peer_lists_us(ctx, mine, self_names):
             return [f"{name}: waiting: 1Password locked; encrypted key not loaded"]
         if verdict == "missing":
             return [f"{name}: passphrase_source_missing: encrypted key {key} cannot be loaded"]
-        cmd = ["ssh", "-i", key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "AddressFamily=inet", "-o", "ConnectTimeout=5",
+        cmd = ["ssh", "-n", "-i", key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "AddressFamily=inet", "-o", "ConnectTimeout=5",
                remote, "membership", "get"]
         try:
             r = run(cmd, capture_output=True, timeout=15, creationflags=roster.no_window())

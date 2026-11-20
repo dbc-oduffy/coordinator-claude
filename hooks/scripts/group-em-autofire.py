@@ -697,8 +697,10 @@ def render_additional_context(
         "(it fires BoxCacheTrim, no elevation; `box-memory-trim-ws <pid>` for one process), "
         "re-measure, then admit or deny. Never ask the PM to run it."
     )
-    # Box blocks are owed sends and a workflow fire: obligations, so they ride the tail.
-    tail = "\n\n".join([*(box_blocks or []), arm_line, trim_line, gate_line])
+    # Box blocks are owed sends and a workflow fire: obligations, so they ride the tail. The arm
+    # line LEADS it: a fleet-inbox block can run past 20KB and the harness previews only the first
+    # 2KB of an oversized hook output, so anything after the box blocks is never read.
+    tail = "\n\n".join([arm_line, *(box_blocks or []), trim_line, gate_line])
     head = "\n".join(lines)
     text = head + "\n\n" + tail
     if len(text) > budget:

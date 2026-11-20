@@ -190,6 +190,27 @@ def _run(cmd, run, **kw):
         raise MembershipError(f"{cmd[0]} failed to run: {type(ex).__name__}") from None
 
 
+def _run_fed(cmd, run, payload, tmp, **kw) -> subprocess.CompletedProcess:
+    """Run `cmd` with `payload` on stdin from a file, never a pipe.
+
+    Trap: OpenSSH_for_Windows 9.5 ssh-keygen never sees EOF on a Python pipe (`input=`), so
+    every sign/verify hung to the timeout; a file handle ends cleanly on every platform."""
+    feed = Path(tmp) / "payload"
+    feed.write_bytes(payload if isinstance(payload, bytes) else payload.encode("utf-8"))
+    with open(feed, "rb") as fh:
+        return _run(cmd, run, stdin=fh, **kw)
+
+
+def _scratch_dir(prefix) -> str:
+    import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import ensure_engine_on_path
+
+    ensure_engine_on_path(__file__)
+    from coordinator_core.temp_layout import managed_tempdir
+
+    return tempfile.mkdtemp(prefix=prefix, dir=managed_tempdir())
+
+
 class Signer:
     """Protocol: sign(payload_bytes) -> sig_bytes (an armored SSHSIG), raising MembershipError on refusal."""
 
@@ -204,11 +225,15 @@ class _KeygenSigner(Signer):
         self.run = run
         self.extra_env = dict(extra_env or {})
 
-    def sign(self, payload):
+    def sign(self, payload) -> bytes:
         refuse_service_token(self.environ)
         env = dict(os.environ if self.environ is None else self.environ)
         env.update(self.extra_env)
-        r = _run(["ssh-keygen", "-Y", "sign", "-n", NAMESPACE, "-f", self.key_file], self.run, input=payload, env=env)
+        tmp = _scratch_dir("unimatrix-sign-")
+        try:
+            r = _run_fed(["ssh-keygen", "-Y", "sign", "-n", NAMESPACE, "-f", self.key_file], self.run, payload, tmp, env=env)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
         if r.returncode or not r.stdout:
             raise MembershipError("signer refused or produced no signature: " + r.stderr.decode("utf-8", "replace").strip()[:200])
         return r.stdout
@@ -251,22 +276,16 @@ def _check_chain(snap, held):
         raise MembershipError("fork: prev_digest does not match the held snapshot")
 
 
-def _ssh_verify(canon, sig, pin_text, run):
+def _ssh_verify(canon, sig, pin_text, run) -> None:
     kind, body, _ = _pin_fields(pin_text)
-    import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
-    from cc_invoke import ensure_engine_on_path
-
-    ensure_engine_on_path(__file__)
-    from coordinator_core.temp_layout import managed_tempdir
-
-    tmp = tempfile.mkdtemp(prefix="unimatrix-verify-", dir=managed_tempdir())
+    tmp = _scratch_dir("unimatrix-verify-")
     try:
         allowed = Path(tmp) / "allowed_signers"
         sigfile = Path(tmp) / "snapshot.sig"
         allowed.write_text(f'signer namespaces="{NAMESPACE}" {kind} {body}\n', encoding="utf-8")
         sigfile.write_bytes(sig if isinstance(sig, bytes) else sig.encode("utf-8"))
-        r = _run(["ssh-keygen", "-Y", "verify", "-f", str(allowed), "-I", "signer", "-n", NAMESPACE, "-s", str(sigfile)],
-                 run, input=canon)
+        r = _run_fed(["ssh-keygen", "-Y", "verify", "-f", str(allowed), "-I", "signer", "-n", NAMESPACE, "-s", str(sigfile)],
+                     run, canon, tmp)
         if r.returncode:
             raise MembershipError("signature does not verify against the pinned key")
     finally:

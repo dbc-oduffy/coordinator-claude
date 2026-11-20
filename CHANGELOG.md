@@ -4,6 +4,15 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.24] — 2026-11-20
+
+- **Group EM watch:** fresh Claude home starts arm the watch before other startup work.
+- **Publishing:** orphan cleanup preserves destination `scratch/` and `state/` directories.
+
+## [4.6.23] — 2026-11-19
+
+- Unpublished build that prepared the Group EM watch fix for distribution.
+
 ## [4.6.22] — 2026-11-17
 
 - **Subagent status rows:** per-subagent rows render through an AgentRow hooks module; the deprecated `subagentStatusLine` setting is no longer shipped.

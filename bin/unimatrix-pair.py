@@ -24,13 +24,16 @@ Usage: unimatrix-pair.py pin <pubfile> | request [--box B] [--cidr C]... | appro
 import argparse
 import base64
 import getpass
+import fnmatch
 import importlib.util
 import json
 import os
 import posixpath
+import re
 import socket
 import subprocess
 import sys
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -108,13 +111,15 @@ def make_agent_signer(mem, pin_pub_file, environ=None, run=subprocess.run, platf
     return PairAgentSigner(pin_pub_file, sock=agent_socket(environ, plat), environ=environ, run=run)
 
 
-def local_member(box, cidrs, own_key_fn, recorded_fn=None, member_boxes=None):
+def local_member(box, cidrs, own_key_fn, recorded_fn=None, member_boxes=None, hostname_fn=None) -> dict:
     """This box's membership record built from existing per-pair keys; never mints.
 
     With `recorded_fn(member_boxes)` (-> {alias: (key path, body)}, the per-pair keys this box deploys toward
     each peer): `relay_pub` is the key for `box` when present, else the lexically smallest alias's key, and
     `relay_pubs` holds every alias matching a `member_boxes` name case-insensitively (all valid box names when
-    None), keyed by the member's spelling, skipping an alias whose key body repeats an earlier one. Without it,
+    None), else whose `hostname_fn(alias)` (default `_ssh_hostname`, the in-process ssh config HostName) names a member box
+    (`.local` ignored), keyed by the member's box name; name matches take precedence, and an alias whose key
+    body repeats an earlier one is skipped. Without it,
     `relay_pub` is `own_key_fn(box)` alone. RuntimeError when no key is recorded."""
     base = {"box": box, "host": f"{box}.local", "user": getpass.getuser(), "from_cidrs": list(cidrs)}
     if recorded_fn is None:
@@ -126,11 +131,17 @@ def local_member(box, cidrs, own_key_fn, recorded_fn=None, member_boxes=None):
                            f"unimatrix.keys record) found for any peer of this box")
     default = box if box in recorded else sorted(recorded)[0]
     wanted = {str(b).lower(): b for b in member_boxes} if member_boxes is not None else None
+    by_host = {_host_key(b): b for b in member_boxes} if member_boxes is not None else {}
+    box_re = _mod("unimatrix-membership.py").BOX_RE
+    direct = {a: (a if wanted is None else wanted.get(a.lower())) for a in recorded}
+    pending = sorted(a for a in recorded if direct[a] is None)
     pubs, seen = {}, set()
-    for alias in sorted(recorded):
+    for alias in sorted(a for a in recorded if direct[a] is not None) + pending:
         body = recorded[alias][1]
-        peer = alias if wanted is None else wanted.get(alias.lower())
-        if body in seen or peer is None or peer in pubs or not _mod("unimatrix-membership.py").BOX_RE.fullmatch(peer):
+        peer = direct[alias]
+        if peer is None:
+            peer = by_host.get(_host_key((hostname_fn or _ssh_hostname)(alias) or ""))
+        if body in seen or peer is None or peer in pubs or not box_re.fullmatch(peer):
             continue
         seen.add(body)
         pubs[peer] = f"ssh-ed25519 {body}"
@@ -176,26 +187,50 @@ def _host_key(name):
     return low[:-len(".local")] if low.endswith(".local") else low
 
 
-def _ssh_hostname(alias):
-    """The HostName `ssh -G` resolves for `alias`, else None."""
+def _ssh_config_lines(path, depth=0) -> "Iterator[tuple[str, str]]":
+    """The non-comment lines of an ssh config file, `Include` lines expanded in place (two levels)."""
     try:
-        r = subprocess.run(["ssh", "-G", "--", alias], capture_output=True, text=True, timeout=5,
-                           creationflags=_no_window())
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if r.returncode:
-        return None
-    for line in (r.stdout or "").splitlines():
-        name, _, val = line.partition(" ")
-        if name.lower() == "hostname":
-            return val.strip()
-    return None
+        text = Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        m = re.match(r"(\S+?)(?:\s*=\s*|\s+)(.*)$", line)
+        if not m:
+            continue
+        key, val = m.groups()
+        if key.lower() == "include" and depth < 2:
+            for pat in val.split():
+                base = Path(pat).expanduser()
+                base = base if base.is_absolute() else Path.home() / ".ssh" / base
+                for inc in sorted(base.parent.glob(base.name)):
+                    yield from _ssh_config_lines(inc, depth + 1)
+        else:
+            yield key.lower(), val.strip()
 
 
-def make_host_alias_fn(recorded_fn=None):
-    """host -> the recorded pair-key alias whose own name or `ssh -G` HostName is that host (case-insensitive, `.local`
-    ignored), else None. The recorded listing is read once. Each listing spawns the reader and `ssh -G` per
-    alias, and `local_member` lists separately, so an approve costs two listings."""
+def _ssh_hostname(alias) -> str:
+    """The HostName ssh resolves for `alias`, read in-process from `~/.ssh/config` (no spawn): the first matching
+    `Host` block's HostName with `%h` expanded, else the alias itself without any `user@`. `Match` blocks do not apply."""
+    host = alias.rpartition("@")[2]
+    live = True
+    for key, val in _ssh_config_lines(Path.home() / ".ssh" / "config"):
+        if key == "host":
+            pats = val.split()
+            live = any(fnmatch.fnmatchcase(host, p) for p in pats if not p.startswith("!")) and not any(
+                fnmatch.fnmatchcase(host, p[1:]) for p in pats if p.startswith("!"))
+        elif key == "match":
+            live = False
+        elif key == "hostname" and live:
+            return val.replace("%h", host).strip('"')
+    return host
+
+
+def make_host_alias_fn(recorded_fn=None) -> "Callable[[str], str | None]":
+    """host -> the recorded pair-key alias whose own name or ssh-config HostName is that host (case-insensitive, `.local`
+    ignored), else None. The recorded listing is read once; `local_member` lists separately, so an approve costs two listings."""
     cache = {}
 
     def host_alias(host):
@@ -461,7 +496,7 @@ def main(argv=None, out=None, err=None, stdin=None, home=None, environ=None, run
             label = args.host.rpartition("@")[2]
             key, _ = pair_key_for_host(label.split(".")[0], label, own_key_fn, alias_fn, candidate_fn,
                                        args.host.rpartition("@")[0] or None)
-            cmd = ["ssh", "-i", str(key), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "AddressFamily=inet", "-o", "ConnectTimeout=5",
+            cmd = ["ssh", "-n", "-i", str(key), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "AddressFamily=inet", "-o", "ConnectTimeout=5",
                    args.host, "membership", "get"]
             r = run(cmd, capture_output=True, timeout=PUSH_TIMEOUT_SECONDS, creationflags=_no_window())
             lines = (r.stdout or b"").decode("utf-8", "replace").splitlines()

@@ -55,6 +55,9 @@ worktree removals, prune) fires. Read `brief` first and pass `--decisions-file`;
 Each judgment point carries its own evidence and per-option guidance in the decision object —
 decide from it, never invent a verdict the evidence doesn't support.
 
+**Remote prune is the default step.** Zero-unique-commit remote branches are pruned as the normal
+directive, not an opt-in; `refs/preserve/*` counts as reachability and the delete gate below applies.
+
 **`j-delete-<branch>` — zero-unique-commit `cloud-session` branch.** **delete** once its tip is
 reachable from main or the current branch and it heads no open PR, which you check with `gh pr list`.
 Otherwise **keep**. Before any remote delete, run `git merge-base --is-ancestor <remote tip> origin/<base>`; "a PR merged" is not evidence. A tip with commits outside the base is kept; report its count and SHA. `mine-stale` branches with zero unique commits delete unconditionally; a
@@ -92,8 +95,11 @@ the change, abort and skip (note it); else resolve and continue. Never force thr
 
 **`j-worktree-dirty-<path>`.** Worktrees are forbidden, so a dirty one is stray debris to drain,
 never state to keep; the question is how to remove it without destroying uncommitted work. Surface
-it, never remove silently. **rescue** saves the state (stash or throwaway-branch commit) before
-removal; **proceed** discards it when genuinely disposable. Default is pause for a decision.
+it, never remove silently. **rescue** saves the state (throwaway-branch commit, never a stash)
+before removal; **proceed** discards it only on the PM's disposable ruling. Default is pause.
+
+**Leftover stashes.** Never drop or apply one on agent judgment (agents never stash); list them in the report
+and put each to the PM for a disposable ruling. Drop only what the PM rules disposable.
 
 **`j-behind-main`.** Fires only when the current branch is behind main. **merge-main-first**
 ensures the final state includes everything before absorbing; **proceed-anyway** if a stale main

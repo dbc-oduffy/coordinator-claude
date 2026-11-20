@@ -138,7 +138,7 @@ on)?". The answer is stored as the machine-local key `coordinator.forwarder_rout
 The default is `exe` only when the registry reads SAC off; enforcing, evaluation or unreadable
 default to `py`. A blocked launch surfaces as `WinError 4551` ("An Application Control policy has
 blocked this file"), or from Git Bash as a bare `Permission denied` that is not a chmod problem.
-The engine's `scripts/setup.py --check` launches one forwarder and reports a blocked launch as
+The engine's `python3 scripts/setup.py --check` launches one forwarder and reports a blocked launch as
 `FAIL [forwarder-launch]` naming SAC; an install step that hits the block reports BLOCKED:
 "re-run the install and choose forwarder_route=py (works with Smart App Control on), or turn
 Smart App Control off for the .exe route, then retry". `--check` fails only on the execution
