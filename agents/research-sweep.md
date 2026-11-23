@@ -148,7 +148,7 @@ name from frontmatter:
 
 | `CLEANUP_NOTEBOOKS` | Action |
 |---|---|
-| `true` | Note in completion message: "Notebooks preserved for auditor — {count} notebooks, IDs listed. EM deletes after audit completes." |
+| `true` | Note in completion message: "Notebooks preserved for auditor — {count} notebooks, IDs listed. EM deletes after audit completes." Exclude every `existing_notebook` (reused) id from that list: it predates the run and is never deleted. |
 | `false` (default) | Enumerate via `notebook_list`, reconcile any discrepancy against the parsed IDs, and add a "## Notebooks Preserved" section to the final document listing each notebook's name and ID. |
 
 ## Completion

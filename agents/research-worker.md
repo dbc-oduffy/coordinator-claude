@@ -34,7 +34,9 @@ then return.
 ### Phase 1 — Ingest
 
 1. `notebook_create` with name `{topic-slug}-{letter}`; **record the notebook ID immediately**
-   (needed for cleanup and summary.md metadata).
+   (needed for cleanup and summary.md metadata). A section with `Source strategy: existing_notebook`
+   and `Notebook ID: <uuid>` reuses that notebook instead: never `notebook_create`; `notebook_get`
+   it, read its sources with `source_get_content`, and query with `notebook_query`.
 2. **Tag with the run slug**: `tag(action="add", notebook_id=<id>, tags="<run-slug>")` (shared
    `{topic-slug}`) — lets sweep/auditor query across the whole run in one call.
 3. Custom instructions from strategy.md → `chat_configure`.

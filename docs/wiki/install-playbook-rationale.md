@@ -34,7 +34,7 @@ diff -r ~/.claude/plugins/cache/coordinator-claude/coordinator/*/ <clone>/coordi
 
 **This path requires an already-resolvable engine root — it is not a cold bootstrap.** Confirm
 resolution first with `python3 coordinator/hooks/scripts/_engine_root.py` — empty output means
-take the CLI steps and reach the engine at Step 4 instead.
+take the CLI steps and reach the engine at Step 3 instead.
 
 **`--check-only` does not verify the install.** It forwards to the engine installer's `--check`,
 which reports only that the script is present and executable. It returns green on a box where the
@@ -66,7 +66,7 @@ a published-mirror rung (`cloud-preboot-install-contract.md`), read by `engine_b
 only via an explicit `COORDINATOR_ENGINE_ROOT`.
 
 
-## Step 4 — why the ordering is not the obvious one
+## Step 3 — why the ordering is not the obvious one
 
 **Known braid defect, not a design.** The clone has to come first because `/coordinator:install`'s
 own Phase 3 bootstraps coordinator's substrate from a script that lives *in the engine repo*

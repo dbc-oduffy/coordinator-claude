@@ -1,0 +1,78 @@
+{
+  "schema": "pm-quantifier-decay-fixtures/1",
+  "purpose": "Shared falsifier for the PM-quantifier guard pair: DoE hook registration on Agent/Workflow/SendMessage and the claude-klabauter engine gates (sizing-assemble, plan-author/prep, em_rule, exit-criterion judging, research.close, land). A derived text that drops or lowers a PM quantifier is refused; one carrying it verbatim, or not naming the quantified noun or unit, is allowed.",
+  "cases": [
+    {
+      "id": "dense-37k-vs-2-points",
+      "pm_turn": "Loop One needs ~37k dense points mapped; any non-dense computation needs to just straight up fail.",
+      "pm_source": "pm",
+      "derived": "Score face_interior accuracy on 2 mapped points and report it as the face figure.",
+      "expect": "refuse",
+      "why": "~37k lowered to 2"
+    },
+    {
+      "id": "vertices-30k-vs-sample",
+      "pm_turn": "We need the ~30k vertices capture; tens of thousands of points, nothing less.",
+      "pm_source": "pm",
+      "derived": "Capture a sample of the vertices (about 500) to keep the run fast.",
+      "expect": "refuse",
+      "why": "~30k replaced by a sample"
+    },
+    {
+      "id": "all-items-vs-top-10",
+      "pm_turn": "1mm across ALL items.",
+      "pm_source": "pm",
+      "derived": "Check the top 10 items against the 1mm tolerance.",
+      "expect": "refuse",
+      "why": "ALL narrowed to top 10"
+    },
+    {
+      "id": "tolerance-1mm-vs-5mm",
+      "pm_turn": "1mm across ALL items.",
+      "pm_source": "pm",
+      "derived": "Check all items against a 5mm tolerance.",
+      "expect": "refuse",
+      "why": "1mm threshold loosened to 5mm"
+    },
+    {
+      "id": "all-items-vs-dropped",
+      "pm_turn": "1mm across ALL items.",
+      "pm_source": "pm",
+      "derived": "Check the items against the 1mm tolerance.",
+      "expect": "refuse",
+      "why": "ALL quantifier dropped from a text naming the same noun"
+    },
+    {
+      "id": "relayed-30k-vs-first-100",
+      "pm_turn": "We need the ~30k vertices capture; tens of thousands of points, nothing less.",
+      "pm_source": "relayed",
+      "derived": "Capture the first 100 vertices.",
+      "expect": "refuse",
+      "why": "a relayed PM verbatim keeps its quantifiers"
+    },
+    {
+      "id": "verbatim-control",
+      "pm_turn": "1mm across ALL items.",
+      "pm_source": "pm",
+      "derived": "Verify 1mm across ALL items; report any item over 1mm.",
+      "expect": "allow",
+      "why": "quantifier and threshold carried verbatim"
+    },
+    {
+      "id": "verbatim-30k-control",
+      "pm_turn": "We need the ~30k vertices capture; tens of thousands of points, nothing less.",
+      "pm_source": "pm",
+      "derived": "Run the dense capture at ~30k vertices and fail if fewer are mapped.",
+      "expect": "allow",
+      "why": "quantifier carried verbatim"
+    },
+    {
+      "id": "unrelated-control",
+      "pm_turn": "1mm across ALL items.",
+      "pm_source": "pm",
+      "derived": "Fix the typo in the README heading.",
+      "expect": "allow",
+      "why": "names neither the quantified noun nor the unit: not bound"
+    }
+  ]
+}

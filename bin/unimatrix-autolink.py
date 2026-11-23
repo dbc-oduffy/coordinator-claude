@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Bring up the cross-box Unimatrix link to every configured far box, once, and stay silent.
+"""Bring up the cross-box Unimatrix link to every configured far box, once, and name what it started.
 
 Usage:
   unimatrix-autolink.py
-  unimatrix-autolink.py restart   (stop the box router and its faces, then start the installed one)
+  unimatrix-autolink.py --boot   (the login run: repeat the link pass every 30s until every pair is live or 600s pass)
+  unimatrix-autolink.py restart   (stop the box router and its faces, then start the installed one, then link)
   unimatrix-autolink.py restart-box <alias>   (ask the box's supervisors to stop, then start one per role from this copy)
 
 Far boxes are the members of the signed membership snapshot (verified offline against the pinned key,
@@ -32,10 +33,13 @@ When no alias is listed (or the registry is unreadable) it appends one reason li
 a receive-only box reads "no unimatrix.far_boxes configured; no supervisors started". An alias with no
 existing key appends one line to the log and is skipped; other aliases still link. A held per-peer lock
 logs its skip. An unreachable far box appends one line to `<settings home>/unimatrix/autolink.log`.
-Nothing is ever printed to stdout (only `detached`'s one-line stderr note when nice 0 is refused) and the exit
-status is always 0: a session start must not fail on it.
+Stdout carries one line per alias that had supervisors started: `spawned bridge+inbox pair for <alias>` (or
+`spawned bridge supervisor for ...`); nothing is printed when nothing was started. A pass that raises prints one
+stderr line `autolink failed: <Type>: <msg>` (plus `detached`'s nice-0 note) and the exit status is always 0
+(a refused `restart` is 1): a session start must not fail on it.
 """
 import base64
+import fnmatch
 import hashlib
 import hmac
 import importlib.util
@@ -48,6 +52,7 @@ import struct
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -69,6 +74,8 @@ SSH_DEFAULT_IDENTITIES = {"id_rsa", "id_dsa", "id_ecdsa", "id_ecdsa_sk", "id_ed2
 SUPERVISORS = (("bridge", "unimatrix-roster.py"), ("inbox", "unimatrix-mirror-all.py"))
 ROUTER_SCRIPT = "unimatrix-peer-router.py"
 NO_ROUTER_ENV = "UNIMATRIX_AUTOLINK_NO_ROUTER"
+BOOT_WINDOW_SECONDS = 600
+BOOT_POLL_SECONDS = 30
 LOGIN_AGENT_LABEL = "com.unimatrix.autolink"  # mirrors unimatrix-install.py; autolink does not import it
 
 
@@ -94,7 +101,7 @@ def console_python():
 
 def pin_key_value(roster, run=subprocess.run):
     """The machine-local `unimatrix.python` value, or None when unset or unreadable."""
-    reader = roster.settings_home() / "bin" / "_machine_local.py"
+    reader = _home(roster) / "bin" / "_machine_local.py"
     exe = console_python()
     if not reader.is_file() or not exe:
         return None
@@ -110,7 +117,7 @@ def pin_key_value(roster, run=subprocess.run):
 def pinned_python(roster):
     """The one interpreter every supervisor and reader spawn uses: the `unimatrix.python` key when set (a
     missing file is an InterpreterPinError naming the key), else the shared `unimatrix_python` resolution."""
-    home = str(roster.settings_home())
+    home = str(_home(roster))
     if home not in _PINNED:
         val = pin_key_value(roster)
         if val and not os.path.isfile(val):
@@ -127,6 +134,11 @@ def _roster():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+def _home(roster) -> Path:
+    """The settings home for a login-launched autolink pass, which carries no COORDINATOR_SETTINGS_HOME."""
+    return getattr(roster, "delivery_settings_home", roster.settings_home)()
 
 
 _PASSPHRASE = []
@@ -174,8 +186,78 @@ def _membership():
     return _MEMBERSHIP[0]
 
 
+COPIES_STAMP_NAME = "installed-copies-stamp.json"
+COPIES_CHECK_SECONDS = 300
+
+
+def _digest(path):
+    try:
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def installed_copy_drift(src_bin, dest):
+    """Names (relative to `dest`) of installed scripts whose bytes differ from the same-named clone script.
+
+    Only files the box already installed are compared: a clone script it never vendored is not drift."""
+    names = [p.name for p in dest.glob("*.py")] + [f"lib/{p.name}" for p in (dest / "lib").glob("*.py")]
+    return sorted(n for n in names if (src_bin / n).is_file() and _digest(src_bin / n) != _digest(dest / n))
+
+
+def _clone_bin(home):
+    """`<clone>/coordinator/bin` of the box's klabauter clone, else None."""
+    ladder = Path(home) / "bin" / "_resolve_claude_klabauter.py"
+    if not ladder.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location("_al_resolve_klabauter", ladder)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    root, _cls = mod.resolve_claude_klabauter_root_with_class()
+    src = Path(root) / "coordinator" / "bin" if root else None
+    return src if src is not None and (src / "unimatrix-install.py").is_file() else None
+
+
+def refresh_installed_copies(roster, now=time.time, clone_bin=_clone_bin):
+    """Re-copy installed unimatrix scripts that drifted from the klabauter clone; at most once per COPIES_CHECK_SECONDS.
+
+    Trap: the clone moves under a long-lived box (git pull, reconcile) while the SessionStart freshness leg
+    only fires on a fresh session, so a box could run pre-fix scripts for days. This pass is the one thing
+    that runs on every box every minute. Drift that survives the refresh is printed on stderr every pass.
+    Never raises: a refresh fault must not stop linking."""
+    home = _home(roster)
+    sdir = state_dir(roster)
+    stamp = sdir / COPIES_STAMP_NAME
+    try:
+        if now() - json.loads(stamp.read_text(encoding="utf-8")).get("at", 0) < COPIES_CHECK_SECONDS:
+            return []
+    except (OSError, ValueError, AttributeError):
+        pass
+    try:
+        src = clone_bin(home)
+        if src is None or not sdir.is_dir():
+            return []
+        drift = installed_copy_drift(src, sdir)
+        if drift:
+            spec = importlib.util.spec_from_file_location("_al_unimatrix_install", src / "unimatrix-install.py")
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            mod.install_scripts(src, sdir)
+            drift = installed_copy_drift(src, sdir)
+            with open(sdir / "autolink.log", "a", encoding="utf-8") as fh:
+                fh.write(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} installed copies drifted from the "
+                         f"clone; refreshed, {len(drift)} still differ\n")
+        if drift:
+            print(f"autolink: installed copies still differ from the klabauter clone: {', '.join(drift[:8])}", file=sys.stderr)
+        stamp.write_text(json.dumps({"at": now(), "drift": drift}), encoding="utf-8")
+        return drift
+    except Exception as ex:
+        print(f"autolink: installed-copy refresh failed: {type(ex).__name__}: {str(ex)[:200]}", file=sys.stderr)
+        return []
+
+
 def state_dir(roster):
-    return roster.settings_home() / "unimatrix"
+    return _home(roster) / "unimatrix"
 
 
 def own_names():
@@ -193,7 +275,7 @@ def split_members(roster, mem=None, self_names=None, run=subprocess.run):
         mem = mem or _membership()
     except OSError:  # membership library not vendored on this box yet: the transition fallback applies
         return "none", {}, [], None, None
-    home = roster.settings_home()
+    home = _home(roster)
     try:
         snap, _ = mem.load_snapshot(home)
         if snap is None:
@@ -232,7 +314,7 @@ def pull_membership(roster, remote, key, run=subprocess.run):
     if r.returncode or len(lines) < 2:
         return False
     snap = json.loads(lines[0])
-    home = roster.settings_home()
+    home = _home(roster)
     held, _ = mem.load_snapshot(home)
     if held is not None and snap.get("epoch", 0) <= held["epoch"]:
         return False
@@ -246,7 +328,7 @@ NO_ALIAS_REASON = "no unimatrix.far_boxes configured; no supervisors started"
 def far_boxes_status(roster, guard=False):
     """(aliases, reason): reason names why `aliases` is empty, and is None when it is not.
     `guard` refuses a real alias under a test home; the read-only doctor diagnosis leaves it off."""
-    reader = roster.settings_home() / "bin" / "_machine_local.py"
+    reader = _home(roster) / "bin" / "_machine_local.py"
     if not reader.is_file():
         return [], f"{REGISTRY_KEY} unreadable (machine-local reader missing: {reader}); no supervisors started"
     try:
@@ -649,12 +731,19 @@ def ssh_alias_fallback(roster, alias, key, why, probe_fn, aliases_fn=None, hostn
             f"ssh alias {', '.join(matched)} named the same box and did not answer" if matched else None, key)
 
 
-def link_peer(roster, alias, key, say, spawn=detached, probe_fn=probe, stable_fn=None, now=None, liveness=None,
-              pull_fn=None, mdns_fn=None, alias_fn=None, hosts=None) -> None:
-    """Start whichever of the peer's two supervisors is not live. Never raises for a down peer.
+class Started(list):
+    """The roles `link_peer` spawned; `reason` names why the pair is still not live (None when it is)."""
+    reason = None
 
-    The mDNS live-address retry, the ssh-config alias retry, then the stable-name fallback, run only after the
+
+def link_peer(roster, alias, key, say, spawn=detached, probe_fn=probe, stable_fn=None, now=None, liveness=None,
+              pull_fn=None, mdns_fn=None, alias_fn=None, hosts=None, lan_fn=None) -> Started:
+    """Start whichever of the peer's two supervisors is not live; the roles started, empty when none. Never raises for a down peer.
+
+    A host-key-verified LAN route (`lan_route`) is tried first and, when found, replaces the off-LAN probe;
+    the supervisors still get the logical `alias` and the relay key as `--remote`/`--key`; a pair already live is never touched. Else the mDNS live-address retry, the ssh-config alias retry, then the stable-name fallback, run only after the
     recorded name itself failed to answer; the probe outcome feeds the backoff."""
+    started = Started()
     stable_fn = stable_fn or roster.stable_remote
     liveness = liveness or _liveness()
     sdir = state_dir(roster)
@@ -664,7 +753,8 @@ def link_peer(roster, alias, key, say, spawn=detached, probe_fn=probe, stable_fn
     lock = sdir / f"autolink-{slug(box)}.lock"
     if not acquire_lock(lock):
         say(f"far box {alias}: link lock held by another start; skipped")
-        return
+        started.reason = "link lock held"
+        return started
     raw_probe = probe_fn
 
     def probe_fn(*args, **kwargs):  # a probe chain outlasts LOCK_STALE_SECONDS; keep the lock fresh
@@ -692,22 +782,28 @@ def link_peer(roster, alias, key, say, spawn=detached, probe_fn=probe, stable_fn
                         pass
         if not missing:
             migrate()
-            return
-        why = probe_fn(roster, alias, key)
-        remote, note = alias, None
-        if why:
-            remote, why, note = mdns_fallback(roster, alias, key, why, probe_fn, mdns_fn)
-        if why:
-            first_note = note
-            remote, why, note, key = ssh_alias_fallback(roster, alias, key, why, probe_fn, alias_fn, mdns_fn=mdns_fn)
-            note = "; ".join(n for n in (first_note, note) if n) or None
-        if why:
-            remote, why = stable_fallback(roster, alias, key, why, probe_fn, stable_fn)
+            return started
+        route = (lan_fn or lan_route)(roster, alias, key)
+        if route is not None:
+            remote, why, note = alias, None, None  # the supervisors keep the logical peer: an IP remote would key HostKeyAlias and mirror names to the address
+            say(f"far box {alias}: verified LAN route {route.endpoint} (link decision only; supervisors dial {alias})")
+        else:
+            why = probe_fn(roster, alias, key)
+            remote, note = alias, None
+            if why:
+                remote, why, note = mdns_fallback(roster, alias, key, why, probe_fn, mdns_fn)
+            if why:
+                first_note = note
+                remote, why, note, key = ssh_alias_fallback(roster, alias, key, why, probe_fn, alias_fn, mdns_fn=mdns_fn)
+                note = "; ".join(n for n in (first_note, note) if n) or None
+            if why:
+                remote, why = stable_fallback(roster, alias, key, why, probe_fn, stable_fn)
         liveness.note_probe(sdir, alias, not why, now)
         if why:
             say(f"far box {alias} unreachable: {why}" + (f" ({note})" if note else ""))
-            return
-        if remote != alias:
+            started.reason = f"unreachable: {why}"
+            return started
+        if route is None and remote != alias:
             say(f"far box {alias} pinned address stale; linked via {remote}" + (f" ({note})" if note else ""))
         if pull_fn:
             try:
@@ -726,6 +822,7 @@ def link_peer(roster, alias, key, say, spawn=detached, probe_fn=probe, stable_fn
                 stamp = None
             rec[role] = {"pid": p.pid, "procStart": stamp}
             rec["box"] = box
+            started.append(role)
             if stamp is not None:  # the reaper's evidence of a supervisor, kept after a record loses its pid
                 try:
                     roster.write_json_atomic(str(sdir / f"supervisor-{p.pid}.json"),
@@ -734,6 +831,7 @@ def link_peer(roster, alias, key, say, spawn=detached, probe_fn=probe, stable_fn
                     pass
             roster.write_json_atomic(str(rec_path), rec)  # per spawn: a later failure never orphans this one
         migrate()
+        return started
     finally:
         try:
             os.remove(lock)
@@ -743,7 +841,7 @@ def link_peer(roster, alias, key, say, spawn=detached, probe_fn=probe, stable_fn
 
 def machine_local_key(roster, alias, run=subprocess.run):
     """The machine-local `unimatrix.keys.<alias>` path, or None when unset or unreadable."""
-    reader = roster.settings_home() / "bin" / "_machine_local.py"
+    reader = _home(roster) / "bin" / "_machine_local.py"
     if not reader.is_file():
         return None
     try:
@@ -753,6 +851,59 @@ def machine_local_key(roster, alias, run=subprocess.run):
         return None
     val = r.stdout.strip() if not r.returncode else ""
     return os.path.expanduser(val) if val else None
+
+
+def machine_local_value(roster, name, run=subprocess.run) -> str:
+    """The raw machine-local value of `name`, '' when the reader is missing, fails or the key is unset."""
+    reader = _home(roster) / "bin" / "_machine_local.py"
+    if not reader.is_file():
+        return ""
+    try:
+        r = run([pinned_python(roster), str(reader), "get", name],
+                capture_output=True, text=True, timeout=2.0, creationflags=roster.no_window())
+    except (OSError, subprocess.SubprocessError, InterpreterPinError):
+        return ""
+    return r.stdout.strip() if not r.returncode else ""
+
+
+_FAR = []
+
+
+def _far() -> object:
+    if not _FAR:
+        spec = importlib.util.spec_from_file_location("unimatrix_far_addresses", HERE / "lib" / "unimatrix_far_addresses.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _FAR.append(mod)
+    return _FAR[0]
+
+
+def lan_route(roster, alias, key, far=None, read_key=None, connect=None, verify=None) -> object | None:
+    """The `Route` of the first host-key-verified LAN address of `alias`'s peer, else None. Never raises.
+
+    The peer is the `unimatrix.addresses.<box>` list owner; no list costs one reader spawn and nothing else.
+    A TCP connect only pre-filters: an address is chosen only when `ssh` verifies the peer's host key under
+    `HostKeyAlias=<box>` with the relay `key`, so an address held by another machine is never returned."""
+    try:
+        far = far or _far()
+        user, _, host = alias.rpartition("@")
+        peer = roster._box_mux().box_of(host)
+        seen = {}
+
+        def memo(name) -> str:
+            if name not in seen:
+                seen[name] = (read_key or (lambda n: machine_local_value(roster, n)))(name)
+            return seen[name]
+        if not far.box_addresses(peer, memo):
+            return None
+        user = user or roster.ssh_fields(alias).get("user") or None
+        route = far.select_route(peer, user, alias, read_key=memo, connect=connect or far.tcp_connect,
+                                 verify=verify or far.make_verify(peer, key), relay_key=key)
+    except Exception:  # noqa: BLE001 -- a LAN lookup failure falls back to the recorded route
+        return None
+    if route.transport != far.LAN or route.verification != far.VERIFIED or not route.endpoint:
+        return None
+    return route._replace(endpoint=far.target_for(user, route.endpoint))
 
 
 def ssh_identity_file(roster, alias, run=subprocess.run):
@@ -780,12 +931,22 @@ def hands_on_key(key):
     return Path(str(key)).name.lower() == UNIMATRIX_01_KEY
 
 
-def resolve_key(roster, alias, local_fn=None, ssh_fn=None):
+def resolve_key(roster, alias, local_fn=None, ssh_fn=None, via=None) -> str:
     """The relay key for one alias: machine-local, else ssh-config IdentityFile, else the shared default.
 
+    `via` is a callable giving other aliases of the same box (`matching_aliases`); their machine-local keys are
+    tried after `alias`'s own and before the ssh config, so a key set under any matching alias is found.
     A source that names the hands-on `unimatrix-01` key is skipped for the next one."""
-    for fn in (local_fn or machine_local_key, ssh_fn or ssh_identity_file):
-        key = fn(roster, alias)
+    local = local_fn or machine_local_key
+
+    def sources() -> Iterator[tuple]:
+        yield local, alias
+        for other in (via() if via else ()):
+            if other != alias:
+                yield local, other
+        yield ssh_fn or ssh_identity_file, alias
+    for fn, name in sources():
+        key = fn(roster, name)
         if key and not hands_on_key(key):
             roster.refuse_real("key_path", key)
             return key
@@ -1083,47 +1244,75 @@ def pull_new_epoch(roster, sdir, liveness, say, key_fn, agent_fn, pull_fn, looku
     return adopted
 
 
-def ssh_hostname(roster, alias, run=subprocess.run):
-    """The HostName `ssh -G` gives `alias`, else None."""
+def _ssh_config_lines(path, depth=0):
+    """`(keyword, value)` of each non-comment line of an ssh config file, `Include`s expanded in place."""
     try:
-        r = run(["ssh", "-G", "--", alias], capture_output=True, text=True, timeout=PROBE_CONNECT_SECONDS,
-                creationflags=roster.no_window())
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if r.returncode:
-        return None
-    out = r.stdout.decode("utf-8", "replace") if isinstance(r.stdout, bytes) else (r.stdout or "")
-    for line in out.splitlines():
-        name, _, val = line.partition(" ")
-        if name.lower() == "hostname" and val.strip():
-            return val.strip()
+        text = Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+    for raw in text.splitlines():
+        m = re.match(r"(\S+?)(?:\s*=\s*|\s+)(.*)$", raw.split("#", 1)[0].strip())
+        if not m:
+            continue
+        key, val = m.group(1).lower(), m.group(2).strip()
+        if key == "include" and depth < 4:
+            for pat in val.split():
+                pat = os.path.expanduser(pat)
+                pat = pat if os.path.isabs(pat) else str(Path(os.path.expanduser("~/.ssh")) / pat)
+                for inc in sorted(Path(pat).parent.glob(Path(pat).name)):
+                    yield from _ssh_config_lines(inc, depth + 1)
+        else:
+            yield key, val
+
+
+def ssh_hostname(roster, alias, run=None):
+    """The HostName `alias` resolves to, read in-process from the ssh config (zero spawns, where `ssh -G`
+    cost one per alias): the first matching `Host` block's HostName with `%h` expanded, else None.
+    Trap: `Match` blocks are not evaluated; their lines are skipped, never applied to the alias.
+    `roster` and `run` stay for the callers' signature."""
+    live = True
+    for key, val in _ssh_config_lines(Path(os.path.expanduser("~/.ssh")) / "config"):
+        if key == "host":
+            pats = val.split()
+            live = any(fnmatch.fnmatchcase(alias, p) for p in pats if not p.startswith("!")) and not any(
+                fnmatch.fnmatchcase(alias, p[1:]) for p in pats if p.startswith("!"))
+        elif key == "match":
+            live = False
+        elif key == "hostname" and live and val:
+            return val.replace("%h", alias).strip('"')
     return None
 
 
-def member_alias(roster, box, host, aliases, hosts=None, run=subprocess.run, entries=None) -> str:
-    """The ssh alias this box's links use for member `box` at `host`, else `box`.
+def matching_aliases(roster, host, aliases, hosts=None, run=subprocess.run, entries=None) -> Iterator[str]:
+    """Yield each alias in `aliases` that names `host`, name or HostName matches first.
 
-    An alias in `aliases` qualifies when its own name or its `ssh -G` HostName equals `host` (case-insensitive,
+    An alias qualifies when its own name or its `ssh -G` HostName equals `host` (case-insensitive,
     `.local` ignored); else when a known_hosts host key recorded for the alias or its HostName equals one
     recorded for `host`. Trap: the second rule is what keeps an alias whose HostName is pinned to an IP
     matching; without it the link silently falls back to the default key. `hosts` caches alias ->
-    normalised HostName across calls."""
+    normalised HostName across calls. Lazy: a caller taking the first match costs no further `ssh -G`."""
     if not host:
-        return box
+        return
     hosts = {} if hosts is None else hosts
     want = _host_key(host)
+    named = set()
     for alias in aliases:
         if alias not in hosts:
-            hosts[alias] = _host_key(ssh_hostname(roster, alias, run=run) or "")
+            hosts[alias] = _host_key(ssh_hostname(roster, alias) or "")
         if _host_key(alias) == want or hosts[alias] == want:
-            return alias
+            named.add(alias)
+            yield alias
     entries = _known_hosts_entries() if entries is None else entries
     recorded = known_host_keys([host], entries)
     if recorded:
         for alias in aliases:
-            if recorded & known_host_keys([alias, hosts[alias]], entries):
-                return alias
-    return box
+            if alias not in named and recorded & known_host_keys([alias, hosts[alias]], entries):
+                yield alias
+
+
+def member_alias(roster, box, host, aliases, hosts=None, run=subprocess.run, entries=None) -> str:
+    """The first of `matching_aliases` for member `box` at `host`, else `box`."""
+    return next(matching_aliases(roster, host, aliases, hosts, run, entries), box)
 
 
 def router_lock_held(sdir):
@@ -1338,21 +1527,55 @@ def _epoch_moved(sdir, liveness):
     return liveness.read_record(sdir / liveness.CACHE_NAME).get("epoch") != epoch
 
 
+class LinkSummary(list):
+    """One link pass: a `{alias, roles_started, reason}` entry per target alias that needed a link.
+
+    `reason` is None when the alias's pair is now live, else why it is not. `pending` names the aliases a
+    later pass may still link (a retryable reason); a missing key or an unloaded key is final and not listed."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.pending = []
+
+    def add(self, alias, roles, reason, retry=True) -> None:
+        self.append({"alias": alias, "roles_started": list(roles), "reason": reason})
+        if reason and retry and alias not in self.pending:
+            self.pending.append(alias)
+
+
+def spawn_lines(summary) -> list:
+    """The stdout line per alias that had supervisors started: `spawned bridge+inbox pair for <alias>`."""
+    out = []
+    for item in summary:
+        roles = item["roles_started"]
+        if len(roles) == len(SUPERVISORS):
+            out.append(f"spawned {'+'.join(roles)} pair for {item['alias']}")
+        elif roles:
+            out.append(f"spawned {'+'.join(roles)} supervisor for {item['alias']}")
+    return out
+
+
 def run(roster=None, boxes=None, spawn=detached, probe_fn=probe, key_fn=None, stable_fn=None, now=None,
-        membership=None, pull_fn=None, self_names=None, agent_fn=None, kill=None, mdns_fn=None, alias_fn=None):
+        membership=None, pull_fn=None, self_names=None, agent_fn=None, kill=None, mdns_fn=None, alias_fn=None,
+        ignore_backoff=False, lan_fn=None) -> LinkSummary:
     """Link every far box whose supervisors are down. A healthy box returns after reading records only.
+
+    Returns the LinkSummary of the pass. `ignore_backoff` probes an alias inside its probe backoff too (the
+    boot window and an explicit restart, where an earlier failure predates the network).
 
     Explicit `boxes` are ssh aliases and bypass the snapshot. Otherwise the verified membership snapshot
     (minus this box) supplies `<user>@<host>` targets and `unimatrix.far_boxes` is read only when no
     snapshot is stored. Per alias the record check precedes key resolution, and an alias inside its probe
     backoff is skipped. The boxes cache short-circuits `healthy` for up to 24h unless the snapshot epoch
     moved since it was written."""
+    custom_key_fn = key_fn is not None
     key_fn = key_fn or resolve_key
     agent_fn = agent_fn or agent_state
     roster = roster or _roster()
     liveness = _liveness()
     sdir = state_dir(roster)
     sdir.mkdir(parents=True, exist_ok=True)
+    summary = LinkSummary()
 
     def say(msg):
         with open(sdir / "autolink.log", "a", encoding="utf-8") as fh:
@@ -1390,7 +1613,7 @@ def run(roster=None, boxes=None, spawn=detached, probe_fn=probe, key_fn=None, st
                     retire_non_targets(roster, sdir, say, cached, kill, hosts)
             except Exception as ex:  # retirement must not fail the session
                 say(f"record retirement failed: {type(ex).__name__}: {str(ex)[:120]}")
-        return
+        return summary
 
     reason = NO_ALIAS_REASON
     explicit = boxes is not None
@@ -1399,7 +1622,7 @@ def run(roster=None, boxes=None, spawn=detached, probe_fn=probe, key_fn=None, st
         status, names, skipped, epoch, why = split_members(roster, membership, self_names)
         if status == "bad":
             say(why)
-            return
+            return summary
         if status == "ok":
             for box, remote in skipped:
                 say(f"member {box}: dial name {remote!r} is not a hostname alias (fails the alias check or is an IP literal); not linked")
@@ -1420,7 +1643,7 @@ def run(roster=None, boxes=None, spawn=detached, probe_fn=probe, key_fn=None, st
         say(reason or NO_ALIAS_REASON)
         if snapshot_mode or (reason or NO_ALIAS_REASON) == NO_ALIAS_REASON:
             write_cache([])
-        return
+        return summary
     write_cache(boxes)
     if not explicit:
         try:
@@ -1442,7 +1665,7 @@ def run(roster=None, boxes=None, spawn=detached, probe_fn=probe, key_fn=None, st
         left = mdns_end - time.monotonic()
         return mdns_a_records(name, left) if left > 0.05 else []
 
-    def link_all(aliases):
+    def link_all(aliases) -> None:
         pending, seen = [], set()
         groups = group_records(roster, sdir, hosts)
         for alias in aliases:
@@ -1453,58 +1676,83 @@ def run(roster=None, boxes=None, spawn=detached, probe_fn=probe, key_fn=None, st
                 seen.add(key)
                 if any(pair_live(roster, read_record(p)) for p in groups.get(key, [])):
                     continue
-                if liveness.backoff_until(sdir, alias) > clock:
+                if not ignore_backoff and liveness.backoff_until(sdir, alias) > clock:
+                    summary.add(alias, [], "probe backoff")
                     continue
                 pending.append(alias)
             except Exception as ex:  # one peer's failure must not stop the next or fail the session
                 say(f"far box {alias} link failed: {type(ex).__name__}: {str(ex)[:120]}")
+                summary.add(alias, [], f"link failed: {type(ex).__name__}")
         if snapshot_mode and pending:
             try:
                 if "aliases" not in lookup:
                     lookup["aliases"] = far_boxes_status(roster)[0]
             except Exception as ex:  # noqa: BLE001 -- the registry read is shared by every pending alias
                 say(f"far box lookup failed: {type(ex).__name__}: {str(ex)[:120]}")
+                for alias in pending:
+                    summary.add(alias, [], f"far box lookup failed: {type(ex).__name__}")
                 return
         for alias in pending:
             try:
                 target = names.get(alias, alias)
+                via = None
                 if snapshot_mode:
-                    target = member_alias(roster, target, alias.rpartition("@")[2], lookup["aliases"],
-                                          hosts)
-                key = key_fn(roster, target)
+                    host = alias.rpartition("@")[2]
+                    target = member_alias(roster, target, host, lookup["aliases"], hosts)
+                    via = lambda host=host: matching_aliases(roster, host, lookup["aliases"], hosts)  # noqa: E731
+                key = key_fn(roster, target) if custom_key_fn else resolve_key(roster, target, via=via)
                 if not Path(key).is_file():
                     # A configured alias with no key is a misconfiguration worth one line, not silence.
                     say(f"far box {alias}: no Unimatrix-Zero key (looked for {key}); not linked")
+                    summary.add(alias, [], "no relay key", retry=False)
                     continue
                 verdict = agent_fn(key)
                 if verdict == "locked":  # a named wait: no probe, no backoff charge
                     say(f"far box {alias}: waiting: 1Password locked")
+                    summary.add(alias, [], "1Password locked")
                     continue
                 if verdict == "missing":
                     say(f"far box {alias}: passphrase_source_missing: op CLI or unimatrix.passphrase_vault "
                         f"unavailable; encrypted key {key} not loaded")
+                    summary.add(alias, [], "passphrase source missing", retry=False)
                     continue
-                link_peer(roster, alias, key, say, spawn=spawn, probe_fn=probe_fn, stable_fn=stable_fn,
-                          now=now, liveness=liveness, pull_fn=pull_fn, mdns_fn=shared_mdns, alias_fn=alias_fn,
-                          hosts=hosts)
+                started = link_peer(roster, alias, key, say, spawn=spawn, probe_fn=probe_fn, stable_fn=stable_fn,
+                                    now=now, liveness=liveness, pull_fn=pull_fn, mdns_fn=shared_mdns,
+                                    alias_fn=alias_fn, hosts=hosts, lan_fn=lan_fn)
+                summary.add(alias, started or [], getattr(started, "reason", None))
             except Exception as ex:  # one peer's failure must not stop the next or fail the session
                 say(f"far box {alias} link failed: {type(ex).__name__}: {str(ex)[:120]}")
+                summary.add(alias, [], f"link failed: {type(ex).__name__}")
 
     link_all(boxes)
     if not snapshot_mode:
-        return
+        return summary
     try:
         status, names2, epoch2, _ = member_targets(roster, membership, self_names)
     except Exception:  # noqa: BLE001 -- the second look is best effort
-        return
+        return summary
     if status == "ok" and epoch2 != epoch:
         names.update(names2)
         epoch = epoch2
         write_cache(names2)
         link_all([a for a in names2 if a not in boxes])
+    return summary
 
 
-def cmd_restart():
+def link_pass(out=print, **kw) -> LinkSummary | None:
+    """One `run()` with its spawn lines printed; a raised failure is one stderr line. The summary, else None."""
+    try:
+        refresh_installed_copies(kw.get("roster") or _roster())
+        summary = run(**kw)
+    except Exception as ex:
+        print(f"autolink failed: {type(ex).__name__}: {str(ex)[:200]}", file=sys.stderr)
+        return None
+    for line in spawn_lines(summary):
+        out(line)
+    return summary
+
+
+def cmd_restart() -> int:
     roster = _roster()
     sdir = state_dir(roster)
     sdir.mkdir(parents=True, exist_ok=True)
@@ -1514,7 +1762,24 @@ def cmd_restart():
         print(f"router restart failed: {ex}", file=sys.stderr)
         return 1
     print(f"router restarted: {res['stopped']} old pid {res['old_pid']} new pid {res['new_pid']}")
+    link_pass(roster=roster, ignore_backoff=True)
     return 0
+
+
+def cmd_boot(sleep=time.sleep, clock=time.monotonic, out=print) -> int:
+    """Link pass every BOOT_POLL_SECONDS until every target has a live pair or BOOT_WINDOW_SECONDS ends; exit 0.
+
+    A pass that raises is retried like an unreachable box. Backoff is bypassed on every pass: a failure
+    charged before the network came up must not make the next pass skip that box."""
+    start = clock()
+    while True:
+        summary = link_pass(out, ignore_backoff=True)
+        if summary is not None and not summary.pending:
+            return 0
+        left = BOOT_WINDOW_SECONDS - (clock() - start)
+        if left <= 0:
+            return 0
+        sleep(min(BOOT_POLL_SECONDS, left))
 
 
 def _box_supervisors(roster, sdir, alias, hosts, alive) -> list:
@@ -1606,9 +1871,15 @@ def cmd_restart_box(alias, wait=STOP_WAIT_SECONDS, link=link_peer, spawn=detache
                 pass
     link(roster, alias, resolve_key(roster, alias), say, spawn=spawn)
     counts = {}
-    for t in _box_supervisors(roster, sdir, alias, hosts, alive):
-        counts[t["role"]] = counts.get(t["role"], 0) + 1
     bad = False
+    final = _box_supervisors(roster, sdir, alias, hosts, alive)
+    for t in final:
+        counts[t["role"]] = counts.get(t["role"], 0) + 1
+    final_pids = {t["pid"] for t in final}
+    for t in targets:  # a count of one is not a handover when the one is a process that was asked to leave
+        if t["pid"] in final_pids or probe_alive(t["pid"]):
+            say(f"restart-box: {alias} old {t['role']} supervisor pid {t['pid']} is still running")
+            bad = True
     for role, _ in SUPERVISORS:
         if counts.get(role, 0) != 1:
             say(f"restart-box: {alias} has {counts.get(role, 0)} live {role} supervisors after handover")
@@ -1628,10 +1899,9 @@ def main(argv=None) -> int:
         return cmd_restart()
     if len(argv) == 2 and argv[0] == "restart-box":
         return cmd_restart_box(argv[1])
-    try:
-        run()
-    except Exception:
-        pass
+    if argv == ["--boot"]:
+        return cmd_boot()
+    link_pass()
     return 0
 
 

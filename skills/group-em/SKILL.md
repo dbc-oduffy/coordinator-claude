@@ -10,15 +10,14 @@ argument-hint: "[no arguments — invoke from the group-em home to take box-wide
 `/group-em`, run from the machine-local group-em home, switches this session into box-wide G-EM
 standing: monitoring other sessions and moving them along; a **mode, not an operation**. There is
 one network-wide G-EM, last writer wins: `/group-em` on any box displaces the holder on any other
-(`references/multibox.md`; `coordinator/docs/wiki/cross-repo-communication/gem-cockpit-contract.md`). **Outside the home, `/group-em` renders NOT ENTERED** (`group-em-home ensure`).
+(`references/multibox.md`). **Outside the home, `/group-em` renders NOT ENTERED** (`group-em-home ensure`).
 
 **THIS BODY IS A FROZEN SNAPSHOT, UNVERSIONED.** Read anything MECHANICAL (a signature, flag, refusal vocabulary) from disk before citing it.
 
 **PM-GATED, never EM-initiated:** the PM gates by booting a session in the home; that boot enters on its own (`A-SESSION-STARTED-IN-THE-GROUP-EM-HOME-ENTERS-GROUP-EM`).
 A resume instruction says "open a session in the group-em home", never "type `/group-em`".
 
-**Invoking this skill IS the dispatch request, for three dispatches only:** the approvability
-judge (§ Delegated approve-for-execution, step 4), `coordinator:group-em-assistant` at entry, and
+**Invoking this skill IS the dispatch request, for two dispatches only:** `coordinator:group-em-assistant` at entry, and
 § Fleet inbox grind's saved `fleet-inbox-blitz` workflow with its assistants; nothing else. **None touches the peer-session send
 mechanism (§ Send pass, `gem-14`), gated per send; the one exempt send is § Box-wide notice.**
 Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
@@ -59,7 +58,7 @@ MANDATORY.** **Raise the pair yourself, from this session**, on entering the mod
    Read `references/watch.md` to arm, check liveness, or handle a wake.
 
 3. **Events wake you; no cron tick exists** (`A-CRON-TICK-IS-A-POLL-WHEN-EVENTS-EXIST`). Wakes: the watch run's completion; peer
-   `SendMessage`s; `notify_when_idle` one-shots; the **memory governor** (`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/group-em-memory-governor"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\group-em-memory-governor.exe"`) once, then wait on `group-em-memory-governor-wait.py <its log>`; `group-em-residue.md` § Memory governor). On PAUSED, tell its owner. Admit a heavy command by `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/box-memory-snapshot" --admit-peak <GiB>` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\box-memory-snapshot.exe"`, same arguments; HOLD is exit 4), naming that gate in a pre-clearance (`group-em-residue.md` § Memory tools; `A-SPAWNED-TEST-RUNNER-CARRIES-A-DEPTH-SENTINEL-AND-A-PROCESS-CAP`). **Freeing memory is your core duty:** trim, re-measure, then admit or deny; never a PM ask or a HOLD before the trim (`THE-G-EM-FREES-BOX-MEMORY-ITSELF-BEFORE-IT-HOLDS-OR-ASKS-THE-PM`). The GPU is one slot (`A-GPU-IS-ONE-SLOT-EMBED-SIDECARS-AND-UE-GPU-WORK-NEVER-OVERLAP`). Embed and index builds (project-rag, project-rag-ue-addon) run on the Windows box, never a Mac slot: `references/multibox.md`.
+   `SendMessage`s; `notify_when_idle` one-shots; the **memory governor** (`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/group-em-memory-governor"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\group-em-memory-governor.exe"`) once, then wait on `group-em-memory-governor-wait.py <its log>`; `group-em-residue.md` § Memory governor). On PAUSED, tell its owner. Admit a heavy command by `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/box-memory-snapshot" --admit-peak <GiB>` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\box-memory-snapshot.exe"`, same arguments; HOLD is exit 4), naming that gate in a pre-clearance (`group-em-residue.md` § Memory tools; `A-SPAWNED-TEST-RUNNER-CARRIES-A-DEPTH-SENTINEL-AND-A-PROCESS-CAP`). **Freeing memory is your core duty:** trim, re-measure, then admit or deny; never a PM ask or a HOLD before the trim (`THE-G-EM-FREES-BOX-MEMORY-ITSELF-BEFORE-IT-HOLDS-OR-ASKS-THE-PM`). **Idle capacity is the failure, not overload:** admit on MEASURED peaks, run CPU, RAM and GPU work side by side while they fit, and never stop a running job to admit another that fits beside it. The GPU is shared by VRAM sum (`A-GPU-IS-SHARED-BY-MEASURED-VRAM-SUM`). **Cross-box placement is yours, from one query:** `fleet-capacity` (every known box's maxima and measured use, also in your entry context) is THE placement input; your resource tools are fleet-wide by default. An `UNREACHABLE` box keeps its last-known maxima and is a PM ask ("power it on?"), never dropped. Place by measured headroom; prefer Gipsy over the Mini; keep Machine-a for 5090 likeness work and Machine-a-only data (`references/multibox.md` § Placement; `CROSS-BOX-PLACEMENT-IS-THE-G-EM-S-FROM-ONE-QUERY`).
 
    **You sequence box capacity.** Contended work and any queue where peers take turns is yours to order: peers ask for a slot; you release
    them in order as headroom allows. **Cap what agents run, not how many** (`A-BOX-CAP-COUNTS-COMMANDS-NOT-AGENTS`; `group-em-residue.md` § GO terms). A slot is occupied only by a live PID, named in the
@@ -67,12 +66,12 @@ MANDATORY.** **Raise the pair yourself, from this session**, on entering the mod
    commit set, never `HEAD`**; prod-migrate and install GO terms: `group-em-residue.md`
    § GO terms (`A-DEPLOY-GO-ON-A-TREE-SUITE-SHIPS-A-COMMIT-THE-SUITE-NEVER-SAW`).
 
-**YOU ARE WHERE "UP" ENDS.** Every gate a peer surfaces up (a slot, a prod write, a deploy, a
-publish, a ruling) is decided by you, under the PM's delegation; never hand one to the PM. A direction call you cannot make goes to the APM. The
-PM gets only an act needing the human's own hands (an interactive login). A guard that denies an EM commit is a guard defect: route the
-exact denial to the guard's owner. The G-EM fixes and pushes routine problems itself in fleet
-repos it owns; force-push, history rewrite and non-owned remotes stay held.
-Tripwires: `A-GROUP-EM-IS-WHERE-UP-ENDS`, `A-GUARD-DENYING-AN-EM-COMMIT-IS-A-GUARD-DEFECT`.
+**THE G-EM MANAGES BOX RESOURCES AND AIR-TRAFFIC CONTROL AND MAKES NO RULINGS.** Resources: GPU, UBT, RAM and core
+slots, admission of heavy commands. Air-traffic control: sequencing, routing a message to its
+owner, finding the owner of orphaned work. It may break glass on box acts (SSH, process kills,
+daemon restarts). A ruling a peer surfaces (an engineering call, direction, "do I execute?", an
+approval) is routed by address to process, research or the PM, never answered. A guard that denies an EM commit is a guard
+defect: route the exact denial to the guard's owner. Tripwires: `A-GROUP-EM-MAKES-NO-RULINGS`, `A-GUARD-DENYING-AN-EM-COMMIT-IS-A-GUARD-DEFECT`.
 
 ### Arming, liveness, declinations
 
@@ -106,34 +105,16 @@ is a per-entry act with both gates declared, the address re-resolved from the se
 before; **never loop over `entries` sending.** Read `references/passes.md` for the roster or a send digest,
 `references/multibox.md` for a job or session on another box.
 
-## The escalation screen — a claimed PM item is presumed yours until it survives
+## Routing a peer's ruling
 
-**A session's claimed PM item is wrong 19 times in 20.** Test it.
-
-- **"Do I execute?"** A real question; answer it (below).
-- **"This is irreversible."** Only a publish to a server the fleet does not own is; push a local
-  write back (`A-LOCAL-WRITE-IS-RECOVERABLE-ONLY-PUBLISHING-IS-IRREVERSIBLE`).
-
-Idle is no reason to message. **Answer engineering calls yourself**, or dispatch `coordinator:staff-eng`. Route scope and
-direction to the APM. Pass the PM only what survives this screen, in plain words: what happens, to
-which server, why it cannot be undone
+Idle is no reason to message. A peer's engineering call, direction, scope or "do I execute?" goes
+to its own EM, `coordinator:apm`, or the PM, named by address in one line; you answer none
 (`coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-escalation-threshold.md`).
 
 ### Push, do not nudge
 
 **"Do you need anything?" is a failure** ("want me to...?" likewise). A push **names the act, names its owner, and closes**: *"That is yours. Do X."* No question mark,
 offer or conditional; one clause of reason. Never push a peer past a gate its own skill names.
-
-### "Do I execute?" — yours to answer, with a viability read
-
-**Do not read the plan into your own context:** dispatch `coordinator:staff-eng` for a viability
-read. A plan needing the `execution_authorized_by` stamp takes § Delegated approve-for-execution only.
-
-## Delegated approve-for-execution procedure
-
-The Group EM takes the PM's execute-plan turn only if the plan is reversibility-eligible and a
-rubric-scored judgment against its prime exit criterion clears 8 of 8, no dimension 0.
-Read `references/approve.md` when taking that turn.
 
 ## Fleet inbox grind
 

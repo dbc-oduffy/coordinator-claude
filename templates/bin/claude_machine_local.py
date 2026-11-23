@@ -1,3 +1,5 @@
+"""In-process Python reader for the machine-local registry: exposes `repos.<key>` path lookups by spawning the machine-local forwarder."""
+
 import os
 import subprocess
 import sys

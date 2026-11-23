@@ -43,6 +43,10 @@ Frontmatter carries an optional `edited` date beside `created` (`decision.schema
 never required, and there is no `partially_superseded_by` field. Git history plus `edited` shows a
 record changed; the record itself states what is true now.
 
+## PM rulings are gates
+
+An accepted PM-ruling DR carries `topics:` and `enforced_by:` or `enforcement: prose-only-owed`; contract in `pm-ruling-gate.md`.
+
 ## Citation integrity — check-decision-citations
 
 `coordinator/bin/check-decision-citations.py` verifies that every cited `DR-nnn` and `SC-DR-nnn`

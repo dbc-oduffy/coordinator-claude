@@ -414,7 +414,7 @@ def _load_manifest() -> dict:
     # The literal is a FALLBACK DEFAULT for manifests predating redirectAliases.
     _redirect_aliases_raw = _identity.get(
         "redirectAliases",
-        [".claude-em", "claude-home", "coordinator-claude", "coordinator-claude-em"],
+        [".claude-em", "claude-home", "coordinator-claude", "coordinator-claude-em", "content-root-em", "coordinator-content-repo-em"],
     )
     return {
         "_MANIFEST_PATH": _manifest_path,

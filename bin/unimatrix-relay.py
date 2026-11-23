@@ -40,10 +40,12 @@ Modes, read from SSH_ORIGINAL_COMMAND:
                     mark the sending box's mirror of <name> stale until that epoch; the router's
                     agent listing shows it as stale. `inbox <name>` clears the mark.
   source            print this file, so far boxes can vendor the current relay.
-  receipts <session-id> <since>
+  receipts <id> <since>
                     print {"ok": true, "rows": [...]}: this box's delivery receipts (session, sha256
-                    digest of the line, at/ts) for the session since that epoch. `send-session` appends one
-                    per line it wrote; the message text is never stored.
+                    digest of the line, at/ts) for the session since that epoch. <id> is any id the
+                    roster prints for the session: session id, name, `<name>.<box>` ref, or pid.
+                    `send-session` appends one per line it wrote; the message text is never stored.
+                    A row for the message is the receiver's proof it was enqueued.
   grant <grantee> <note> <ttl> <repo>
                     read the issuer's signed grant envelope (one JSON line on stdin) and hand
                     it to suite_grant.receive_relayed_grant; prints its JSON reply, exit 0 only
@@ -441,8 +443,6 @@ def roster(mirrors=False):
             continue  # never re-export a far session we are only mirroring, whichever OS made the entry
         if codex_export_refused(d, codex_cache):
             continue
-        with open(os.path.join(os.path.expanduser(SESS), key), encoding="utf-8") as fh:
-            body = fh.read()
         exported = {**d, **helpers.session_identity(d)}
         if reply_inbox:
             # Advertise the hosted endpoint, not a remotely supplied mirror. Leaving
@@ -450,7 +450,9 @@ def roster(mirrors=False):
             for field in ("unimatrixMirror", "unimatrixRemoteSocket", "unimatrixClient"):
                 exported.pop(field, None)
             exported.update(vendor="transport", box=local_box())
-        rows.append((pid, exported, {"entry": exported, "key_name": key, "key": body, **fields}))
+        # `key` stays as an empty string for one release so an old receiver indexing row["key"] mints a
+        # local token instead of KeyError-ing; a key body never leaves this box.
+        rows.append((pid, exported, {"entry": exported, "key_name": key, "key": "", **fields}))
     holders = {}
     for pid, exported, _ in rows:
         if exported.get("messagingSocketPath") is not None:
@@ -543,6 +545,7 @@ def load_roster():
     spec = importlib.util.spec_from_file_location("unimatrix_roster", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
+    mod.settings_home = settings_home  # an sshd forced command carries no env: this copy defaults, ordinary roster callers still refuse
     return mod
 
 
@@ -575,6 +578,21 @@ def _router_resolve(name):
     if not isinstance(answer, dict) or "ok" not in answer or answer.get("error") == "unknown op":
         return None
     return answer
+
+
+def session_sock_dirs():
+    """Realpaths of the directories a live session's messaging socket may sit in.
+
+    Claude Code binds under $XDG_RUNTIME_DIR/cc-socks on Linux; a relay spawned by sshd may carry no
+    XDG_RUNTIME_DIR, so /run/user/<uid>/cc-socks is accepted too. The inbox listener binds under SOCKS and
+    the mirror entry advertises that path, so the listener needs no change."""
+    dirs = {os.path.realpath(SOCKS)}
+    xdg = os.environ.get("XDG_RUNTIME_DIR")
+    if xdg:
+        dirs.add(os.path.realpath(os.path.join(xdg, "cc-socks")))
+    if hasattr(os, "getuid"):
+        dirs.add(os.path.realpath(f"/run/user/{os.getuid()}/cc-socks"))
+    return dirs
 
 
 def _session_path(pid, expected_digest=None, expected_name_digest=None, expected_session_id=None):
@@ -636,7 +654,7 @@ def _session_path(pid, expected_digest=None, expected_name_digest=None, expected
     if endpoint_kind() == "pipe":
         if not path.lower().startswith(PIPE_PREFIX.lower()):
             refuse(f"refusing non-session pipe {path}")
-    elif os.path.dirname(path) != SOCKS or not stat.S_ISSOCK(os.stat(path).st_mode):
+    elif os.path.realpath(os.path.dirname(path)) not in session_sock_dirs() or not stat.S_ISSOCK(os.stat(path).st_mode):
         refuse(f"refusing non-session socket {path}")
     name = _exported_name(target)
     _REACHED.update(pid=pid, name=name if isinstance(name, str) else None, session=target.get("sessionId"))
@@ -809,7 +827,7 @@ def send_batch(pid, expected_digest=None, expected_name_digest=None, expected_se
             if not line.strip():
                 raise ValueError("empty message line")
             _write_line(path, line)
-            reply = {"ok": True}
+            reply = {"ok": True, "written": True}
             if expected_session_id:
                 if reached:
                     reply.update(reached=reached["name"], reached_session=reached["session"], reached_pid=pid,
@@ -842,7 +860,7 @@ def record_receipt(session_id, line, now=None):
     import time
     stamp = time.time() if now is None else now
     digest = hashlib.sha256(line.rstrip(b"\n")).hexdigest()
-    row = {"session": session_id, "digest": digest, "at": stamp, "box": _own_box(), "ref": shown_ref(_REACHED.get("name")),
+    row = {"session": session_id, "digest": digest, "at": stamp, "box": _own_box(), "ref": shown_ref(_REACHED.get("name")), "name": _REACHED.get("name"), "pid": _REACHED.get("pid"),
            "ts": datetime.fromtimestamp(stamp, timezone.utc).astimezone().isoformat(timespec="seconds")}
     data = (json.dumps(row) + "\n").encode("utf-8")
     path = receipts_path()
@@ -895,7 +913,10 @@ def _trim_receipts(path):
 
 
 def receipts(session_id, since):
-    """`receipts <session-id> <since>`: this box's receipt rows for the session at or after epoch `since`."""
+    """`receipts <id> <since>`: this box's receipt rows at or after epoch `since` for `id`.
+
+    `id` is any identifier the roster prints for the session: its session id, its name, its shown
+    `<name>.<box>` ref, or its pid. Rows written before name and pid were recorded match by session or ref."""
     try:
         lines = receipts_path().read_text(encoding="utf-8").splitlines()
     except OSError:
@@ -906,13 +927,17 @@ def receipts(session_id, since):
             row = json.loads(raw)
         except ValueError:
             continue
-        if isinstance(row, dict) and row.get("session") == session_id and (row.get("at") or 0) >= since:
+        if not isinstance(row, dict) or (row.get("at") or 0) < since:
+            continue
+        pid = row.get("pid")
+        if session_id in (row.get("session"), row.get("name"), row.get("ref")) or (
+                isinstance(pid, int) and session_id == str(pid)):
             rows.append(row)
     return {"ok": True, "rows": rows}
 
 
 def pid_domain():
-    return "darwin" if sys.platform == "darwin" else "linux"
+    return "darwin" if sys.platform == "darwin" else _liveness().linux_pid_domain()
 
 
 def proc_start(pid):
@@ -1084,15 +1109,53 @@ def release(sock_path, our_ino, others):
             pass
 
 
-def serve(srv, stdin_fd, out):
-    """Forward each message delivered to `srv` to `out`; return when stdin hits EOF."""
+# The near client sends `PING_LINE` every HEARTBEAT_SECONDS. A relay that has seen one holds its mirrors only
+# while the stream stays fresh: a dead TCP path (sleep, cable, crash) never delivers stdin EOF, and an
+# unreaped mirror socket accepts a send whose message nobody will read. A near client that never pings
+# (older code) is never leased out.
+PING_LINE = b'{"op":"ping"}\n'
+LEASE_SECONDS = 90
+
+
+def _lease_timeout(last, lease, clock):
+    return None if last is None else max(0.0, last + lease - clock())
+
+
+def _heartbeat_seen(chunk, last, clock):
+    """New lease stamp after a stdin chunk: armed by a ping, refreshed by any traffic once armed."""
+    return clock() if (last is not None or b'"ping"' in chunk) else None
+
+
+def record_mirror_forward(name, buf, ok=True, error=None):
+    """The outbound row for one message a mirror socket took: digest and target only, never the text."""
+    row = {"side": "mirror-out", "ok": ok, "written": ok, "reached": name,
+           "digest": hashlib.sha256(buf).hexdigest()[:16]}
+    if error:
+        row["error"] = error
+    record_delivery(row)
+
+
+def serve(srv, stdin_fd, out, name=None, lease=LEASE_SECONDS, clock=None):
+    """Forward each message delivered to `srv` to `out`; return when stdin hits EOF or the lease lapses."""
+    import time
+    clock = clock or time.monotonic
+    last = None
+
+    def emit(buf):
+        out.write(buf)
+        out.flush()
+        record_mirror_forward(name, buf)
     while True:
-        ready, _, _ = select.select([srv, stdin_fd], [], [])
+        ready, _, _ = select.select([srv, stdin_fd], [], [], _lease_timeout(last, lease, clock))
+        if not ready:
+            return
         if stdin_fd in ready:
-            if not os.read(stdin_fd, 4096):
+            chunk = os.read(stdin_fd, 4096)
+            if not chunk:
                 return
+            last = _heartbeat_seen(chunk, last, clock) or last
             continue
-        forward_one(srv, lambda buf: (out.write(buf), out.flush()))
+        forward_one(srv, emit)
 
 
 def forward_one(srv, emit):
@@ -1163,9 +1226,11 @@ def register_name(name, raw, key_body, export_reply=False, mux=False):
     try:
         our_ino = os.stat(path).st_ino
         srv.listen(8)
-        # Raw ps output: the harness compares it byte for byte, padded one-digit day included.
-        ps = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)],
-                            capture_output=True, text=True, check=True).stdout.strip()
+        # The harness compares procStart byte for byte: /proc ticks on Linux, padded-day lstart on macOS.
+        ps = proc_start(pid)
+        if ps is None:
+            ps = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)],
+                                capture_output=True, text=True, check=True).stdout.strip()
         entry.update(pid=pid, procStart=ps, pidDomain=pid_domain(),
                      messagingSocketPath=path, unimatrixMirror=True, unimatrixClient=client,
                      unimatrixSocketIno=our_ino)
@@ -1202,7 +1267,7 @@ def inbox(name, export_reply=False):
     key_body = sys.stdin.readline().rstrip("\n")
     m = register_name(name, raw, key_body, export_reply=export_reply)
     try:
-        serve(m.srv, sys.stdin.fileno(), sys.stdout.buffer)
+        serve(m.srv, sys.stdin.fileno(), sys.stdout.buffer, name=name)
     finally:
         m.release()
 
@@ -1236,6 +1301,7 @@ def _mux_apply(frame, mirrors, out):
 
 def _wrap_line(name, out):
     def emit(buf):
+        record_mirror_forward(name, buf)
         for line in buf.splitlines():
             try:
                 frame = json.loads(line)
@@ -1245,19 +1311,24 @@ def _wrap_line(name, out):
     return emit
 
 
-def serve_mux(stdin_fd, out):
-    """Serve every registered name's socket and the add/drop frame stream; return at stdin EOF.
+def serve_mux(stdin_fd, out, lease=LEASE_SECONDS, clock=None):
+    """Serve every registered name's socket and the add/drop frame stream; return at stdin EOF or lease lapse.
 
     Single-threaded: a sender that holds a connection open stalls every name and the frame stream."""
-    mirrors, pending = {}, b""
+    import time
+    clock = clock or time.monotonic
+    mirrors, pending, last = {}, b"", None
     try:
         while True:
             socks = {m.srv: n for n, m in mirrors.items()}
-            ready, _, _ = select.select([*socks, stdin_fd], [], [])
+            ready, _, _ = select.select([*socks, stdin_fd], [], [], _lease_timeout(last, lease, clock))
+            if not ready:
+                return
             if stdin_fd in ready:
                 chunk = os.read(stdin_fd, 65536)
                 if not chunk:
                     return
+                last = _heartbeat_seen(chunk, last, clock) or last
                 pending += chunk
                 *lines, pending = pending.split(b"\n")
                 for line in lines:
@@ -1427,7 +1498,8 @@ def grant(args, line, receive=None, peer=None):
 
 
 def settings_home():
-    return Path(os.environ.get("COORDINATOR_SETTINGS_HOME") or Path.home() / ".coordinator-claude-settings")
+    env = os.environ.get("COORDINATOR_SETTINGS_HOME")
+    return Path(env) if env and env.strip() else Path.home() / ".coordinator-claude-settings"
 
 
 MANIFEST = "MANIFEST.sha256"
@@ -1680,26 +1752,144 @@ def load_file_relay_line():
     return mod.file_line
 
 
-def windows_admin():
+def windows_admin() -> bool:
+    """True when this process is elevated: the only state that can write the administrators file."""
     if sys.platform != "win32":
         return False
     import ctypes
     return bool(ctypes.windll.shell32.IsUserAnAdmin())
 
 
-def reconcile_authorized_keys(members, path, membership, is_admin=windows_admin, listed=frozenset(),
-                              unenrolled=None):
-    """Make the relay-managed lines of `path` equal the generated lines for `members`.
+def windows_admin_member() -> bool:
+    """True when the account is in Administrators, elevated or not.
 
+    sshd's `Match Group administrators` keys off membership; IsUserAnAdmin is False for the filtered token
+    of a non-elevated administrator, so the TokenElevationType (3 = limited) is read as well."""
+    if windows_admin():
+        return True
+    if sys.platform != "win32":
+        return False
+    import ctypes
+    from ctypes import wintypes
+    k32, adv = ctypes.windll.kernel32, ctypes.windll.advapi32
+    k32.GetCurrentProcess.restype = wintypes.HANDLE
+    adv.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
+    adv.GetTokenInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD,
+                                        ctypes.POINTER(wintypes.DWORD)]
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    token = wintypes.HANDLE()
+    if not adv.OpenProcessToken(k32.GetCurrentProcess(), 0x0008, ctypes.byref(token)):  # TOKEN_QUERY
+        return False
+    kind, size = wintypes.DWORD(), wintypes.DWORD()
+    ok = adv.GetTokenInformation(token, 18, ctypes.byref(kind), ctypes.sizeof(kind), ctypes.byref(size))  # TokenElevationType
+    k32.CloseHandle(token)
+    return bool(ok) and kind.value == 3
+
+
+def default_programdata() -> Path:
+    return Path(os.environ.get("ProgramData") or Path(os.environ.get("SystemDrive", "C:") + os.sep) / "ProgramData")
+
+
+def sshd_admin_keys_file(sshd_config=None, programdata=None) -> Path | None:
+    """The AuthorizedKeysFile of an active `Match Group administrators` block of sshd_config; None when absent.
+
+    sshd takes the first value of a keyword, so the first AuthorizedKeysFile inside the block wins;
+    `__PROGRAMDATA__` expands to `programdata`. A relative path is ignored (sshd resolves it against the home)."""
+    programdata = Path(programdata) if programdata else default_programdata()
+    sshd_config = Path(sshd_config) if sshd_config else programdata / "ssh" / "sshd_config"
+    try:
+        lines = sshd_config.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    in_block = False
+    for raw in lines:
+        text = raw.strip()
+        if not text or text.startswith("#"):
+            continue
+        key, _, rest = text.replace("=", " ", 1).partition(" ") if "=" in text.split()[0] else text.partition(" ")
+        key, rest = key.lower(), rest.strip()
+        if key == "match":
+            crit = rest.split(None, 2)
+            in_block = len(crit) == 2 and crit[0].lower() == "group" and "administrators" in crit[1].lower().split(",")
+        elif in_block and key == "authorizedkeysfile" and rest:
+            value = rest.split('"')[1] if rest.startswith('"') and rest.count('"') >= 2 else rest.split()[0]
+            value = value.replace("__PROGRAMDATA__", str(programdata))
+            return Path(value) if Path(value).is_absolute() or value[:1] in "/\\" or value[1:2] == ":" else None
+    return None
+
+
+def effective_authorized_keys(user_file, is_admin=windows_admin_member, sshd_config=None, programdata=None) -> tuple[Path, bool]:
+    """(path, is_admin_file): the file sshd reads for this account.
+
+    An administrator whose sshd_config carries an active `Match Group administrators` AuthorizedKeysFile
+    is served that file and never `user_file`; everyone else is served `user_file`."""
+    if is_admin():
+        admin = sshd_admin_keys_file(sshd_config, programdata)
+        if admin is not None:
+            return admin, True
+    return Path(user_file), False
+
+
+def lock_admin_keys_acl(path) -> None:
+    """Protected DACL of SYSTEM and Administrators only, via advapi32; sshd ignores the file otherwise. Windows only."""
+    import ctypes
+    from ctypes import wintypes
+    adv, k32 = ctypes.windll.advapi32, ctypes.windll.kernel32
+    adv.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p]
+    adv.GetSecurityDescriptorDacl.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.BOOL),
+                                              ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.BOOL)]
+    adv.SetNamedSecurityInfoW.argtypes = [wintypes.LPWSTR, ctypes.c_int, wintypes.DWORD, ctypes.c_void_p,
+                                          ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+    adv.SetNamedSecurityInfoW.restype = wintypes.DWORD
+    k32.LocalFree.argtypes = [ctypes.c_void_p]
+    sd = ctypes.c_void_p()
+    if not adv.ConvertStringSecurityDescriptorToSecurityDescriptorW("D:P(A;;FA;;;SY)(A;;FA;;;BA)", 1, ctypes.byref(sd), None):
+        raise ctypes.WinError()
+    try:
+        present, defaulted, dacl = wintypes.BOOL(), wintypes.BOOL(), ctypes.c_void_p()
+        if not adv.GetSecurityDescriptorDacl(sd, ctypes.byref(present), ctypes.byref(dacl), ctypes.byref(defaulted)):
+            raise ctypes.WinError()
+        # SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION
+        err = adv.SetNamedSecurityInfoW(str(path), 1, 0x00000004 | 0x80000000, None, None, dacl, None)
+        if err:
+            raise ctypes.WinError(err)
+    finally:
+        k32.LocalFree(sd)
+
+
+def admin_keys_remediation() -> str:
+    """The command that finishes the admin-file reconcile once run from an elevated shell."""
+    return f'"{sys.executable}" "{Path(__file__).resolve()}" reconcile-keys'
+
+
+def reconcile_authorized_keys(members, path, membership, is_admin=windows_admin_member, listed=frozenset(),
+                              unenrolled=None, sshd_config=None, programdata=None, acl_lock=None, report=None) -> str:
+    """Make the relay-managed lines of the file sshd reads equal the generated lines for `members`.
+
+    That file is `path`, or for an administrator under `Match Group administrators` the AuthorizedKeysFile
+    of sshd_config (`effective_authorized_keys`); `report["keys_file"]` names it when it is the administrators file.
     Only lines whose forced command names unimatrix-relay.py are touched; every other line keeps its
     exact bytes. A managed line already equal to its generated line stays in place; a stale pin of a
     member key is regenerated; a line for a key in `listed` (key bodies a prior snapshot listed) that
     `members` omits is dropped (a revocation). A managed line for any other key was never enrolled: it
     is kept byte-for-byte and its key body is appended to `unenrolled` when given.
-    Returns admin | unchanged | updated.
+    The administrators file is rewritten in place, never replaced, so its ACL survives; a file created
+    here gets `acl_lock` (SYSTEM and Administrators only) before any key lands in it.
+    Returns unchanged | updated | admin_keys_unwritable (not elevated: nothing written).
     """
-    if is_admin():
-        return "admin"
+    path, via_admin = effective_authorized_keys(path, is_admin, sshd_config, programdata)
+    if report is not None and via_admin:
+        report["keys_file"] = str(path)
+    try:
+        return _reconcile_file(members, path, membership, listed, unenrolled, via_admin, acl_lock)
+    except OSError:
+        if via_admin:
+            return "admin_keys_unwritable"
+        raise
+
+
+def _reconcile_file(members, path, membership, listed, unenrolled, via_admin, acl_lock) -> str:
     want = {}
     for body, line in membership.member_lines(members, relay_line, load_file_relay_line()):
         want[body] = line
@@ -1723,6 +1913,18 @@ def reconcile_authorized_keys(members, path, membership, is_admin=windows_admin,
     new = "".join(out)
     if new == old:
         return "unchanged"
+    if via_admin:
+        # os.replace would swap the protected SYSTEM+Administrators DACL for the temp file's inherited one.
+        if not path.exists():
+            os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL))
+            try:
+                (acl_lock or lock_admin_keys_acl)(path)
+            except OSError:
+                path.unlink(missing_ok=True)
+                raise
+        with open(path, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(new)
+        return "updated"
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     try:
@@ -1762,7 +1964,8 @@ def _pin_pinless_receiver(home, snap, sig, pin_line, membership, notifier, run):
 
 
 def membership_put(home, snapshot_line, sig_line, membership, authorized_keys, notifier=None,
-                   is_admin=windows_admin, run=subprocess.run, pin_line=""):
+                   is_admin=windows_admin_member, run=subprocess.run, pin_line="", sshd_config=None,
+                   programdata=None, acl_lock=None):
     """Verify and adopt a pushed snapshot, then reconcile authorized_keys; return the reply dict.
 
     The pin and the epoch gate inside `membership.adopt` are the only defence: a refusal (bad
@@ -1791,10 +1994,36 @@ def membership_put(home, snapshot_line, sig_line, membership, authorized_keys, n
     except membership.MembershipError as ex:
         return {"ok": False, "reason": f"refused: {ex}"[:200]}
     unenrolled = []
-    result = reconcile_authorized_keys(members, authorized_keys, membership, is_admin, listed, unenrolled)
+    report = {}
+    result = reconcile_authorized_keys(members, authorized_keys, membership, is_admin, listed, unenrolled,
+                                       sshd_config, programdata, acl_lock, report)
     for body in unenrolled:
         notifier(home, {"kind": "unenrolled", "epoch": snap["epoch"], "detail": f"relay line kept, key {body[:24]} not in any snapshot"})
-    return {"ok": True, "epoch": snap["epoch"], "authorized_keys": result}
+    return _reconcile_reply(home, notifier, snap["epoch"], result, report)
+
+
+def _reconcile_reply(home, notifier, epoch, result, report):
+    """The put reply; an unwritable administrators file is logged and named with its remediation, never silent."""
+    reply = {"ok": True, "epoch": epoch, "authorized_keys": result}
+    if "keys_file" in report:
+        reply["keys_file"] = report["keys_file"]
+    if result == "admin_keys_unwritable":
+        reply["admin_keys_unwritable"] = {"path": report.get("keys_file"), "remediation": admin_keys_remediation()}
+        notifier(home, {"kind": "admin_keys_unwritable", "epoch": epoch,
+                        "detail": f"{report.get('keys_file')} not writable; elevated shell: {admin_keys_remediation()}"[:200]})
+    return reply
+
+
+def reconcile_keys_cli(home, membership, authorized_keys, notifier=None, **kw):
+    """`reconcile-keys`: reconcile the effective keys file from the held snapshot; run elevated to write the administrators file."""
+    notifier = notifier or membership.notify
+    snap, _ = membership.load_snapshot(home)
+    if snap is None:
+        return {"ok": False, "reason": "no membership snapshot held"}
+    report = {}
+    result = reconcile_authorized_keys(membership.verified_members(home), authorized_keys, membership,
+                                       report=report, **kw)
+    return _reconcile_reply(home, notifier, snap["epoch"], result, report)
 
 
 GIB = 1024 ** 3
@@ -1892,7 +2121,10 @@ def probe_specs(platform=None):
     }
 
 
-def main():
+def main() -> None:
+    # An sshd forced command may start with no env at all (administrators_authorized_keys, cmd.exe
+    # default shell): pin the settings home before any roster helper or child reads it strictly.
+    os.environ.setdefault("COORDINATOR_SETTINGS_HOME", str(settings_home()))
     try:
         import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
         from cc_invoke import ensure_engine_on_path
@@ -1900,9 +2132,16 @@ def main():
         ensure_engine_on_path(__file__)
     except ImportError:  # a receiving-box copy carries no lib/; the engine resolves lazily
         pass
+    if sys.argv[1:] == ["reconcile-keys"] and not os.environ.get("SSH_ORIGINAL_COMMAND"):
+        membership = load_membership()
+        if membership is None:
+            sys.exit("membership library not vendored beside the relay")
+        reply = reconcile_keys_cli(settings_home(), membership, Path.home() / ".ssh" / "authorized_keys")
+        print(json.dumps(reply))
+        sys.exit(0 if reply.get("ok") is True and reply.get("authorized_keys") != "admin_keys_unwritable" else 1)
     parsed = parse_mode(os.environ.get("SSH_ORIGINAL_COMMAND", ""))
     if parsed is None:
-        sys.exit("usage: roster | capabilities | specs | send <pid> | send-batch <pid> | send-to <pid> <digest> | send-named <pid> <digest> <name-digest> | send-session <pid> <digest> <name-digest> <session-id> | receipts <session-id> <since> | inbox <name> | inbox-mux | reply-inbox <name> | source | "
+        sys.exit("usage: roster | capabilities | specs | send <pid> | send-batch <pid> | send-to <pid> <digest> | send-named <pid> <digest> <name-digest> | send-session <pid> <digest> <name-digest> <session-id> | receipts <session-id|name|ref|pid> <since> | inbox <name> | inbox-mux | reply-inbox <name> | source | "
                  "grant <grantee> <note> <ttl> <repo> | revoke <grantee> | keypin <box_id> | freshness | membership get | membership put")
     mode, arg = parsed
     if mode == "membership":

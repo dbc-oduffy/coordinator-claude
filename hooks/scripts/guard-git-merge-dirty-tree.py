@@ -36,7 +36,11 @@ _GIT_ARG_OPTS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-
 _MAX_PATHS = 15
 _MAX_SESSIONS = 20
 _GIT_TIMEOUT = 3
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+_SCRIPTS_DIR = str(Path(__file__).resolve().parent)
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+from _win_portability import no_console_spawn_kwargs  # noqa: E402
 
 
 def _segments(text: str) -> list[list[str]]:
@@ -127,7 +131,7 @@ def _git(cwd: str, *args: str) -> str | None:
     try:
         proc = subprocess.run(
             ["git", "--no-optional-locks", *args], cwd=cwd, capture_output=True, text=True,
-            timeout=_GIT_TIMEOUT, creationflags=_NO_WINDOW,
+            timeout=_GIT_TIMEOUT, **no_console_spawn_kwargs(),
         )
     except (OSError, subprocess.SubprocessError):
         return None

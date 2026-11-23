@@ -37,8 +37,8 @@ No producer automates reviewer selection yet. Until then:
 - **the Director of Engineering:** cross-team/consumer-leak signal → standalone primary (director-altitude posture in brief; no `mode` arg), skip the Staff Engineer.
 - `--reviewers "a,b"` skips auto-detection; report "PM-directed review: [a] then [b]."
 - One reviewer suffices unless a second would likely *contradict*.
-- **Peer lens (opt-in, EM-run):** a live Codex or agy peer may be consulted as an additional reviewer, never a persona; not a dispatched step, never gating, silent when no peer is live. Contract: [docs/wiki/cross-repo-communication/live-peer-consult.md § Peer lens in pipelines](../../docs/wiki/cross-repo-communication/live-peer-consult.md#peer-lens-in-pipelines).
-- **Family binding (opt-in):** a run whose brief names `coordinator/pipelines/stage-family-binding.yaml` runs review stages on codex via `coordinator:family-stage-runner`, Claude fallback on `BLOCKED`/`FAILED`.
+- **Peer lens (opt-in, EM-run):** a live peer of another model family (Codex, say) may be consulted as an additional reviewer, never a persona; not a dispatched step, never gating, silent when no peer is live. Contract: [docs/wiki/cross-repo-communication/live-peer-consult.md § Peer lens in pipelines](../../docs/wiki/cross-repo-communication/live-peer-consult.md#peer-lens-in-pipelines).
+- **Family binding (opt-in):** a run whose brief names `coordinator/pipelines/stage-family-binding.yaml` runs review stages on the bound non-Claude model family via `coordinator:family-stage-runner`, Claude fallback on `BLOCKED`/`FAILED`.
 
 Pipeline phases aren't optional — walk the assembled phase list.
 

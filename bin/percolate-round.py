@@ -394,6 +394,66 @@ def _git_bytes(repo_root: Path, *args: str) -> "subprocess.CompletedProcess[byte
     return _spooled_run(["git", "-C", str(repo_root), *args], timeout=None, text=False)
 
 
+def _pin_remote_source_ref(repo_root: Path, source_ref: str) -> str:
+    """Replace a configured remote-tracking branch with its advertised, locally available commit."""
+    if source_ref.startswith("refs/") and not source_ref.startswith("refs/remotes/"):
+        return source_ref
+    remote_ref = source_ref.removeprefix("refs/remotes/")
+    if "/" not in remote_ref:
+        return source_ref
+
+    from coordinator_core.git.run import run_git
+
+    def git(args: list[str], *, remote: bool = False):
+        return run_git(args, cwd=str(repo_root), remote=remote)
+
+    remotes = git(["remote"])
+    if remotes.returncode:
+        raise RuntimeError(f"could not list source remotes in {repo_root}")
+    remote_name = next(
+        (name for name in sorted(remotes.stdout.splitlines(), key=len, reverse=True)
+         if remote_ref.startswith(name + "/")),
+        None,
+    )
+    if remote_name is None:
+        if source_ref.startswith("refs/remotes/"):
+            raise RuntimeError(f"--source-ref {source_ref!r} has no configured remote in {repo_root}")
+        return source_ref
+
+    branch = "refs/heads/" + remote_ref[len(remote_name) + 1:]
+    listing = git(["ls-remote", "--exit-code", "--heads", "--", remote_name, branch], remote=True)
+    sha = None
+    for line in listing.stdout.splitlines():
+        oid, _, ref = line.partition("\t")
+        if ref == branch and re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", oid):
+            sha = oid
+            break
+    if listing.returncode or not sha:
+        detail = "timed out" if listing.timed_out else listing.stderr.strip() or "branch not advertised"
+        raise RuntimeError(f"could not verify --source-ref {source_ref!r} on {remote_name}: {detail}")
+    tracking = f"refs/remotes/{remote_ref}"
+
+    def tracking_matches() -> bool:
+        resolved = git(["rev-parse", "--verify", "--quiet", f"{tracking}^{{commit}}"])
+        return resolved.returncode == 0 and resolved.stdout.strip() == sha
+
+    if not tracking_matches():
+        # Refresh this branch only, so downstream reachability checks can find the verified pin.
+        fetched = git(
+            ["fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head",
+             "--refmap=", "--", remote_name, f"+{branch}:{tracking}"],
+            remote=True,
+        )
+        if fetched.returncode or not tracking_matches():
+            detail = (
+                "timed out" if fetched.timed_out else
+                fetched.stderr.strip() if fetched.returncode and fetched.stderr.strip() else
+                "remote branch no longer matches the advertised commit"
+            )
+            raise RuntimeError(f"could not fetch --source-ref {source_ref!r} at {sha}: {detail}")
+    return sha
+
+
 def _resolve_clone_sha(repo_root: Path, source_ref: Optional[str]) -> str:
     """The commit the round's code runs from: `source_ref`, else HEAD. A ref this repo does not
     hold falls back to HEAD (the round's own preflight still judges the ref against its source).
@@ -665,6 +725,12 @@ _ROUND_SCAN_LEG_TIMEOUT_SECS = 60.0
 #: constant is a fix for it. The hitlist's own answer stands: the bound
 #: has nothing left to justify it once that spawn count comes down.
 _PUBLISH_LEG_TIMEOUT_SECS = 3600.0
+
+#: The publish child runs at idle CPU priority, which on Windows also drops its disk I/O
+#: priority to low: a full-tree publish otherwise saturates the disk and starves the warm
+#: engine's module reads, so every guard on the box falls back to cold and fails open.
+_PUBLISH_CHILD_CREATIONFLAGS = (getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                                | getattr(subprocess, "IDLE_PRIORITY_CLASS", 0))
 
 def _run(cmd: List[str], *, timeout: float, **kwargs) -> subprocess.CompletedProcess:
     """Spawn one leg of the round under an EXPLICIT bound.
@@ -2143,6 +2209,43 @@ def _wiki_seed_mismatch(
     return sorted(published - expected), sorted(expected - published), len(published)
 
 
+_SOURCE_WIKI_RELS = (Path("docs") / "wiki", Path("coordinator") / "docs" / "wiki")
+"""Under the source repo root: the trees the wiki rows publish from."""
+
+
+def _seed_rename_preflight(percolate_root: str, target: str, source_dir: str) -> Optional[str]:
+    """Refusal text naming each seed entry that no source wiki file publishes as,
+    else None. The pre-sync half of Step 2c's `missing` side: it maps the source
+    wiki tree through the same `basename_rename` pairs the sync applies and reads
+    nothing from the dest. None when the check does not apply (no seed manifest,
+    no store, no source wiki tree) or the seed cannot be read; Step 2c judges
+    the dest tree after the sync."""
+    manifest = Path(percolate_root) / _SEED_WIKIS_MANIFEST_REL
+    wiki_dirs = [Path(source_dir) / rel for rel in _SOURCE_WIKI_RELS if (Path(source_dir) / rel).is_dir()]
+    if not manifest.is_file() or not wiki_dirs:
+        return None
+    try:
+        seed = set(json.loads(manifest.read_text(encoding="utf-8"))["seed_wikis"])
+        expected = _published_seed_names(percolate_root, target, seed)
+        source_names = {
+            path.relative_to(wiki_dir).as_posix()
+            for wiki_dir in wiki_dirs
+            for path in wiki_dir.rglob("*")
+            if path.is_file() and not any(part.startswith(".") for part in path.relative_to(wiki_dir).parts)
+        }
+        reachable = _published_seed_names(percolate_root, target, source_names)
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    unrenamed = sorted(expected - reachable)
+    if not unrenamed:
+        return None
+    return (
+        f"{len(unrenamed)} seed wiki entr(ies) have no source file publishing under that name; "
+        "add the missing `basename_rename` pair to the target's store section, or amend the seed:\n"
+        + "\n".join(f"  {name}" for name in unrenamed)
+    )
+
+
 # ---------------------------------------------------------------------------
 # Step 6 summary counts (added-or-updated / removed), for the human-facing
 # panels only — never fed back into any gate logic.
@@ -3033,6 +3136,87 @@ def _early_import_probe_covers_late_gate(
     return not any(str(p).replace("\\", "/").startswith("coordinator_core/") for p in withheld)
 
 
+def _commit_gate_cache(dest: Optional[str], gate_module: Any, gate_id: str) -> Any:
+    """The destination repo's `GateResultCache` for `gate_module` under `gate_id`, built as
+    publish.py `_gate_cache_for` builds it; None when `dest` has no `.git` at or above it or the
+    cache cannot be built (a cache is an optimisation, never a verdict)."""
+    if not dest:
+        return None
+    try:
+        dest_path = Path(dest)
+        repo = next((c for c in (dest_path, *dest_path.parents) if (c / ".git").exists()), None)
+        if repo is None or not (repo / ".git").is_dir():
+            return None
+        from coordinator_core.percolate.gate_result_cache import (  # type: ignore[import-not-found]  # noqa: PLC0415
+            GateResultCache,
+            gate_version_of,
+        )
+        facts_version = getattr(gate_module, "facts_version", None)
+        version = facts_version() if callable(facts_version) else gate_version_of(gate_module.__file__)
+        return GateResultCache(repo / ".git" / "claude-klabauter-gate-result", gate_id, version)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _commit_gates_preflight_refusal(
+    source_dir: str, shipped_sha: Optional[str], *, out: Any = None, dest: Optional[str] = None
+) -> Optional[str]:
+    """Refusal text when the pinned sha ships a level-0 `coordinator_core` from-import name or a
+    module attribute that does not resolve against that sha's own blobs, else None. Runs the same
+    two `percolate.import_closure` checks as publish.py's in-round commit gates (which stay), but
+    before any staging, so a stamp that imports an uncommitted name fails in seconds, not after the
+    round's staging. Prints the verdict line. A gate that cannot run (no sha, lib predates the
+    gates, git read failed) says so and allows: publish's in-round gates fail closed.
+    `dest` (the target's destination dir) locates the destination repo's `GateResultCache`, the
+    same ids and version keys publish.py uses, so the parse this pays warms publish's gates."""
+    out = out if out is not None else sys.stdout
+    if not shipped_sha:
+        return None
+    if str(_COORDINATOR_LIB) not in sys.path:
+        sys.path.insert(0, str(_COORDINATOR_LIB))
+    try:
+        from percolate.import_closure import (  # type: ignore[import-not-found]  # noqa: PLC0415
+            find_commit_from_import_name_violations as _from_import_gate,
+            find_commit_module_attr_violations as _module_attr_gate,
+        )
+    except ImportError:
+        print(
+            f"percolate-round: commit gates preflight skipped @ {shipped_sha[:12]}: "
+            "the pinned percolate lib predates the commit gates.",
+            file=out,
+        )
+        return None
+    repo = Path(source_dir)
+    lib = sys.modules[_from_import_gate.__module__]
+    name_cache = _commit_gate_cache(dest, lib, "commit-from-import")
+    attr_cache = _commit_gate_cache(dest, lib, "commit-module-attr")
+    try:
+        name_examined, name_violations = _from_import_gate(repo, shipped_sha, cache=name_cache)
+        attr_examined, attr_violations = _module_attr_gate(repo, shipped_sha, cache=attr_cache)
+        for cache in (name_cache, attr_cache):
+            if cache is not None:
+                cache.flush()
+    except Exception as exc:  # noqa: BLE001 - a preflight that cannot read allows; publish gates fail closed
+        print(
+            f"percolate-round: commit gates preflight skipped @ {shipped_sha[:12]}: {exc}",
+            file=out,
+        )
+        return None
+    print(
+        f"percolate-round: commit gates preflight @ {shipped_sha[:12]}: "
+        f"import-name {len(name_violations)} violation(s) over {name_examined} importer file(s), "
+        f"module-attr {len(attr_violations)} violation(s) over {attr_examined} importer file(s).",
+        file=out,
+    )
+    if not name_violations and not attr_violations:
+        return None
+    lines = [f"commit gates preflight (pinned sha {shipped_sha[:12]}): the importer ships, the name exists only uncommitted:"]
+    lines += [f"  from-import {importer}: {entry}" for importer, entry in name_violations]
+    lines += [f"  module-attr {importer}: {entry}" for importer, entry in attr_violations]
+    lines.append("Remedy: commit the file or hunk that defines each name, then republish.")
+    return "\n".join(lines)
+
+
 def _round_refusal_reason(
     *,
     real_returncode: int,
@@ -3476,7 +3660,51 @@ def _write_driver_progress(path: Path, record: Dict[str, Any], *, only_if_driver
         return
 
 
+#: Wall budget for one post-round reap of doomed shadow-store trees. Deletion of a large stale
+#: shadow tree is minutes of work on win32; it runs after the push, outside the publish leg's
+#: timeout, and what it does not finish waits for the next round (reap_doomed stops starting
+#: new deletions at the budget).
+_SHADOW_REAP_BUDGET_SECS = 20.0
+
+
+def _reap_shadow_store(dest: str) -> None:
+    """Best effort, never raises: delete doomed `.deleting-<pid>` shadow trees under every store root."""
+    try:
+        from coordinator_core.percolate.shadow_store import ShadowStore
+
+        start = time.monotonic()
+        for root in ShadowStore.store_roots():
+            remaining = _SHADOW_REAP_BUDGET_SECS - (time.monotonic() - start)
+            if remaining <= 0:
+                break
+            ShadowStore(toplevel=dest, root=root).reap_doomed(budget_s=remaining)
+    except Exception:
+        return
+
+
 def _cmd_round_default(
+    args: argparse.Namespace,
+    target: str,
+    percolate_root: str,
+    source_dir: str,
+    dest: str,
+    tmp: Path,
+    *,
+    override: "Optional[DestRootOverride]" = None,
+    withholding: "Any" = None,
+    engine_import_probed_sha: Optional[str] = None,
+) -> int:
+    """Run the round, then reap doomed shadow trees on every exit path, after any push."""
+    try:
+        return _round_default_body(
+            args, target, percolate_root, source_dir, dest, tmp, override=override,
+            withholding=withholding, engine_import_probed_sha=engine_import_probed_sha,
+        )
+    finally:
+        _reap_shadow_store(dest)
+
+
+def _round_default_body(
     args: argparse.Namespace,
     target: str,
     percolate_root: str,
@@ -3593,7 +3821,8 @@ def _cmd_round_default(
             )
             _write_driver_progress(progress_path, {"phase": "publish-running", "driver_pid": _os.getpid()})
             try:
-                real = _run(real_cmd, timeout=_PUBLISH_LEG_TIMEOUT_SECS, env=real_env)
+                real = _run(real_cmd, timeout=_PUBLISH_LEG_TIMEOUT_SECS, env=real_env,
+                            creationflags=_PUBLISH_CHILD_CREATIONFLAGS)
             except BaseException as exc:
                 _write_driver_progress(
                     progress_path, {"phase": "publish-failed", "error": type(exc).__name__}, only_if_driver_owned=True
@@ -4307,12 +4536,68 @@ def _field7_preflight(target: str, source_ref: str = "") -> Optional[str]:
     ok, detail, owned = publish._field7_declaration_check(pinned)
     if ok or (owned is not None and target not in owned):
         return None
+    regen_refusal = _regenerate_field7(publish, source_ref)
+    if regen_refusal is None:
+        publish._FIELD7_DECLARATION_CHECK = None  # memoised red result would otherwise be re-served
+        try:
+            pinned = publish._round_pin_source_sha(_live_repo_root(), {})
+        except Exception:
+            pinned = None
+        ok, detail, owned = publish._field7_declaration_check(pinned)
+        if ok or (owned is not None and target not in owned):
+            return None
+    else:
+        detail = regen_refusal
     return (
         f"the field-7 declaration validator is RED, so '{target}' would publish a set "
-        f"nobody declared:\n{detail or '(the validator reported no detail)'}\n"
-        "Remedy: run coordinator/bin/publish-allowlist-generate.py (without --check), "
-        "commit the regenerated field 7, re-run the round."
+        f"nobody declared:\n{detail or '(the validator reported no detail)'}"
     )
+
+
+_FIELD7_PORTABLE = "setup/publish-targets.portable"
+
+
+def _regenerate_field7(publish: Any, source_ref: str) -> Optional[str]:
+    """Run the field-7 generator in-process and commit only the portable file.
+
+    Returns None when a new HEAD commit holds the regenerated field 7, else the refusal text. A
+    `source_ref` pinning a commit other than HEAD refuses: a new HEAD commit cannot change it. A
+    generator refusal carries its own stderr."""
+    from functools import partial  # noqa: PLC0415
+
+    from coordinator_core.git.commit import (  # type: ignore[import-not-found]  # noqa: PLC0415
+        CommitRefused,
+        FilterUnsupported,
+        commit_paths,
+        hash_worktree_blobs_via_spawn,
+    )
+
+    root = _live_repo_root()
+    override = getattr(publish, "_source_ref_override", "")
+    if override and override != _resolve_shipped_sha(root, "HEAD"):
+        return (
+            f"--source-ref {source_ref} pins a commit other than HEAD; regenerating field 7 "
+            "commits at HEAD and cannot change the pinned commit."
+        )
+    captured = io.StringIO()
+    try:
+        module = publish._load_allowlist_generator()
+        with contextlib.redirect_stderr(captured), contextlib.redirect_stdout(io.StringIO()):
+            rc = module.main([])
+    except Exception as exc:
+        return f"the field-7 generator raised: {exc}"
+    if rc != 0:
+        return captured.getvalue().strip() or "the field-7 generator refused without detail"
+    try:
+        commit_paths(
+            root,
+            [_FIELD7_PORTABLE],
+            "percolate-round: regenerate field 7 of setup/publish-targets.portable",
+            blob_fallback=partial(hash_worktree_blobs_via_spawn, cwd=root),
+        )
+    except (CommitRefused, FilterUnsupported) as exc:
+        return f"the regenerated field 7 could not be committed: {exc}"
+    return None
 
 
 def _unresolved_root_flag(args: argparse.Namespace) -> Optional[str]:
@@ -4573,6 +4858,11 @@ def _cmd_round(args: argparse.Namespace) -> int:
             f"{', '.join(sorted(withholding.paths))}"
         )
 
+    seed_rename_refusal = _seed_rename_preflight(percolate_root, target, source_dir)
+    if seed_rename_refusal is not None:
+        print(f"percolate-round: refused, nothing synced: {seed_rename_refusal}", file=sys.stderr)
+        return _EXIT_FAIL
+
     early_probed: List[str] = []
     early_import_refusal = (
         None
@@ -4584,6 +4874,11 @@ def _cmd_round(args: argparse.Namespace) -> int:
     )
     if early_import_refusal is not None:
         print(f"percolate-round: refused, nothing synced: {early_import_refusal}", file=sys.stderr)
+        return _EXIT_FAIL
+
+    commit_gates_refusal = _commit_gates_preflight_refusal(source_dir, shipped_sha, dest=dest)
+    if commit_gates_refusal is not None:
+        print(f"percolate-round: refused, nothing synced: {commit_gates_refusal}", file=sys.stderr)
         return _EXIT_FAIL
 
     field7_refusal = (
@@ -4697,10 +4992,27 @@ def main(argv: Optional[List[str]] = None) -> int:
         parser.error("--open-only and --no-publish are mutually exclusive")
 
     # Before `_bootstrap_engine`: the round's code and chain run from a commit clone, never the live tree.
+    source_ref = args.source_ref
+    if source_ref and "/" in source_ref and (
+        not source_ref.startswith("refs/") or source_ref.startswith("refs/remotes/")
+    ):
+        _bootstrap_engine()
+        root = _resolve_percolate_root(args.percolate_root)
+        source_dir = _branch0_gate(args.target, root) if root is not None else None
+        if source_dir is None:
+            return _EXIT_USAGE
+        try:
+            args.source_ref = _pin_remote_source_ref(Path(source_dir), source_ref)
+        except RuntimeError as exc:
+            print(f"percolate-round: refused, nothing staged: {exc}", file=sys.stderr)
+            return _EXIT_FAIL
     if not _commit_clone_module().is_commit_clone(_REPO_ROOT):
-        return _delegate_to_commit_clone(
-            list(sys.argv[1:] if argv is None else argv), getattr(args, "source_ref", None)
-        )
+        forwarded = list(sys.argv[1:] if argv is None else argv)
+        if args.source_ref != source_ref:
+            # The last option wins, so place the verified pin after the original options.
+            end = forwarded.index("--") if "--" in forwarded else len(forwarded)
+            forwarded[end:end] = ["--source-ref", args.source_ref]
+        return _delegate_to_commit_clone(forwarded, args.source_ref)
     _bootstrap_engine()
 
     # A round once sat idle after its commit (0 CPU, no children) holding the

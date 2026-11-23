@@ -1,0 +1,3 @@
+# Core skills kept in the Codex startup catalog; every other skill is reached on demand.
+pickup
+sizing

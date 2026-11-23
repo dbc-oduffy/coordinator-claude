@@ -296,6 +296,16 @@ When a code relocation carries source but leaves its test-gate wiring behind, th
 
 ---
 
+## 17. A Test That Reads Ambient State Changes What It Asserts Without a Diff, and Stays Green
+
+*Specimen: `bin/pull_market_intel.py` (example-store-repo).*
+
+When production code starts reading the working tree, the filesystem, the clock or the environment earlier in its flow, every test downstream of that read silently changes subject. The test's text does not move, its name does not move, nothing appears in the diff. It begins asserting a different proposition and passes.
+
+**Concrete failure.** Three long-standing tests asserted an argv rule: `--hash-basis-changed` with no `--hash-basis-cause` must exit 2. Adding a pending-marker queue made `main()` read `market-intel/pending-hash-basis-marker.json` BEFORE those guards ran, so the tests stopped asserting the argv contract and started asserting that this repo happened to hold no queued cause on disk. None changed and none failed. They went red hours later, in an unrelated commit, when a real cause was queued for the first time.
+
+**Rule.** Pin ambient state explicitly in any test whose subject is a pure rule: run it against an empty `tmp_path` data root, a frozen clock and a monkeypatched environment. When production gains a new ambient read, add a test that asserts its effect on the same guards deliberately, so the dependence is stated rather than incidental. Greppable trigger: a diff that moves or adds a filesystem, clock or env read ahead of an existing guard, so grep the tests of that entrypoint for ones that pin none of the three. This is a claim a TEST makes gone stale by a change elsewhere, distinct from claims a human or agent makes unchecked. Composes with §11 (isolate via env vars) and §12 (assert the isolation landed).
+
 ## Related
 
 - `docs/wiki/test-design-discipline.md` — broader test discipline (fixture hygiene, assertion granularity, round-trip contract tests); §32–33 (HOME-isolation, fixture-substitution), §38 (stale-bytecode flake), §44 (bound every run), §91 (fast-tier-without-xdist strip only -n/--dist), §97 (never disable xdist for "determinism")

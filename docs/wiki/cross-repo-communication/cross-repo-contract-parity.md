@@ -410,6 +410,21 @@ alone — this composes with § An equality gate asserts agreement, never correc
 plausible-sounding doc disagreement is a "which layer" question to verify, not a fact to reason
 from directly.
 
+## A cross-repo answer that rests on a CLAUDE.md claim must be verified against code first
+
+*Source: project-rag. [universal]*
+
+A repo's own `CLAUDE.md` line describing a behavior (an interpreter-selection rule, a default, a
+pin) goes stale the moment the code flips and nobody edits the line. One such line stayed wrong for
+about two months after the pin-primary flip it described, and a sibling repo inherited that wrong
+premise verbatim into its distribution-seam memo -- the stale doc line propagated downstream as if
+it were fact.
+
+**Discipline.** When sourcing a cross-repo reconcile answer, ground it against the code that
+implements the behavior (the selector script, the validator, the constant), not against canonical
+docs; a `CLAUDE.md` claim is a pointer to check, not evidence. When the check finds the doc line
+stale, fix the line in the same pass so the next answer does not inherit it.
+
 ## See also
 
 - `cross-repo-communication` — the broader cross-repo communication doctrine; this wiki is the contract-field instance of it.

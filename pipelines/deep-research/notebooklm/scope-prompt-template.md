@@ -10,7 +10,7 @@ You are the NotebookLM Research Scope stage. Turn the sizing into the run's stra
 ## Inputs
 
 - **Sizing:** {{brief}} — carries the research topic, the intent, the `research` block, and `research.targets`.
-- **PM-supplied URLs:** the video seeds in the brief's `## Seeds` section. Treat each as a pre-selected source for a notebook. The `research.targets` entries whose `source` is `notebooklm` are notebook letters, not URLs.
+- **PM-supplied URLs:** the video seeds in the brief's `## Seeds` section. Treat each as a pre-selected source for a notebook. The `research.targets` entries whose `source` is `notebooklm` are notebook letters or existing notebook ids, not URLs: a letter is a fresh notebook, an id an optional reuse target.
 - **Plugin root:** resolve `<plugin-root>` once with the command below, which prints one line, the plugin root, and read both files below under it.
 
   ```bash
@@ -36,7 +36,7 @@ The frontmatter carries the team-protocol Data Contract fields (`worker_count`, 
 - `cleanup_notebooks`: `true` or `false` (default `false`)
 - `scout_ceiling_minutes`: default 5
 
-The body carries one `## Notebook {letter}` section per notebook, letters A, B, C as many as `worker_count`, each with Focus, Custom instructions, Questions, Source strategy, Search guidance for scout, and Estimated ceiling. Write the label as plain `Source strategy: <value>` (no markdown bold or other decoration). The default value is `scout-provided` (scout-vetted YouTube/podcast sources); `research_start` is opt-in, only when the brief asks for it, and never a notebook's only source. Notebooks fed by PM-supplied URLs list those URLs in the section and use `scout-provided`. Engine documentation is not a source: it comes from project-rag.
+The body carries one `## Notebook {letter}` section per notebook, letters A, B, C as many as `worker_count`, each with Focus, Custom instructions, Questions, Source strategy, Search guidance for scout, and Estimated ceiling. Write the label as plain `Source strategy: <value>` (no markdown bold or other decoration). The default value is `scout-provided` (scout-vetted YouTube/podcast sources); `research_start` is opt-in, only when the brief asks for it, and never a notebook's only source. A notebook bound in the members brief's "Existing notebook IDs (reuse — do NOT recreate)" table uses `Source strategy: existing_notebook` plus a plain `Notebook ID: <uuid>` line copied from that table; its existing sources are the sources, so no fresh scouting is owed and `research_start` is never added to it. Every other notebook keeps `scout-provided`. Notebooks fed by PM-supplied URLs list those URLs in the section and use `scout-provided`. Engine documentation is not a source: it comes from project-rag.
 
 The sized notebook roster is binding: one notebook per `research.targets` entry whose `source` is `notebooklm`, letters and count as sized. Never fold, merge or drop a notebook because its question looks answerable elsewhere; record a disagreement as one advisory line under `## Scope notes`.
 

@@ -9,14 +9,20 @@ nested PreToolUse deny) answers the host's open answer with state "degraded". ag
 it classifies the command in-process against the irreversible-class denies (backstop.degrade_match, no spawn) and
 answers a deny naming the cause on a match, else an allow whose reason says the guard was down.
 A Codex bare {} is state "neutral-unknown": the shim cannot yet tell a real neutral verdict from a warm miss
-or caught error. Only a verified deny (or valid agy answer) is "engine"; "degraded" and "neutral-unknown"
-never satisfy an enforcement check. A cold or unreachable warm engine is answered by the shim itself and
+or caught error, except when its evaluation names a guard in EVALUATED_ALLOW_GUARDS (a branch create), which is
+state "evaluated-allow". Only a verified deny (or valid agy answer) is "engine"; "degraded", "neutral-unknown"
+and "evaluated-allow" never satisfy an enforcement check. A cold or unreachable warm engine is answered by the shim itself and
 recorded in warm/degrade.jsonl, not in this module's log.
 
 Every degrade appends one record {ts, host, cause, budget_secs, cpu_secs} to degrade_log_path(); cpu_secs is the
 process CPU the guard spent. An import_error or run_error record also carries exc_type and, for a missing module,
 exc_module. A write failure never alters the answer. The log is append-only and unrotated; the
 A7 reader owns truncation.
+
+Every Codex verdict appends one {ts, host, kind: "evaluated-allow"|"evaluated-deny", verdict: allow|advisory|deny,
+route: warm|cold|unreported, guards_evaluated, verdicts: [{guard, verdict}] in run order, chain: full|backstop-only (reach only), backstop_class: bool}
+row to host-guard-allows.jsonl beside it, from the shim's take_evaluation(); an engine without that accessor is
+"unreported". A degrade appends none there.
 
 CLI: unimatrix-host-guard.py --host codex|agy|grok [--engine-root PATH]
   stdin: one hook payload. stdout: exactly one JSON line. stderr: `state`. Exit 0 always.
@@ -30,10 +36,14 @@ import threading
 import time
 from pathlib import Path
 
+HOOK = "unimatrix-host-guard"
 NEUTRAL = {"agy": {"decision": "allow"}, "codex": {}, "grok": {}}
 NEUTRAL_UNKNOWN = "neutral-unknown"
+EVALUATED_ALLOW = "evaluated-allow"
+EVALUATED_ALLOW_GUARDS = frozenset({"block-noncanonical-branch-creation"})
 DEFAULT_BUDGET_SECS = 0.5
 DEGRADE_LOG_NAME = "host-guard-degrades.jsonl"
+ALLOW_LOG_NAME = "host-guard-allows.jsonl"
 CLASSIFY_WALL_SECS = 0.25
 
 
@@ -167,6 +177,44 @@ def _record_degrade(host, cause, budget_secs, cpu_secs, verdict=None, unchecked=
         pass
 
 
+def _record_allow(host, evaluation, answer=None) -> None:
+    """Append one evaluation row beside the degrade log; never raises.
+    `evaluation` is the shim's take_evaluation() result; absent or malformed (an engine without the accessor) is
+    route "unreported" with no guards. `answer` classifies the row: a Codex deny is kind "evaluated-deny", an
+    advisory verdict "advisory", else "allow". Read by tests/test_host_guard_cold_process_budget.py. One row per
+    Codex verdict, never rotated: deleting the file resets it."""
+    try:
+        route, guards, verdicts, chain, backstop_class = "unreported", [], [], None, None
+        if (isinstance(evaluation, dict) and evaluation.get("route") in ("warm", "cold")
+                and isinstance(evaluation.get("guards_evaluated"), list)):
+            route, guards = evaluation["route"], [str(g) for g in evaluation["guards_evaluated"]]
+            raw = evaluation.get("verdicts")
+            if isinstance(raw, list):
+                verdicts = [{"guard": str(v.get("guard")), "verdict": str(v.get("verdict"))}
+                            for v in raw if isinstance(v, dict)]
+            chain = evaluation.get("chain") if evaluation.get("chain") in ("full", "backstop-only") else None
+            backstop_class = evaluation.get("backstop_class") if isinstance(evaluation.get("backstop_class"), bool) else None
+        verdict = "deny" if _is_codex_deny(answer) else "advisory" if _is_codex_advisory(answer) else "allow"
+        path = degrade_log_path().parent / ALLOW_LOG_NAME
+        path.parent.mkdir(parents=True, exist_ok=True)
+        rec = {"ts": round(time.time(), 3), "host": host,
+               "kind": "evaluated-deny" if verdict == "deny" else "evaluated-allow", "verdict": verdict,
+               "route": route, "guards_evaluated": guards, "verdicts": verdicts, "chain": chain,
+               "backstop_class": backstop_class}
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec) + "\n")
+    except Exception:
+        pass
+
+
+def _names_evaluated_guard(evaluation) -> bool:
+    """True when the shim's evaluation (route warm|cold) names a guard in EVALUATED_ALLOW_GUARDS: that allow is a
+    real evaluated verdict, the state the allow-log row already records."""
+    return (isinstance(evaluation, dict) and evaluation.get("route") in ("warm", "cold")
+            and isinstance(evaluation.get("guards_evaluated"), list)
+            and any(g in EVALUATED_ALLOW_GUARDS for g in evaluation["guards_evaluated"]))
+
+
 def _classify_irreversible(stdin_text, engine_root):
     """(deny reason, None) for an irreversible-class command; (None, None) for any other; (None, why) when it
     could not be classified. In-process and spawn-free, bounded by CLASSIFY_WALL_SECS."""
@@ -210,7 +258,7 @@ def _degrade(host, cause, budget_secs, cpu_secs=None, stdin_text=None, engine_ro
             "reason": "WARNING: Klabauter guard DEGRADED (%s); %s; proceeding open" % (cause, note)}, "degraded"
 
 
-def _run_shim(host, stdin_text, engine_root, box):
+def _run_shim(host, stdin_text, engine_root, box) -> None:
     try:
         shim = _load_shim(engine_root)
     except Exception as exc:
@@ -219,20 +267,25 @@ def _run_shim(host, stdin_text, engine_root, box):
         return
     try:
         take = getattr(shim, "take_pending_nag", None)
+        take_eval = getattr(shim, "take_evaluation", None)
         if take:
             take()
+        if take_eval:
+            take_eval()
         box["answer"] = shim.run(host, stdin_text)
         if take:
             box["nag"] = take()
             box["shim"] = shim
+        box["evaluation"] = take_eval() if take_eval else None
     except Exception as exc:
         box["cause"] = "run_error"
         box["detail"] = _exc_detail(exc)
 
 
-def guard(host, stdin_text, engine_root, budget_secs=DEFAULT_BUDGET_SECS, pending=None):
-    """Return (answer, state): "engine" for a Codex nested deny or a valid agy answer; "neutral-unknown" for a
-    Codex bare {} (the shim emits it for a real neutral verdict, a warm miss and a caught internal error alike);
+def guard(host, stdin_text, engine_root, budget_secs=DEFAULT_BUDGET_SECS, pending=None) -> tuple:
+    """Return (answer, state): "engine" for a Codex nested deny or a valid agy answer; "evaluated-allow" for a Codex
+    {} or advisory whose evaluation names an EVALUATED_ALLOW_GUARDS guard; "neutral-unknown" for any other Codex bare {}
+    (the shim emits it for a real neutral verdict, a warm miss and a caught internal error alike);
     else "degraded" with the host's neutral answer. Only "engine" may count as governance evidence.
 
     `pending`, a list, receives (shim, nag) when the shim finished in time and merged a DIY nag; a timeout,
@@ -263,8 +316,10 @@ def guard(host, stdin_text, engine_root, budget_secs=DEFAULT_BUDGET_SECS, pendin
             return degrade("invalid_answer", cpu_secs)
         if pending is not None and box.get("nag"):
             pending[:] = [(box["shim"], box["nag"])]
+        if host == "codex":
+            _record_allow(host, box.get("evaluation"), answer)
         if host == "codex" and (answer == {} or _is_codex_advisory(answer)):
-            return answer, NEUTRAL_UNKNOWN
+            return answer, EVALUATED_ALLOW if _names_evaluated_guard(box.get("evaluation")) else NEUTRAL_UNKNOWN
         if host == "grok" and answer.get("hookSpecificOutput", {}).get("permissionDecision") != "deny":
             return answer, NEUTRAL_UNKNOWN
         # Trap: a non-deny agy answer is never forwarded as an ask (agy -p auto-approves it); it becomes an
@@ -287,8 +342,26 @@ def _argv_value(argv, flag):
     return None
 
 
-def main(argv=None):
-    """Print one JSON line on stdout and the state on stderr; exit 0 whatever happens."""
+def main(argv=None) -> int:
+    """Print one JSON line on stdout and the state on stderr; exit 0 whatever happens.
+
+    A handled degrade answers the host's neutral object. Only an exception escaping _answer's own
+    handlers (BaseException included) answers the typed advisory `{"systemMessage": "<hook>: degraded: ..."}`."""
+    sent = []
+    try:
+        return _answer(argv, sent)
+    except BaseException as exc:  # a hook must never break the session
+        if not sent:
+            try:
+                sys.stdout.write(json.dumps({"systemMessage": f"{HOOK}: degraded: {type(exc).__name__}: {exc}"}) + "\n")
+                sys.stdout.flush()
+                sys.stderr.write("degraded\n")
+            except BaseException:
+                pass
+        return 0
+
+
+def _answer(argv, sent) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     host = _argv_value(argv, "--host") or ""
     answer, state = _neutral(host), "degraded"
@@ -307,6 +380,7 @@ def main(argv=None):
             answer, state = _degrade(host, "run_error", DEFAULT_BUDGET_SECS, None, stdin_text, engine_root)
         except Exception:
             answer, state = _neutral(host), "degraded"
+    sent.append(True)
     sys.stdout.write(json.dumps(answer) + "\n")
     sys.stdout.flush()
     if pending:

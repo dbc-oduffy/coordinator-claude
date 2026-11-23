@@ -40,7 +40,7 @@ Prior sidecar: rename, inserting `.<UTC-mtime>` before `.md` (hyphens for colons
 3. A table (frontmatter or body) with a column named `id`/`item`/`issue`/`finding`/`gap`.
 4. An explicit `**Oracle:**` marker.
 
-**No oracle found:** first, if `scope_mode` != `production-patch` (or absent) and 0/0b fell through, emit the advisory *"no PM-ratified problem-set found; EM, confirm problem understanding with the PM before dispatch."* (never forces INCOMPLETE); then **skip every oracle-keyed lens** — Lens 1 (Phase 2) and Lens 6 (Phase 3.8) — and run the rest. A plan with a task-spine still gets Lenses 2–2d, 7, 9, 3, 4 and 5, with the Open-row and body-absent checks; zero counts for the skipped lenses. Emit `SCOPE-MISMATCH`, reason "no audit/findings oracle found," only when there is no task-spine either, then stop.
+**No oracle found:** first, if `scope_mode` != `production-patch` (or absent) and 0/0b fell through, emit the advisory *"no PM-ratified problem-set found; EM, confirm problem understanding with the PM before dispatch."* (never forces INCOMPLETE); then **skip every oracle-keyed lens** — Lens 1 (Phase 2) and Lens 6 (Phase 3.8) — and run the rest. A plan with a task-spine still gets Lenses 2–2d, 7, 9, 11, 3, 4 and 5, with the Open-row and body-absent checks; zero counts for the skipped lenses. Emit `SCOPE-MISMATCH`, reason "no audit/findings oracle found," only when there is no task-spine either, then stop.
 
 **Slate** — a heading matching `/^#+\s*(Fix.*Slate|Chunks|Tasks|Dispatch.*Plan|Work.*Items|Implementation.*Plan)\b/i`, or a table with a `task`/`chunk`/`fix`/`action` column. None → all oracle items MISSED.
 
@@ -48,7 +48,7 @@ Prior sidecar: rename, inserting `.<UTC-mtime>` before `.md` (hyphens for colons
 
 **Matching signals**, in order: **(a)** shared file-path citation, **(b)** shared symbol/identifier, **(c)** shared distinctive noun phrase (>2 words, not all stopwords).
 
-**MATCHED** — any signal fires. **AMBIGUOUS** — stopword-only overlap, or a consolidating chunk that does not enumerate its oracle items ("covers: #3, #4"); never gates INCOMPLETE. **MISSED** — no signal, no OOS justification.
+**MATCHED** — a signal locates a candidate row. For a measurable outcome apply the final caller check in Phase 3.11 before crediting coverage. **AMBIGUOUS** — stopword-only overlap, or a consolidating chunk that does not enumerate its oracle items ("covers: #3, #4"); never gates INCOMPLETE. **MISSED** — no signal, no OOS justification.
 
 **OOS:** **OOS-ARCHITECTURAL** — hard reason (irreversibility, hard dependency, security boundary, blast-radius) → resolved. **OOS-WEAK** — appetite-based ("not now," "follow-up") — and **OOS-UNSTATED** — no reason — are both Weak-OOS findings, counting toward INCOMPLETE.
 
@@ -115,11 +115,15 @@ Register citations are not a lens: `plan.prep_gate`'s `_register` owns them. Do 
 
 DELIVERY-MEANS-IT-RAN-END-TO-END: a `wiring:` part is wired, not_built, blocked or off_route; wired needs `built_path` and `runs_evidence`. A `consumes` no `produces` feeds, or an unverified `consumes_external`, gates INCOMPLETE (`coordinator/docs/wiki/planning/wiring-table.md`).
 
-A non-deferred row with signoff-source `authorization`, or a claimed `register_rows` id, is authorized. `source: em-inferred` → list, never count. Another row introducing a requirement (behaviour, policy, restriction, user-facing change) that no `## PM brief` text or register row asks for → **Unauthorized**: "row <id> introduces <requirement>, which nothing the PM said authorizes — cite the PM in `authorization`, or mark it em-inferred", quoting `id`/`title`. Plumbing, tests, docs: silent. Gates INCOMPLETE (Judgment). Tripwire: `AN-INVENTED-REQUIREMENT-IS-UNAUTHORIZED-SCOPE`.
+For each measurable outcome in the original PM brief, identify the row owning final integration and its observable check through the ordinary caller. Would it fail on the wrong subject, a component-only result, or a missed threshold? Report **MISSED** once per uncovered outcome, including when the plan’s oracle omits it. A replacement subject, output or threshold needs approval for that specific substitution. Report an unapproved substitution as **Unauthorized** even when the row cites the original requirement. A non-deferred row with signoff-source `authorization`, or a claimed `register_rows` id, is authorized. `source: em-inferred` → list, never count. Another row introducing a requirement (behaviour, policy, restriction, user-facing change) that no `## PM brief` text or register row asks for → **Unauthorized**: "row <id> introduces <requirement>, which nothing the PM said authorizes — cite the PM in `authorization`, or mark it em-inferred", quoting `id`/`title`. Plumbing, tests, docs: silent. Gates INCOMPLETE (Judgment). Tripwire: `AN-INVENTED-REQUIREMENT-IS-UNAUTHORIZED-SCOPE`.
 
 ### Phase 3.12: Lens 10 — Method-Step Mechanism Trace
 
 Per method-step row (`coordinator/docs/wiki/planning/requirement-register.md` § Method steps; none → silent), a spine row must carry a **mechanism line**: "step <n> is implemented by <chunk/function> which <does what>", and that mechanism must do the step's verb. A name match alone (the step's words appear in a title or body) is a gap, not coverage. Missing line, or a mechanism not matching the verb with no routed `deviation:` → **Method-step-gap**: "step <n> has no mechanism line, or its mechanism does not do the step's verb and carries no `deviation:` routed to the APM or PM." Quote the step row. Tripwire: `A-NAME-TRACE-PASSES-A-SUBSTITUTED-MECHANISM`. Gates INCOMPLETE (Judgment).
+
+### Phase 3.13: Lens 11 — Ruling Contradiction
+
+Per non-deferred row, a behaviour, default, threshold or method contradicting a standing PM ruling (sizing `standing_rulings`, a register row, or the `## PM brief`) → a **Ruling-contradiction** finding quoting the row and the ruling. A proxy gate weaker than the ruling (a count floor standing in for "use every point") counts. Silent when no ruling is in force; a row carrying a PM-routed `deviation:` is silent. A row that narrows, downgrades or rules out of scope what the ruling or PM text asks counts; the finding is a break-glass item routed to the EM for the PM, never resolved here or by an APM. This lens judges contradiction only and builds no ruling register. A row delivering two artifacts where one implies the other because the PM named both is a break-glass `bad idea` finding routed to the EM, never a silent drop. Gates INCOMPLETE (Judgment). Tripwires: `A-PM-TURN-IN-A-RUN-IS-AN-ASK-FOR-DELIVERY`, `A-PM-ASK-IS-TRANSLATED-BY-THE-EM-BEFORE-IT-ENTERS-THE-ENGINE`.
 
 ### Phase 4: Lens 3 — In-Repo Substrate Drift
 

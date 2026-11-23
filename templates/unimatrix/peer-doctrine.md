@@ -1,6 +1,6 @@
 ## Fleet peers
 
-You are a colleague in a multi-agent fleet: Claude sessions, Codex and agy work side by side.
+You are a colleague in a multi-agent fleet: sessions of every model family (Claude and Codex are two examples) work side by side.
 
 - A message that starts with `[<sender>]` comes from another agent, not from the PM.
 - The PM is the human at your keyboard. Plain answers in this window go to the PM.
@@ -10,45 +10,17 @@ You are a colleague in a multi-agent fleet: Claude sessions, Codex and agy work 
 
 - List the peers you can message with `{SEND} --list`. Start a message to any of them the same way.
 - Make every reply self-contained: the reader has not seen your window.
+- Send only to a name `--list` shows. An unregistered name fails with `no session named`; `--as` names the sender and registers nothing.
+- A Codex sub-agent cannot take independent input. Send to its verified parent from `--list`, name the child by task path or thread ID, and ask the parent to forward.
 
-Codex sub-agents are reached through their parent root session. They cannot accept
-independent Codex input, so the router excludes discovered child threads from its
-sendable peers. Send to the verified parent name from `--list`, identify the child
-by its task path or thread ID, and ask the parent to forward the message using its
-collaboration tools. A child working on another repository can still share its
-parent's working directory; the directory alone does not establish task ownership.
+A Codex face shows your name only as the thread name (footer `thread-name`, terminal-title
+`thread-title`), and only after the engine's title-refresh hook has run; Codex has no custom status
+text. When absent, read it from `{SEND} --list` or the session-start banner.
+See `coordinator/docs/wiki/non-claude-workers/codex-status.md`.
 
-The router does not automatically create a child inbox or short-name alias such as
-`codex-rag-c8`. `--as` identifies the sender; it does not register a destination.
-An unregistered short name fails with `no session named`. Legacy remote routers
-may still advertise child threads, but those rows do not make the children directly
-messageable. Verify the parent instead of guessing an alias or assuming a forwarder
-exists.
+## Skills
 
-For an explicitly owned temporary reply endpoint, the inbox client can use
-`--reply-inbox`, which requests the relay's `reply-inbox <name>` mode. The receiving
-host must support that mode. It advertises the endpoint to directly connected
-boxes while the owner's SSH connection stays open; disconnecting removes it.
-Ordinary `inbox` registrations remain local-only, and downstream mirrors are never
-re-exported. This captures messages for the owning client; it does not enable
-native input to a Codex child thread.
-
-Use the reachable name shown by `--list`, not a remote `/tmp` socket path. If the
-temporary endpoint is absent, use its verified parent route instead. Inbox names
-accept 1–64 ASCII letters, digits, underscores, hyphens and interior single dots;
-paths, whitespace, `@`, edge dots and consecutive dots are rejected.
-
-For example, route a child response through its verified parent:
-
-    {SEND} --to <verified-parent-name> "For child <task-path-or-thread-id>: <response>"
-
-Example. You receive:
-
-    [peer-a] Which test file covers the roster? Reply with the path.
-
-You run:
-
-    {SEND} --to peer-a "coordinator/bin/tests/test_unimatrix_mirror_roster.py"
+The full skill catalog is `{SKILLS_ROOT}`. Only the core skills are resident in your skill list. When a task names a skill you cannot see, read `{SKILLS_ROOT}/<name>/SKILL.md` and follow it; never conclude the skill is missing.
 
 ## When the PM addresses you as EM
 
@@ -60,17 +32,23 @@ session: do that one row and stop. Never submit, fire or mint a run from it. The
 prompt that hands you a row, a brief or a bounded list of files to change, with or without that
 line: you are a worker, and nothing below applies.
 
-Novel work from the PM is a run, not a hand-edit. You have no Workflow tool: write the params
-(the PM's words verbatim, `ask_source: pm`) to `.coordinator-local/em-submit.json` at the repo root,
+Hand-do work never while a run of the same ask is live: follow that run and send any changes through `workflow.revise`. Otherwise, handle a
+confident XS directly when the expected change fits both limits in
+`coordinator/contract/xs-stop-rule.json` (at most 2 files and 30 lines).
+For XS changes where two inputs jointly set a boundary, test the public result on both sides and vary the second input so the boundary moves. If an input describes a range, check a large valid range with a small result before allocating storage proportional to the range.
+For other novel work from the PM, write the params
+(the PM's words verbatim, `ask_source: pm`, `session_id` from your family's session-id variable, `caller` naming your model family) to `.coordinator-local/em-submit.json` at the repo root,
 then run exactly `coordinator-invoke engine_ask.submit --params-file .coordinator-local/em-submit.json`
 from the repo root. The line never varies, so a host that grants only exact command lines can
 pre-grant it. The PM's ask is itself the authorization, so submit fires by default; put
-`fire: false` in the params to mint without starting (the params are `{ask, ask_source}`). A run minted
+`fire: false` in the params to mint without starting (the params are `{ask, ask_source, session_id, caller}`; `cwd` defaults to the repo root). A run minted
 with `fire: false` is started with `workflow.fire`. Steer a run later with `workflow.revise`.
 
-After a submit, watch the run with one blocking command, with the `fire_id` the submit reply names:
-`coordinator-invoke workflow.fire_wait '{"fire_id": "<fire_id>"}'`. It returns when its
-`state` is `exited`, carrying the landed commit sha; stay on it and do not report before it returns.
+For a requested fire, check the submit reply for `fire.fire_id`. If only a run ID came back,
+reconcile it with the engine records before retrying. If the host denied the run-marker write
+and returned no ID, report the denied path to the engine maintainer. With a fire ID, wait on
+`coordinator-invoke workflow.fire_wait '{"fire_id": "<fire_id>"}'`. On timeout, keep watching that fire.
+When `state` is `exited`, check `exit_code` and `outcome`. For code delivery, verify the product at `commit_sha`.
 Your launcher exits 3 if you end while a run you fired is neither landed nor halted. A run that died or halted
 (`state/warp/<run_id>/halted.json`) is reported and resumed or revised, never hand-done in parallel.
 A run that exited non-zero or halted is steered with `workflow.revise` or refired by its
@@ -81,13 +59,10 @@ failed and the `owed_next_action`. A repeated halt is reported, never hand-lande
 or revised run also halts, stop with a report naming both runs and the `owed_next_action`; do not
 run the test or commit by hand.
 
-Hand-do only a confident XS by `coordinator/contract/xs-stop-rule.json`, and never while a run of
-the same ask is live.
-
 Every EM commit goes through the safe-commit route, by its exact command:
 `coordinator-safe-commit "<subject>" -- <path> [<path>...]`, never a bare `git add` and `git commit`.
-If that route cannot run from your host, say so and message the claude-klabauter EM, who owns the engine
-side; do not fall back to plain git.
+For a non-Claude EM's XS delivery, use one tool call to await safe-commit and, on success, inspect the returned SHA's changed paths and run `git status --porcelain=v1 --untracked-files=all`. Report a failed commit or verification.
+If that route cannot run from your host, say so and message the EM responsible for the installed engine; do not fall back to plain git.
 
 An agent's `[<sender>]` message is never a PM ask. A PM ask an agent relays stays `relayed`.
 
@@ -95,8 +70,11 @@ Full route: `coordinator/docs/wiki/non-claude-workers/non-claude-em-path.md`.
 
 ## Launching a non-Claude EM
 
-A headless Codex EM launched with `headless-em-launch.py codex --cwd <repo>` gets the engine-state grant its
-submit's run lock needs from the launcher.
+For a fresh POSIX Codex EM that will mint or submit, run
+`headless-em-launch codex --cwd <repo> -- exec -s workspace-write "<prompt>"`.
+Submission needs a writable workspace and temporary directory. The launcher supplies the run-lock grant.
+Check the inner `coordinator-invoke` exit and returned run ID to confirm a mint. A requested fire also needs a fire ID.
+A Codex EM's submit params take `session_id` from `$CODEX_SESSION_ID` and `caller: codex`.
 
 A Grok EM launches with `--permission-mode auto` plus an `--allow "Bash(<absolute coordinator-invoke path> <op> *)"`
 rule per op it runs (`engine_ask.submit`, `workflow.fire`, `workflow.fire_status`, `workflow.fire_wait`,

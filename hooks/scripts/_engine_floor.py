@@ -6,10 +6,11 @@ by plain file reads, no subprocess) against the plugin-owned floor in
 doctrine EM re-copies at each percolate. Both shas live in one space: claude-klabauter
 commits. A `behind` verdict is reported, never refused: this module has no
 refusal branch and callers treat it as a notice. Ancestry is read from a JSON
-cache under the settings home; a cache hit spawns nothing. A miss runs one `git
-merge-base --is-ancestor` per uncached (running sha, floor sha) pair
-(`decide_ancestry`) and records the verdict through `record_ancestry`. The
-`engine-floor-decide` CLI forces a re-decision of the same pair.
+cache under the settings home and `check_engine_floor` never spawns: an uncached
+(running sha, floor sha) pair is `indeterminate` with a deferred-decision cause.
+The `engine-floor-decide` CLI, off the hook path, runs one `git merge-base
+--is-ancestor` (`decide_ancestry`) and records the verdict through
+`record_ancestry`.
 
 Contract: never raises. Anything unreadable is `indeterminate` with a cause,
 and an indeterminate engine is never treated as behind.
@@ -44,6 +45,7 @@ _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _CACHE_NAME = "engine-floor-ancestry.json"
 _CACHED_UNDECIDED = "undecided"
 _UNDECIDED_CAUSE = "git merge-base could not decide; rerun engine-floor-decide"
+_DEFERRED_CAUSE = "ancestry not yet decided; run engine-floor-decide off the hook path"
 _TIMEOUT_SECONDS = 30
 
 
@@ -215,10 +217,6 @@ def check_engine_floor(engine_root: str) -> FloorVerdict:
             return FloorVerdict(cached, floor, stamp, "")
         if cached == _CACHED_UNDECIDED:
             return FloorVerdict(STATE_INDETERMINATE, floor, stamp, _UNDECIDED_CAUSE)
-        verdict = decide_ancestry(engine_root, floor, stamp)
-        record_ancestry(floor, stamp, verdict)
-        if verdict in (STATE_CLEAN, STATE_BEHIND):
-            return FloorVerdict(verdict, floor, stamp, "")
-        return FloorVerdict(STATE_INDETERMINATE, floor, stamp, _UNDECIDED_CAUSE)
+        return FloorVerdict(STATE_INDETERMINATE, floor, stamp, _DEFERRED_CAUSE)
     except Exception as exc:  # noqa: BLE001 - the never-raise contract
         return FloorVerdict(STATE_INDETERMINATE, floor, stamp, "unexpected: %s" % exc)

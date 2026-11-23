@@ -46,17 +46,53 @@ TUNNEL_ENV = "UNIMATRIX_TUNNEL_REMOTE"
 
 
 def sessions_dir():
-    return os.path.expanduser("~/.claude/sessions")
+    """Claude Code's session registry: `$CLAUDE_CONFIG_DIR/sessions`, else `~/.claude/sessions`.
+
+    It belongs to the Claude config dir, never the settings home: settings homes on one box share it
+    (G-EM ruling 2026-11-20, plan row C0-R)."""
+    config = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
+    return os.path.join(config, "sessions") if config else os.path.expanduser("~/.claude/sessions")
 
 
-def settings_home():
-    env = os.environ.get("COORDINATOR_SETTINGS_HOME")
-    return Path(env) if env else Path.home() / ".coordinator-claude-settings"
+SETTINGS_HOME_KEY = "COORDINATOR_SETTINGS_HOME"
 
 
-def default_key():
-    """The Unimatrix-Zero key: the settings home's, else the group-em home's; first candidate when neither exists."""
-    home = settings_home()
+class MissingSettingsError(RuntimeError):
+    """The settings-home key is unset or empty: no output root is guessed."""
+
+
+class MissingRelayKeyError(RuntimeError):
+    """No relay key resolves for an ordinary roster invocation; raised before any supervisor startup."""
+
+
+def settings_home() -> Path:
+    """The settings home named by $COORDINATOR_SETTINGS_HOME; raises MissingSettingsError when unset or empty."""
+    env = os.environ.get(SETTINGS_HOME_KEY)
+    if not env or not env.strip():
+        raise MissingSettingsError(f"missing-settings: {SETTINGS_HOME_KEY} is unset; set it to the settings home")
+    return Path(env)
+
+
+def delivery_settings_home() -> Path:
+    """The settings home for a delivery leg: $COORDINATOR_SETTINGS_HOME, else ~/.coordinator-claude-settings; never raises.
+
+    An sshd forced command and a supervisor-spawned bridge or router carry no env, so every helper
+    reachable from a relay delivery or a bridge send uses this form. Ordinary roster callers use settings_home()."""
+    env = os.environ.get(SETTINGS_HOME_KEY)
+    return Path(env) if env and env.strip() else Path.home() / ".coordinator-claude-settings"
+
+
+def export_settings_home() -> None:
+    """Pin the resolved delivery settings home into this process's environment so every child it spawns (bridge, router, relay) inherits it."""
+    os.environ[SETTINGS_HOME_KEY] = str(delivery_settings_home())
+
+
+def default_key() -> str:
+    """The Unimatrix-Zero key: the settings home's, else the group-em home's; first candidate when neither exists.
+
+    Resolves the home with delivery_settings_home(): an in-process caller (autolink, a delivery helper) carries no env.
+    parse_args still refuses a missing home before it reaches here."""
+    home = delivery_settings_home()
     cands = [home / ".secrets" / "ssh" / "unimatrix-zero", home / "group-em" / ".secrets" / "ssh" / "unimatrix-zero"]
     key = str(next((c for c in cands if c.is_file()), cands[0]))
     refuse_real("key_path", key)
@@ -255,9 +291,20 @@ def mirror_unbacked(d):
 def entry_listed(d):
     """A session entry worth listing: its pid is still its process, no dead roster owns it and,
     for a mirror, its far session was seen on a recent poll and, for an agy router face, its agy
-    process is still alive."""
-    return (not d.get("unimatrixStale") and entry_live(d) and not mirror_orphaned(d) and not mirror_unbacked(d)
-            and not _liveness().agy_face_unbacked(d) and not _liveness().codex_face_unbacked(d))
+    process is still alive. `unimatrixStale` is a log marker only: a router face is written once and
+    never rewritten, so a flag set while its holder was briefly unproven would otherwise hide a live
+    session from every remote box for good."""
+    return (entry_live(d) and not mirror_orphaned(d) and not mirror_unbacked(d)
+            and not local_agy_face_unbacked(d) and not _liveness().codex_face_unbacked(d))
+
+
+def local_agy_face_unbacked(d) -> bool:
+    """True for an agy router face on this box whose agy process is gone. A far mirror copies the far
+    face's vendor and router pid but has no peers.json row here, so it is never this box's face: its
+    far session's liveness is `mirror_unbacked`'s question."""
+    if isinstance(d, dict) and (d.get(FAR_SOCKET_FIELD) or d.get("unimatrixMirror")):
+        return False
+    return _liveness().agy_face_unbacked(d)
 
 
 def far_codex_unbacked(entry):
@@ -338,11 +385,27 @@ def proc_start(pid, platform=None):
         return _ps_lstart(pid)
 
 
+def linux_pid_domain(read=None):
+    """The Linux harness's pidDomain: `linux:<machine-id>:<pid namespace link>` (e.g. `linux:ab12..:pid:[4026531836]`).
+
+    `read` is (path) -> text, for tests. Falls back to the bare `linux` label when either part is unreadable."""
+    def default(path):
+        if path.startswith("/proc/"):
+            return os.readlink(path)
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+    read = read or default
+    try:
+        return f"linux:{read('/etc/machine-id').strip()}:{read('/proc/self/ns/pid').strip()}"
+    except OSError:
+        return "linux"
+
+
 def pid_domain(platform=None):
     plat = platform or sys.platform
     if plat == "win32":
         return f"win32:{socket.gethostname().lower()}"
-    return "darwin" if plat == "darwin" else "linux"
+    return "darwin" if plat == "darwin" else _liveness().linux_pid_domain()
 
 
 def local_endpoint(far_socket, platform=None):
@@ -552,7 +615,7 @@ def alias_identity(alias, read_fields):
     return str(path) if path.name and not path.name.startswith("id_") and path.is_file() else None
 
 
-def stable_remote(alias, reachable=None, fields=None, connect=None, read_key=None, verify=None, tcp=None, key=None):
+def stable_remote(alias, reachable=None, fields=None, connect=None, read_key=None, verify=None, tcp=None, key=None) -> str | None:
     """First stable name of this far box that answers now, else None: `<box>-lan` alias, then the
     first host-key-verified address in the box's machine-local far-address list, then `<box>.local`.
 
@@ -579,7 +642,7 @@ def stable_remote(alias, reachable=None, fields=None, connect=None, read_key=Non
     try:
         if not host.endswith("-lan"):
             up = reachable(lan) if reachable else lan_reachable(lan, resolve=endpoint, connect=connect)
-            if up:
+            if up and lan_verified(lan, verify=verify, read_key=read_key, key=key):
                 return lan
         f = get_fields()
         port = int(f.get("port") or 22)
@@ -613,15 +676,54 @@ def stable_remote(alias, reachable=None, fields=None, connect=None, read_key=Non
     return f"{who}@{name}" if who else name
 
 
-def pick_remote(lan, tunnel=None, reachable=None):
-    """The far box's ssh alias to use now: the LAN alias when it answers, else the tunnel alias.
+_LAN_VERIFIED = {}
+LAN_VERIFIED_TTL_SECONDS = 60
+
+
+def lan_verified(alias, verify=None, read_key=None, key=None) -> bool:
+    """True when the box behind LAN `alias` proved its identity, so a TCP connect alone never selects the LAN route.
+
+    `verify(alias) -> (status, detail)` decides when injected. Otherwise a box with a pinned host key
+    (`unimatrix.hostkey.<box>`) must pass one strict `roster` ssh probe, remembered LAN_VERIFIED_TTL_SECONDS;
+    a box with no pinned identity has nothing to verify against and stays on the TCP prefilter (the
+    unmodified `test_unimatrix_mirror_roster.py` LAN cases require it)."""
+    far = _box_mux()._far_addresses()
+    box = _box_mux().box_of(alias)
+    if verify is None:
+        try:
+            pinned = far.pinned_hostkey(box, read_key or _box_mux().machine_local_value)
+        except Exception:  # unreadable machine-local config: nothing pinned to check against
+            return True
+        if not pinned:
+            return True
+        seen = _LAN_VERIFIED.get(alias)
+        if seen is not None and time.monotonic() - seen < LAN_VERIFIED_TTL_SECONDS:
+            return True
+        try:
+            key = key or default_key()
+        except MissingSettingsError:
+            key = None
+        verify = far.make_verify(box, key)
+    ok = verify(alias)[0] == far.OK
+    if ok:
+        _LAN_VERIFIED[alias] = time.monotonic()
+    else:
+        _LAN_VERIFIED.pop(alias, None)
+    return ok
+
+
+def pick_remote(lan, tunnel=None, reachable=None, verify=None, key=None) -> str:
+    """The far box's ssh alias to use now: the LAN alias when it answers and proves the box's identity, else the tunnel alias.
 
     With no tunnel alias configured the LAN alias is returned unprobed, so nothing here
-    ever requires the tunnel to exist or be up.
+    ever requires the tunnel to exist or be up. A LAN alias whose host key fails verification is never
+    chosen; the tunnel alias is the independently authenticated fallback.
     """
     if not tunnel or tunnel == lan:
         return lan
-    return lan if (reachable or lan_reachable)(lan) else tunnel
+    if not (reachable or lan_reachable)(lan):
+        return tunnel
+    return lan if lan_verified(lan, verify=verify, key=key) else tunnel
 
 
 def stamp_supervisor(remote, role=None) -> None:
@@ -635,13 +737,13 @@ def stamp_supervisor(remote, role=None) -> None:
         stamp = {"pid": pid, "procStart": proc_start(pid), "remote": remote}
         if role:
             stamp["role"] = role
-        write_json_atomic(str(settings_home() / "unimatrix" / f"supervisor-{pid}.json"), stamp)
+        write_json_atomic(str(delivery_settings_home() / "unimatrix" / f"supervisor-{pid}.json"), stamp)
     except (OSError, subprocess.SubprocessError):
         pass
 
 
 def stop_request_path(pid) -> Path:
-    return settings_home() / "unimatrix" / f"stop-{pid}.json"
+    return delivery_settings_home() / "unimatrix" / f"stop-{pid}.json"
 
 
 def request_stop(pid, proc_start_value, role, remote) -> None:
@@ -665,7 +767,7 @@ def stop_requested(own_proc_start) -> bool:
 
 def clear_stop(pid) -> None:
     """Remove `pid`'s stop request and supervisor stamp; absent files are fine."""
-    for path in (stop_request_path(pid), settings_home() / "unimatrix" / f"supervisor-{pid}.json"):
+    for path in (stop_request_path(pid), delivery_settings_home() / "unimatrix" / f"supervisor-{pid}.json"):
         try:
             os.remove(path)
         except OSError:
@@ -689,7 +791,7 @@ def write_json_atomic(path, data):
     os.replace(tmp, path)
 
 
-def parse_args(argv):
+def parse_args(argv) -> argparse.Namespace:
     p = argparse.ArgumentParser(prog="unimatrix-roster.py")
     p.add_argument("log")
     p.add_argument("skip", nargs="*", help="far socket paths whose bridges are run by hand")
@@ -697,7 +799,10 @@ def parse_args(argv):
     p.add_argument("--tunnel-remote", default=None, help=f"ssh alias over the tunnel, used only when --remote does not answer (default: ${TUNNEL_ENV})")
     p.add_argument("--key", default=None)
     a = p.parse_args(argv)
-    a.key = a.key or default_key()
+    a.key_defaulted = not a.key
+    if not a.key:
+        settings_home()  # the ordinary roster CLI refuses a missing home before any side effect; default_key() itself defaults
+        a.key = default_key()
     a.tunnel_remote = a.tunnel_remote or default_tunnel()
     return a
 
@@ -830,9 +935,20 @@ def inbound_names():
     """Names a far box already reaches us by: live local entries its own relay holds (`unimatrixMirror`).
 
     The far box's inbox relay already gives such a session a local socket, so mirroring it again
-    from here would list the one far session twice under one name."""
+    from here would list the one far session twice under one name. An inbox mirror with no peer key
+    is not listable by the harness, so it never stands in for the far roster row."""
     rows = session_entries()
-    return {bare_name(d.get("name")) for d in rows if d.get("unimatrixMirror") and listed_row(d, rows)}
+    sess = sessions_dir()
+    return {bare_name(d.get("name")) for d in rows
+            if d.get("unimatrixMirror") and listed_row(d, rows) and _has_peer_key(sess, d)}
+
+
+def _has_peer_key(sess, d) -> bool:
+    """False only when entry `d` names a socket and has no `.key` file beside it in `sess`."""
+    pid, path = d.get("pid"), d.get("messagingSocketPath")
+    if not isinstance(pid, int) or not isinstance(path, str):
+        return True
+    return os.path.exists(os.path.join(sess, key_name(pid, path)))
 
 
 def pushed_from(d, remote):
@@ -945,7 +1061,7 @@ def _now():
     return time.monotonic()
 
 
-def control_path(remote, home=None, key=None):
+def control_path(remote, home=None, key=None) -> Path:
     """Mux socket path for far `remote` and identity `key`, under <settings home>/unimatrix/ctl; short, since
     unix socket paths cap near 104 bytes.
 
@@ -953,7 +1069,7 @@ def control_path(remote, home=None, key=None):
     every caller through the first caller's key, and the far authorized_keys line for that key picks the
     command (a roster key answered `send-session` with a roster dump)."""
     tag = hashlib.sha1(f"{remote}\0{key or ''}".encode("utf-8")).hexdigest()[:10]
-    return (Path(home) if home else settings_home()) / "unimatrix" / "ctl" / f"r-{tag}"
+    return (Path(home) if home else delivery_settings_home()) / "unimatrix" / "ctl" / f"r-{tag}"
 
 
 def mux_options(remote, key=None):
@@ -978,9 +1094,9 @@ def _box_mux():
     return mod
 
 
-def _roster_once(remote, key, tunnel_remote):
+def _roster_once(remote, key, tunnel_remote) -> list:
     ensure_key_loaded(key)
-    remote = pick_remote(remote, tunnel_remote)
+    remote = pick_remote(remote, tunnel_remote, key=key)
     # Direct: the poll keeps its own Windows redial cap (`_capped_fetch`); POSIX shares the box's ControlMaster.
     r = _box_mux().for_remote(remote, key=key, direct=True, mux_options=lambda h: mux_options(h, key),
                               extra=["-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=5",
@@ -991,6 +1107,28 @@ def _roster_once(remote, key, tunnel_remote):
     return [json.loads(line) for line in r.stdout.splitlines() if line.strip()]
 
 
+RESET_TRIES = 3
+RESET_BACKOFF_SECONDS = (1.0, 3.0)
+_RESET_MARKERS = ("rc=255", "connection reset", "kex_exchange_identification")
+
+
+def _is_reset(ex):
+    text = str(ex).lower()
+    return isinstance(ex, OSError) and any(m in text for m in _RESET_MARKERS) and "timed out" not in text
+
+
+def _roster_with_reset_retry(remote, key, tunnel_remote):
+    """`_roster_once`, retried on a connection reset (sshd MaxStartups drop) with jittered backoff, RESET_TRIES
+    tries in ~20s at most; any other failure raises at once."""
+    for attempt in range(RESET_TRIES):
+        try:
+            return _roster_once(remote, key, tunnel_remote)
+        except OSError as ex:
+            if not _is_reset(ex) or attempt == RESET_TRIES - 1:
+                raise
+            time.sleep(RESET_BACKOFF_SECONDS[attempt] * (1 + secrets.randbelow(100) / 100))
+
+
 def fetch_roster(remote, key, tunnel_remote=None):
     """The far roster rows. A transient LAN stall (connect timeout, hung session) is retried once
     with the endpoint re-picked, so one dropped SYN is not a LINK-DOWN; a second failure raises.
@@ -999,8 +1137,10 @@ def fetch_roster(remote, key, tunnel_remote=None):
     if _is_win():
         return _capped_fetch(remote, key, tunnel_remote)
     try:
-        return _roster_once(remote, key, tunnel_remote)
-    except (OSError, subprocess.TimeoutExpired):
+        return _roster_with_reset_retry(remote, key, tunnel_remote)
+    except (OSError, subprocess.TimeoutExpired) as ex:
+        if _is_reset(ex):
+            raise
         return _roster_once(remote, key, tunnel_remote)
 
 
@@ -1011,7 +1151,7 @@ def _capped_fetch(remote, key, tunnel_remote):
             raise OSError(last[2])
         return copy.deepcopy(last[1])
     try:
-        rows = _roster_once(remote, key, tunnel_remote)
+        rows = _roster_with_reset_retry(remote, key, tunnel_remote)
     except (OSError, subprocess.TimeoutExpired) as ex:
         _DIALS[remote] = (_now(), None, str(ex) or type(ex).__name__)
         raise
@@ -1034,7 +1174,7 @@ def unmirror(pid):
     drop_session_files(pid)
 
 
-def reap_orphaned_mirrors(remote, say, unbacked=False, keep=()):
+def reap_orphaned_mirrors(remote, say, unbacked=False, keep=(), bridges=None):
     """Remove this far box's mirrors whose roster supervisor is gone, stopping a bridge that is still its process.
 
     With `unbacked`, a mirror whose far row went unconfirmed (`mirror_unbacked`) or that the listing never
@@ -1042,11 +1182,14 @@ def reap_orphaned_mirrors(remote, say, unbacked=False, keep=()):
     unlisted-but-present mirror still shows.
     Pids in `keep` (the caller's own bridges) are never reaped: pass it only after a poll that refreshed
     their stamps. A failed poll passes none, so a link that stays down reaps the mirrors it can no longer vouch for.
-    A bridge is killed only when its entry records a procStart it still matches: a recycled pid is never signalled."""
+    A bridge is killed only when its entry records a procStart it still matches: a recycled pid is never signalled.
+    A bridge that outlives the group signal is SIGKILLed, and a `bridges` Popen of a reaped pid is waited on, so no
+    survivor or zombie keeps the far session looking held.
+    Returns the reaped (pid, name) pairs: the caller owes each far session a prompt re-mirror."""
     try:
         files = os.listdir(sessions_dir())
     except OSError:
-        return
+        return []
     reaped, to_kill, owners, readable, entries = [], [], [], True, []
     for f in files:
         m = re.fullmatch(r"(\d+)\.json", f)
@@ -1072,11 +1215,18 @@ def reap_orphaned_mirrors(remote, say, unbacked=False, keep=()):
             to_kill.append(pid)
         reaped.append((pid, d.get("name")))
     tree_kill_many(to_kill)
+    for pid in to_kill:
+        if not _is_win() and pid_alive(pid):
+            _signal_pid(pid, signal.SIGKILL)
+    for b in (bridges or {}).values():
+        if b.pid in to_kill:
+            b.poll()
     for pid, name in reaped:
         drop_session_files(pid)
         say(f"reaped orphaned mirror {name} bridge {pid}")
     gone = {pid for pid, _ in reaped}
     reap_stale_sockets([o for o in owners if o[1] not in gone], keep, readable, say)
+    return reaped
 
 
 SOCKET_GRACE_SECONDS = 2 * POLL_SECONDS
@@ -1097,12 +1247,65 @@ def process_holds(d):
     return not d.get(STALE_FIELD) and entry_live(d)
 
 
+def live_agy_leg_sockets():
+    """Basenames of the adapter endpoints named by agy-legs records whose leg or agy process is alive.
+
+    An agy leg's adapter socket is recorded only in `agy-legs/<conversation>.json`, apart from any
+    session entry's `messagingSocketPath`, so a sweep keyed on session entries alone reads it as
+    ownerless. None when a leg record is unreadable: a possible owner suspends every unlink."""
+    try:
+        legs = _liveness().state_dir() / "agy-legs"
+        names = sorted(legs.glob("*.json")) if legs.is_dir() else []
+    except OSError:
+        return None
+    owned = set()
+    for leg in names:
+        try:
+            rec = json.loads(leg.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            continue
+        except (OSError, ValueError):
+            return None
+        if not isinstance(rec, dict) or not isinstance(rec.get("endpoint"), str):
+            continue
+        pids = [p for p in (rec.get("pid"), rec.get("agy_pid")) if isinstance(p, int) and not isinstance(p, bool)]
+        if any(p > 0 and pid_alive(p) for p in pids):
+            owned.add(os.path.basename(rec["endpoint"]))
+    return owned
+
+
 def mark_stale(path, d, say):
     """Record `unimatrixStale` on the entry at `path` so `entry_listed` drops it; the entry is never deleted."""
     if d.get(STALE_FIELD):
         return
     write_json_atomic(path, {**d, STALE_FIELD: True})
     say(f"marked stale {d.get('name')} ({d.get('messagingSocketPath')})")
+
+
+def _non_session_held_sockets():
+    """Loopback socket paths owned by live non-session processes (agy legs and the peer router)."""
+    held = set()
+    uni = settings_home() / "unimatrix"
+    legs_dir = uni / "agy-legs"
+    try:
+        for path in legs_dir.glob("*.json"):
+            try:
+                rec = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError, TypeError):
+                continue
+            if (isinstance(rec, dict) and isinstance(rec.get("pid"), int) and pid_alive(rec["pid"])
+                    and isinstance(rec.get("endpoint"), str) and rec["endpoint"]):
+                held.add(rec["endpoint"])
+                held.add(os.path.join(LOOPBACK_SOCKS, os.path.basename(rec["endpoint"])))
+    except OSError:
+        pass
+    try:
+        rrec = json.loads((uni / "router" / "router.pid.json").read_text(encoding="utf-8"))
+        if isinstance(rrec, dict) and isinstance(rrec.get("pid"), int) and pid_alive(rrec["pid"]):
+            held.add(os.path.join(LOOPBACK_SOCKS, os.path.basename(local_endpoint("unimatrix-peer-router"))))
+    except (OSError, ValueError, TypeError):
+        pass
+    return held
 
 
 def reap_stale_sockets(owners, keep, readable, say):
@@ -1126,9 +1329,15 @@ def reap_stale_sockets(owners, keep, readable, say):
     except OSError:
         return
     held = {d.get("messagingSocketPath") for _, _, d in owners if liveness_unknown(d) or process_holds(d)}
+    legs = live_agy_leg_sockets()
+    if legs is None:
+        return
+
+
+    held |= _non_session_held_sockets()
     for f in socks:
         full = os.path.join(LOOPBACK_SOCKS, f)
-        if not LOOPBACK_SOCK_RE.fullmatch(f) or full in listed or full in held:
+        if not LOOPBACK_SOCK_RE.fullmatch(f) or full in listed or full in held or f in legs:
             continue
         try:
             if time.time() - os.stat(full).st_mtime < SOCKET_GRACE_SECONDS:
@@ -1139,7 +1348,7 @@ def reap_stale_sockets(owners, keep, readable, say):
         say(f"unlinked stale socket {full}")
 
 
-def reap_unbacked_agy_faces(say):
+def reap_unbacked_agy_faces(say) -> None:
     """Remove the local registry rows of agy router faces whose agy process is gone.
 
     The registry lists a file by its live face pid, so an unlisted-but-present face still shows in
@@ -1161,7 +1370,7 @@ def reap_unbacked_agy_faces(say):
         except (OSError, ValueError):
             continue
         pid = int(m.group(1))
-        if (not isinstance(d, dict) or d.get("pid") != pid or not liveness.agy_face_unbacked(d)
+        if (not isinstance(d, dict) or d.get("pid") != pid or not local_agy_face_unbacked(d)
                 or liveness.stamp_fresh(d, "startedAt", AGY_FACE_GRACE_SECONDS)):
             continue
         if isinstance(d.get("procStart"), str) and d["procStart"] and entry_live(d):
@@ -1175,7 +1384,7 @@ def reap_unbacked_agy_faces(say):
         orphans = liveness.agy_peer_rows_orphaned()
         if orphans:
             hook = _codex_hook()
-            dropped = set(hook.drop_peer_rows(settings_home() / "unimatrix" / "peers.json",
+            dropped = set(hook.drop_peer_rows(delivery_settings_home() / "unimatrix" / "peers.json",
                                               {t for _, t in orphans}))
             for name, target in orphans:
                 if name in dropped:
@@ -1301,6 +1510,11 @@ def bridge_deaf(pid, endpoint):
             and not os.path.exists(endpoint))
 
 
+def bridge_unlisted(pid):
+    """True when bridge `pid` has no registry entry: the reap dropped it, so the roster must not count it as holding the far session."""
+    return not os.path.exists(os.path.join(sessions_dir(), f"{pid}.json"))
+
+
 def mirror(row, cfg, say, scan=None):
     e = row["entry"]
     far_sock = e["messagingSocketPath"]
@@ -1329,7 +1543,7 @@ def mirror(row, cfg, say, scan=None):
     sess = sessions_dir()
     write_json_atomic(os.path.join(sess, f"{b.pid}.json"), d)
     write_peer_key(os.path.join(sess, key_name(b.pid, endpoint)),
-                   local_peer_key(row["key"], d["procStart"], d["pidDomain"]))
+                   local_peer_key("", d["procStart"], d["pidDomain"]))  # a far key is never adopted
     say(f"mirror {e.get('name')} {far_sock} -> bridge {b.pid} {endpoint}")
     return b
 
@@ -1368,7 +1582,7 @@ def rename_live_mirror(pid, sock, row, cfg, say, scan=None):
         return
     if not isinstance(d, dict):
         return
-    refresh_mirror_key(d, row.get("key", ""))
+    refresh_mirror_key(d, "")
     updates = {}
     if d.get("unimatrixRemote") != cfg.remote:
         updates["unimatrixRemote"] = cfg.remote
@@ -1481,12 +1695,13 @@ def sync(bridges, rows, cfg, say):
                 unmirror(bridges.pop(sock).pid)
                 say(f"unmirror {sock}: another alias of this box mirrors it")
             continue
-        deaf = b and b.poll() is None and bridge_deaf(b.pid, local_endpoint(f"{cfg.remote}:{sock}"))
+        deaf = b and b.poll() is None and (bridge_deaf(b.pid, local_endpoint(f"{cfg.remote}:{sock}"))
+                                           or bridge_unlisted(b.pid))
         if b and b.poll() is None and not deaf:
             rename_live_mirror(b.pid, sock, row, cfg, say, scan)
             continue
         if deaf:
-            say(f"bridge {b.pid} for {sock} lost its socket; re-mirror")
+            say(f"bridge {b.pid} for {sock} lost its socket or registry entry; re-mirror")
         elif b:
             say(f"bridge {b.pid} for {sock} exited rc={b.poll()}; re-mirror")
         if b:
@@ -1517,10 +1732,10 @@ def sync(bridges, rows, cfg, say):
         del _ABSENT[sock]
 
 
-def link_state_path(alias, home=None):
+def link_state_path(alias, home=None) -> Path:
     """Link-state record path for far `alias`: <settings home>/unimatrix/link-state/<alias, path-safe>.json."""
     safe = re.sub(r"[^A-Za-z0-9._-]", "_", alias)
-    return (Path(home) if home else settings_home()) / "unimatrix" / "link-state" / f"{safe}.json"
+    return (Path(home) if home else delivery_settings_home()) / "unimatrix" / "link-state" / f"{safe}.json"
 
 
 def read_link_state(path):
@@ -1580,8 +1795,15 @@ def guarded(say, what, fn, *args, default=None, **kwargs):
         return default
 
 
-def main(argv=None):
+def require_relay_key(cfg) -> None:
+    """Raise MissingRelayKeyError when the defaulted relay key is not a file: refused before any startup side effect."""
+    if getattr(cfg, "key_defaulted", False) and not Path(cfg.key).is_file():
+        raise MissingRelayKeyError(f"missing-relay-key: no unimatrix-zero relay key at {cfg.key}; install it or pass --key")
+
+
+def main(argv=None) -> None:
     cfg = parse_args(sys.argv[1:] if argv is None else argv)
+    require_relay_key(cfg)
     skip = set(cfg.skip)
     log = open(cfg.log, "a", encoding="utf-8", buffering=1)
 
@@ -1594,6 +1816,7 @@ def main(argv=None):
             say(f"stopped by signal {signum}; mirrors drop until relaunched")
             sys.exit(128 + signum)
         signal.signal(signal.SIGTERM, stopped)
+    export_settings_home()
     stamp_supervisor(cfg.remote, "bridge")
     own_start = guarded(say, "own start", proc_start, os.getpid(), default=None)
     bridges = {}
@@ -1623,7 +1846,14 @@ def main(argv=None):
                         say(f"ROSTER-STALE {cfg.remote}: {ex}")
                     stale = True
                     next_fetch = _now() + backoff_seconds(failures)
-                    guarded(say, "reap", reap_orphaned_mirrors, cfg.remote, say, unbacked=True)
+                    reaped = guarded(say, "reap", reap_orphaned_mirrors, cfg.remote, say, unbacked=True,
+                                     bridges=bridges)
+                    if reaped:
+                        # A reset that reaps a live far session's mirror must not also leave it dark for the
+                        # backoff: redial next tick, past the Windows replay cap. Nothing left to reap, so a
+                        # link that stays down returns to the normal backoff on the following failure.
+                        next_fetch = 0.0
+                        _DIALS.pop(cfg.remote, None)
                 else:
                     failures, stale, next_fetch = 0, False, 0.0
                     guarded(say, "sync", sync, bridges, rows, cfg, say)

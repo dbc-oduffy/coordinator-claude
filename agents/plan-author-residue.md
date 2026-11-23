@@ -18,6 +18,9 @@ plan paths, their `bar:` / `seam:` lines and the bar's refusal.
 
 ## Rules
 
+Use native Read, Glob or Grep to inspect files. The pipeline form below is
+for commands recorded in census rows. Do not run a shell pipeline to inspect a file.
+
 - Amend each plan in place. Declare only `capabilities:` and, on rows the collision record names
   append-only, `appends:`; plus the census row a named `census-unscreenable` refusal cites. Edit nothing else.
 - A `census-unscreenable` refusal is repaired in the census row only: rewrite the command to

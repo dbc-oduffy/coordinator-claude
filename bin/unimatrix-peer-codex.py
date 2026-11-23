@@ -13,12 +13,22 @@ import os
 import struct
 import subprocess
 import shutil
+import socket
 import sys
+import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from types import ModuleType
 
 TURN_TIMEOUT = 600
 NO_REPLY = "[unimatrix-peer-codex] no reply before timeout"
+STRANDED = "[unimatrix-peer-codex] queued item stranded"
+STRAND_GRACE_SECONDS = 30  # a drained queue starts the next item at once; this long after a turn ends, it was dropped
+TURN_BOUNDARY_EVENTS = ("task_complete", "turn_complete", "turn_aborted")
 RECORDED_BINARY = "codex-binary.path"
+FACE_PRIME = "Reply with the single word READY. Do not use tools."
 DEFAULT_SOCK = "~/.codex/app-server-control/app-server-control.sock"
 
 
@@ -30,15 +40,32 @@ def socket_path():
 class WsClient:
     """Text-frame WebSocket client over an asyncio stream pair (client frames are masked)."""
 
-    def __init__(self, reader, writer):
+    def __init__(self, reader, writer) -> None:
         self.reader = reader
         self.writer = writer
+        self.proc = None
+        self.rid = 0
+
+    async def call(self, method, params, timeout=TURN_TIMEOUT) -> dict:
+        """One JSON-RPC request; returns its result, raises RuntimeError on an error reply."""
+        self.rid += 1
+        await self.send(json.dumps({"id": self.rid, "method": method, "params": params}))
+        while True:
+            msg = json.loads(await asyncio.wait_for(self.recv(), timeout=timeout))
+            if msg.get("id") == self.rid:
+                if "error" in msg:
+                    raise RuntimeError(f"{method}: {msg['error']}")
+                return msg["result"]
 
     @classmethod
-    async def connect(cls, sock, host="localhost", path="/"):
+    async def connect(cls, sock, host="localhost", path="/") -> "WsClient":
         if not hasattr(asyncio, "open_unix_connection"):
             raise OSError("unix sockets are unavailable on this platform")
         reader, writer = await asyncio.open_unix_connection(sock)
+        return await cls._upgrade(reader, writer, host, path)
+
+    @classmethod
+    async def _upgrade(cls, reader, writer, host, path) -> "WsClient":
         key = base64.b64encode(os.urandom(16)).decode()
         writer.write((f"GET {path} HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\n"
                       f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n"
@@ -99,12 +126,58 @@ class WsClient:
             if fin:
                 return buf.decode()
 
-    async def close(self):
+    async def close(self) -> None:
         try:
             await self._send(0x8, b"")
         except (ConnectionError, OSError):
             pass
         self.writer.close()
+        if self.proc is not None:
+            if self.proc.returncode is None:
+                self.proc.kill()
+            await self.proc.wait()
+
+
+class StdioClient(WsClient):
+    """JSON-RPC over a windowless `codex app-server --stdio` child (newline-delimited, no daemon, no socket).
+
+    The child owns the thread's face for as long as it lives; close() kills it.
+    """
+
+    @classmethod
+    async def spawn(cls, cwd=None) -> "StdioClient":
+        proc = await asyncio.create_subprocess_exec(
+            codex_binary(), "app-server", "--stdio", env=exec_env(), cwd=cwd,
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        client = cls(proc.stdout, proc.stdin)
+        client.proc = proc
+        return client
+
+    async def send(self, text) -> None:
+        self.writer.write(text.encode() + b"\n")
+        await self.writer.drain()
+
+    async def recv(self) -> str:
+        """Next non-blank stdout line; raises ConnectionError when the child's stdout closes."""
+        while True:
+            line = await self.reader.readline()
+            if not line:
+                raise ConnectionError("app-server stdio closed")
+            if line.strip():
+                return line.decode()
+
+    async def close(self) -> None:
+        try:
+            self.writer.close()
+        except OSError:
+            pass
+        if self.proc.returncode is None:
+            self.proc.kill()
+        await self.proc.wait()
+        transport = getattr(self.reader, "_transport", None)  # Closes the stdout pipe the proactor loop would warn about at exit.
+        if transport is not None:
+            transport.close()
 
 
 def codex_home():
@@ -118,7 +191,7 @@ def recorded_binary_file(registry_dir=None):
         spec = importlib.util.spec_from_file_location("unimatrix_roster_for_codex", Path(__file__).resolve().parent / "unimatrix-roster.py")
         roster = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(roster)
-        registry_dir = roster.settings_home() / "host-sessions" / "codex"
+        registry_dir = roster.delivery_settings_home() / "host-sessions" / "codex"
     return Path(registry_dir) / RECORDED_BINARY
 
 
@@ -287,13 +360,66 @@ class RolloutTail:
                 raise ValueError("rollout changed during tail read")
 
 
-async def queue_turn(thread_id, text, timeout=TURN_TIMEOUT, interval=1.0):
+class QueueFailed(RuntimeError):
+    """`codex queue` exited non-zero: no live app-server took the message, so nothing was enqueued."""
+
+
+def exec_env() -> dict:
+    """Child env for a headless exec; on Windows the WindowsApps alias stubs are stripped from PATH
+    with codex-exec-windows.py's own clean_path."""
+    env = dict(os.environ)
+    if os.name == "nt":
+        spec = importlib.util.spec_from_file_location(
+            "codex_exec_windows_for_peer", Path(__file__).resolve().parent / "codex-exec-windows.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        env["PATH"] = mod.clean_path(env.get("PATH", ""))
+    return env
+
+
+async def exec_turn(thread_id, text, timeout=TURN_TIMEOUT) -> str:
+    """Headless one-shot turn: exactly one `codex exec` spawn, final agent message returned.
+
+    Resumes the thread when its rollout exists, else runs a fresh one-shot. The prompt goes on
+    stdin and the reply is read from --output-last-message. A timeout returns NO_REPLY; a
+    non-zero exit raises RuntimeError.
+    """
+    resume = not thread_id.startswith("-") and rollout_path(thread_id) is not None
+    with tempfile.TemporaryDirectory(prefix="unimatrix-codex-exec-") as scratch:
+        out = Path(scratch) / "last-message.txt"
+        argv = [codex_binary(), "exec"] + (["resume"] if resume else []) + [
+            "--skip-git-repo-check", "-o", str(out)] + ([thread_id] if resume else []) + ["-"]
+        try:
+            proc = await asyncio.to_thread(
+                subprocess.run, argv, input=text, capture_output=True, text=True, encoding="utf-8",
+                timeout=timeout, env=exec_env(), creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except subprocess.TimeoutExpired:
+            return NO_REPLY
+        if proc.returncode != 0:
+            raise RuntimeError(f"codex exec failed ({proc.returncode}): {(proc.stderr or '').strip()}")
+        try:
+            return out.read_text(encoding="utf-8").strip() or NO_REPLY
+        except OSError:
+            return NO_REPLY
+
+
+def is_turn_boundary(row) -> bool:
+    """True for a rollout event row that ends a Codex turn (completed or aborted)."""
+    p = row.get("payload") or {}
+    return row.get("type") == "event_msg" and p.get("type") in TURN_BOUNDARY_EVENTS
+
+
+async def queue_turn(thread_id, text, timeout=TURN_TIMEOUT, interval=1.0, on_queued=None, on_echoed=None) -> str:
     """Queue `text` onto a thread whose TUI holds it (`codex queue`), then read the reply from the rollout.
 
     Seeks the rollout EOF first, waits for the queued message to appear as a user row,
     and returns the first final assistant message after that row (so a turn already in flight
     when the message was queued is not mistaken for the reply), or NO_REPLY once `timeout`
-    seconds pass.
+    seconds pass. `on_queued` is called once the enqueue succeeds, before the reply wait, so a
+    caller serializing per thread can release its lock and let the next message enqueue.
+    `on_echoed` is called once when the queued text's user row appears. STRANDED is returned when
+    a turn boundary passed, no turn has started since, and STRAND_GRACE_SECONDS elapsed without
+    the echo: the item never started, so the caller may enqueue it again.
     """
     try:
         tail = RolloutTail(thread_id)
@@ -303,24 +429,36 @@ async def queue_turn(thread_id, text, timeout=TURN_TIMEOUT, interval=1.0):
         subprocess.run, [codex_binary(), "--remote", "unix://", "queue", "--thread", thread_id, "--message", text],
         capture_output=True, text=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     if proc.returncode != 0:
-        raise RuntimeError(f"codex queue failed ({proc.returncode}): {proc.stderr.strip()}")
+        raise QueueFailed(f"codex queue failed ({proc.returncode}): {proc.stderr.strip()}")
+    if on_queued is not None:
+        on_queued()
     if tail is None:
         return NO_REPLY  # Enqueued once, but no trustworthy pre-enqueue baseline.
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
     echoed = False
+    boundary_at = None  # when the last turn boundary was seen with no turn started since
     while True:
         try:
             # Finish generation checks before accepting any reply from this bounded batch.
             for r in list(tail.rows()):
                 if not echoed:
                     echoed = text in (user_text(r) or "")
+                    if echoed:
+                        if on_echoed is not None:
+                            on_echoed()
+                    elif user_text(r):
+                        boundary_at = None  # another turn started: wait for its boundary
+                    elif is_turn_boundary(r):
+                        boundary_at = loop.time()
                     continue
                 reply = assistant_text(r)
                 if reply:
                     return reply
         except (OSError, ValueError):
             return NO_REPLY
+        if not echoed and boundary_at is not None and loop.time() - boundary_at >= STRAND_GRACE_SECONDS:
+            return STRANDED
         if loop.time() >= deadline:
             return NO_REPLY
         await asyncio.sleep(interval)
@@ -355,20 +493,74 @@ def appended_rows(path, offset):
     return rows, offset + len(complete) + 1
 
 
-async def codex_turn(sock, thread_id, text, timeout=TURN_TIMEOUT, tui_held=False):
+async def turn_reply(ws, thread_id, text, timeout) -> str:
+    """turn/start on an initialized client, then the agent's final text from its stream."""
+    await ws.call("turn/start", {"threadId": thread_id, "input": [{"type": "text", "text": text}]}, timeout)
+    deltas, final = [], ""
+    while True:
+        msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=timeout))
+        m, p = msg.get("method", ""), msg.get("params", {})
+        if m == "item/agentMessage/delta":
+            deltas.append(p.get("delta", ""))
+        elif m == "item/completed" and p.get("item", {}).get("type") == "agentMessage":
+            final = p["item"].get("text", "") or final
+        elif m == "turn/completed":
+            return final or "".join(deltas)
+
+
+async def stdio_turn(thread_id, text, timeout=TURN_TIMEOUT) -> str:
+    """Windowless headless turn on its own `codex app-server --stdio` child, which registers the thread as a face while it runs.
+
+    Resumes the thread when its rollout exists, else starts a fresh thread. Returns the agent's text.
+    """
+    ws = await StdioClient.spawn()
+    try:
+        await ws.call("initialize", {"clientInfo": {"name": "claude_bridge", "version": "0.1.0"}}, timeout)
+        await ws.send(json.dumps({"method": "initialized"}))
+        if not thread_id.startswith("-") and rollout_path(thread_id) is not None:
+            await ws.call("thread/resume", {"threadId": thread_id, "excludeTurns": True}, timeout)
+        else:
+            thread_id = (await ws.call("thread/start", {}, timeout))["thread"]["id"]
+        try:
+            register_face(thread_id, ws.proc.pid)
+        except (RuntimeError, ValueError, OSError):
+            pass  # An unbound thread still gets its reply; only the face is missing.
+        return await turn_reply(ws, thread_id, text, timeout)
+    finally:
+        await ws.close()
+
+
+async def queue_or_exec(thread_id, text, timeout, on_queued=None, on_echoed=None) -> str:
+    """Queue onto a live app-server; when `codex queue` is refused (nothing enqueued), run a headless turn.
+
+    On win32 the headless turn is stdio_turn (registers a face); elsewhere a `codex exec` one-shot.
+    """
+    try:
+        return await queue_turn(thread_id, text, timeout, on_queued=on_queued, on_echoed=on_echoed)
+    except QueueFailed:
+        if sys.platform == "win32":
+            return await stdio_turn(thread_id, text, timeout)
+        return await exec_turn(thread_id, text, timeout)
+
+
+async def codex_turn(sock, thread_id, text, timeout=TURN_TIMEOUT, tui_held=False, on_queued=None,
+                     on_echoed=None) -> str:
     """One user turn into the live thread; returns the agent's text.
 
     A thread a TUI holds (`tui_held`) is always queued with `codex queue` and read from the
     rollout. Otherwise the turn goes through the app-server socket, falling back to the queue
-    when the socket is absent or unconnectable.
+    when the socket is absent or unconnectable, and to a headless `codex exec` one-shot
+    (`exec_turn`) when the queue finds no live app-server either.
     `timeout` bounds each wait for the next server message, not the whole turn.
     """
-    if tui_held or sys.platform == "win32":
-        return await queue_turn(thread_id, text, timeout)
+    if tui_held:
+        return await queue_turn(thread_id, text, timeout, on_queued=on_queued, on_echoed=on_echoed)
+    if sys.platform == "win32":
+        return await queue_or_exec(thread_id, text, timeout, on_queued=on_queued, on_echoed=on_echoed)
     try:
         ws = await WsClient.connect(sock)
     except OSError:
-        return await queue_turn(thread_id, text, timeout)
+        return await queue_or_exec(thread_id, text, timeout, on_echoed=on_echoed)
     try:
         rid = 0
 
@@ -386,26 +578,83 @@ async def codex_turn(sock, thread_id, text, timeout=TURN_TIMEOUT, tui_held=False
         await call("initialize", {"clientInfo": {"name": "claude_bridge", "version": "0.1.0"}})
         await ws.send(json.dumps({"method": "initialized"}))
         await call("thread/resume", {"threadId": thread_id, "excludeTurns": True})
-        await call("turn/start", {"threadId": thread_id, "input": [{"type": "text", "text": text}]})
-        deltas, final = [], ""
-        while True:
-            msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=timeout))
-            m, p = msg.get("method", ""), msg.get("params", {})
-            if m == "item/agentMessage/delta":
-                deltas.append(p.get("delta", ""))
-            elif m == "item/completed" and p.get("item", {}).get("type") == "agentMessage":
-                final = p["item"].get("text", "") or final
-            elif m == "turn/completed":
-                return final or "".join(deltas)
+        return await turn_reply(ws, thread_id, text, timeout)
     finally:
         await ws.close()
 
 
-def main(argv=None):
-    """`unimatrix-peer-codex.py <thread-id> <text>`: one turn into the thread; prints the reply."""
+def _sibling(name) -> "ModuleType":
+    spec = importlib.util.spec_from_file_location(name.replace("-", "_") + "_for_peer", Path(__file__).resolve().parent / f"{name}.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def register_face(thread_id, holder_pid, peers_file=None, registry_dir=None) -> str:
+    """Upsert the thread into peers.json as a Codex face held by `holder_pid`; returns "added", "rebound" or "present".
+
+    The row carries the engine-owned address and the holder, so the router lists the face while
+    that process lives and marks it stale when it dies. Raises RuntimeError when the engine has bound
+    no address to the thread.
+    """
+    hook = _sibling("unimatrix-codex-hook-sessionstart")
+    if peers_file is None:
+        peers_file = _sibling("unimatrix-peer-router").default_peers_file()
+    if registry_dir is None:
+        registry_dir = _sibling("unimatrix-roster").delivery_settings_home() / "host-sessions" / "codex"
+    address = _sibling("unimatrix-peer-contract").read_codex_address(registry_dir, thread_id, socket.gethostname())
+    if not address:
+        raise RuntimeError(f"codex thread {thread_id} is unbound: no engine address")
+    return hook.register_peer(peers_file, address["name"], "codex", thread_id, address=address,
+                              holder=hook.codex_holder(holder_pid))
+
+
+async def start_thread(sock, timeout=30, cwd=None, on_ready=None, hold=False) -> str:
+    """Create a thread on the running app-server daemon (initialize, thread/start, one priming turn); returns its id.
+
+    Never spawns a daemon: an absent socket raises. Windows Python has no unix sockets and the
+    daemon proxy resets, so there the thread lives on a windowless `codex app-server --stdio` child
+    that is registered as the face's holder; with `hold` the child is kept alive after `on_ready(thread_id)`
+    until this task is cancelled, because the face is live only while its holder is.
+    """
+    try:
+        ws = await (StdioClient.spawn(cwd) if sys.platform == "win32" else WsClient.connect(sock))
+    except (asyncio.IncompleteReadError, OSError) as e:
+        raise RuntimeError(f"app-server daemon not reachable at {sock}") from e
+    try:
+        await ws.call("initialize", {"clientInfo": {"name": "claude_bridge", "version": "0.1.0"}}, timeout)
+        await ws.send(json.dumps({"method": "initialized"}))
+        thread_id = (await ws.call("thread/start", {"cwd": cwd} if cwd else {}, timeout))["thread"]["id"]
+        # A thread is a router face only once its rollout and state row exist, which the first turn writes.
+        await ws.call("turn/start", {"threadId": thread_id, "input": [{"type": "text", "text": FACE_PRIME}]}, timeout)
+        while json.loads(await asyncio.wait_for(ws.recv(), timeout=timeout)).get("method") != "turn/completed":
+            pass
+        if ws.proc is not None:
+            register_face(thread_id, ws.proc.pid)
+        if on_ready:
+            on_ready(thread_id)
+        if hold and ws.proc is not None:
+            await asyncio.Event().wait()
+        return thread_id
+    finally:
+        await ws.close()
+
+
+def main(argv=None) -> int:
+    """`unimatrix-peer-codex.py <thread-id> <text>`: one turn into the thread; prints the reply.
+
+    `unimatrix-peer-codex.py --start-face [cwd]`: start a thread on the daemon socket; prints its id.
+    """
     argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["--start-face"] and len(argv) <= 2:
+        try:
+            asyncio.run(start_thread(socket_path(), cwd=argv[1] if len(argv) == 2 else None,
+                                     on_ready=lambda tid: print(tid, flush=True), hold=True))
+        except KeyboardInterrupt:
+            pass
+        return 0
     if len(argv) != 2:
-        sys.exit("usage: unimatrix-peer-codex.py <thread-id> <text>")
+        sys.exit("usage: unimatrix-peer-codex.py <thread-id> <text> | --start-face [cwd]")
     print(asyncio.run(codex_turn(socket_path(), argv[0], argv[1])))
     return 0
 

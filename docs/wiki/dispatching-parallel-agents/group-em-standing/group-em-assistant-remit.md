@@ -133,3 +133,28 @@ raises rather than stamping when passed to the engine copy. `writer_session_id` 
 `holder_session_id` when a delegate arm stamps on the standing holder's behalf. `tick_source` is `cron` with `interval_seconds` 30 (a hand stamp with `monitor` records the
 short-lived stamping process's pid, so `--status` returns 2), a KEYWORD, never positional. `declinations` is THIS wake's rows only, `[]` if none.
 `subscribed_peers` is the count your watch shell is *still* subscribed to right now.
+
+## Holding silently still wakes the dispatcher
+
+**Delegating a decision does not delegate the interrupt when the delegate's stopping is itself
+an interrupt.** An unnamed background subagent that stops fires a `task-notification` at its
+dispatcher, so an assistant that triages a below-threshold event, sends nothing and stops has
+suppressed the content and not the wake: the Group EM is still woken once per assistant wake, by
+a one-line notice such as "holding silently, no message sent." Content suppression and wake
+suppression are different properties; this shape delivers only the first.
+
+The `group-em` tell for a failed delegation ("you find yourself waking them, or working an event
+they already hold") does not catch this. The dispatcher is not waking the assistant, and it is
+not working the held event; it is being handed a notice that one is held, which reads as healthy
+reporting. The harness's completion mechanism is the sender, and nobody watches it.
+
+Consequences for design:
+
+- "Your move on a park is nothing" is true of the move and false of the attention. Do not promise
+  the Group EM zero wakes from this delegation.
+- A per-event wake cannot be triaged away by the delegate. Reduce it where events are generated
+  (a coarser filter on the wire, or a batching interval); telling the assistant to hold more
+  aggressively makes the notices emptier, never rarer.
+- The delegation is still worth keeping: spool triage, the threshold judgment and the watch
+  subprocess stay out of the Group EM's context, and what arrives is one line rather than a park
+  record.

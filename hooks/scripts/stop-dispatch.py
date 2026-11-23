@@ -397,7 +397,8 @@ REGISTRY: Tuple[StopGuard, ...] = (
     StopGuard("stop_disk_budget_sweep",
               "stop-disk-budget-sweep.py", _pre_disk_budget_due),
     # A PRODUCER like the ones above: always exit 0, empty stdout. Spawns the detached freshness
-    # probes at the throttle/HEAD gate; the directive rides the next UserPromptSubmit marker.
+    # probes at the throttle/HEAD gate and persists pending freshness state, which SessionStart
+    # reports passively.
     StopGuard("stop_freshness_autofire",
               "stop-freshness-autofire.py", _pre_freshness_due),
 )

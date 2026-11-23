@@ -1205,3 +1205,10 @@ general `*-decisions.md` convention used across repos in the fleet.
 <!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-6-016 -->
 
 The handoff and memo schemas were converged additively. The inventory showed batons were already canonical, so convergence shipped as doctrine backlinks plus recorded load-bearing divergences, not field churn. Where an instance diverges for a reason, record the divergence rather than rewriting the instance.
+
+## When two careful readers disagree about one record's state, suspect the record
+
+
+**Check the artifact's structure — repeated frontmatter delimiters, duplicate keys, two blocks where the schema allows one — before re-running either reading or reaching for a concurrency explanation.** Two sessions counted one inbox and got 24 and 23; both were right. One inbox memo carried two complete frontmatter blocks: a disposition block prepended later (`status: actioned`), then the original delivery's frontmatter (`status: open`) and body. A frontmatter parser stops at the first `---` pair and reads `actioned`; a line-wise `grep '^status: open'` finds the second block and reads `open`. Re-running either method more carefully only confirms its own answer, because each is faithfully derived from the bytes on disk. The tell is in the shape of the file (count the `---` delimiters), not in the `status:` value. A single malformed record can also look like a peer reverting or reopening it mid-session; rule out the malformed record before blaming concurrent mutation.
+
+**Corollary for writers.** A transition that stamps a record merges into its existing frontmatter and never prepends a second block. If two stamped values genuinely conflict and cannot be adjudicated, preserve the loser in the body rather than picking silently.

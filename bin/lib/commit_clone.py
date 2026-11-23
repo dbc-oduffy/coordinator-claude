@@ -30,7 +30,8 @@ _FORMAT = 5
 _LEGACY_MARKER = "commit-clone.json"
 _CACHE_DIRNAME = "claude-klabauter-commit-clone"
 _RETENTION = 3
-_IN_USE_GRACE_SECS = 3600
+_IN_USE_GRACE_SECS = 3600  # only covers the gap between a materialise and its run's lease
+_LEASE_DIRNAME = "in-use"  # `<clone>/.git/in-use/<pid>`: one file per process running from the clone
 _FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -46,6 +47,8 @@ _SEED_FILES = frozenset(
     + ("coordinator_core/temp_layout.py",)
     # coordinator_core/__init__.py imports it eagerly; unseeded, every clone import dies at __init__.
     + ("coordinator_core/op_scopes.py",)
+    # `_pid_alive` loads it by path; a clone running a materialise needs it beside `coordinator_core/`.
+    + ("coordinator_core/group_em/session_registry.py",)
     + tuple(
         "coordinator/bin/" + name
         for name in (
@@ -338,7 +341,10 @@ def materialise_commit_clone(repo_root: Path, sha: str, cache_root: Path) -> Pat
                 os.replace(staging, dest)
             except OSError:
                 if _usable_marker(dest, sha) is None:
-                    raise
+                    # A shell that will not go away (a live cwd on Windows): fill it in place.
+                    _move_into(staging, dest)
+                    if _usable_marker(dest, sha) is None:
+                        raise
         finally:
             shutil.rmtree(staging, ignore_errors=True)
     except (RuntimeError, OSError) as exc:
@@ -450,7 +456,63 @@ def _prune(cache_root: Path, keep: Path) -> None:
     except OSError:
         return
     for stale in stale_clones:
-        shutil.rmtree(stale, ignore_errors=True)
+        if not _clone_in_use(stale):
+            shutil.rmtree(stale, ignore_errors=True)
+
+
+def _pid_alive(pid: int) -> bool:
+    """`session_registry.pid_alive`, loaded by path (this module is stdlib-only and runs before the
+    engine is bound). A registry that cannot be loaded reads every pid as alive: a clone is kept."""
+    module = sys.modules.get("coordinator_core.group_em.session_registry")
+    if module is None:
+        path = Path(__file__).resolve().parents[3] / "coordinator_core" / "group_em" / "session_registry.py"
+        try:
+            spec = importlib.util.spec_from_file_location("_commit_clone_session_registry", path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        except (OSError, ImportError, AttributeError, SyntaxError):
+            return True
+    return module.pid_alive(pid)
+
+
+def _clone_in_use(clone: Path) -> bool:
+    """True when `<clone>/.git/in-use/` holds a lease named by this process's pid or a live one.
+    One listdir; no spawn. A dead pid's leftover lease protects nothing."""
+    try:
+        names = os.listdir(Path(clone) / ".git" / _LEASE_DIRNAME)
+    except OSError:
+        return False
+    for name in names:
+        if name.isdigit() and (int(name) == os.getpid() or _pid_alive(int(name))):
+            return True
+    return False
+
+
+def _write_lease(clone: Path) -> Path | None:
+    """Write `<clone>/.git/in-use/<pid>`; None when the clone refuses it (the round then runs
+    unprotected beyond `_IN_USE_GRACE_SECS`)."""
+    lease = Path(clone) / ".git" / _LEASE_DIRNAME / str(os.getpid())
+    try:
+        lease.parent.mkdir(exist_ok=True)
+        lease.write_bytes(b"")
+    except OSError:
+        return None
+    return lease
+
+
+def _move_into(staging: Path, dest: Path) -> None:
+    """Fill `dest` (an existing shell that could not be replaced) with `staging`'s tree. Whatever
+    of the shell survives a removal attempt (a pinned cwd) is overwritten; the marker goes in last,
+    so a half-filled shell is never a warm hit."""
+    dest.mkdir(parents=True, exist_ok=True)
+    for child in sorted(staging.iterdir(), key=lambda p: p.name in (_MARKER, ".git")):
+        target = dest / child.name
+        if child.is_dir() and target.is_dir() and not target.is_symlink():
+            _move_into(child, target)
+            continue
+        if target.is_dir():
+            shutil.rmtree(target, ignore_errors=True)
+        os.replace(child, target)
 
 
 def _write_site(clone: Path) -> Path:
@@ -496,11 +558,14 @@ def run_entry_from_clone(clone: Path, entry_rel: str, argv: list[str]) -> int:
     print(f"running from commit clone {clone}", file=sys.stderr)
     saved_argv = sys.argv
     sys.argv = [str(entry), *argv[1:]] if argv else [str(entry)]
+    lease = _write_lease(clone)
     try:
         runpy.run_path(str(entry), run_name="__main__")
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 1)
     finally:
+        if lease is not None:
+            lease.unlink(missing_ok=True)
         sys.argv = saved_argv
         if saved_pythonpath is None:
             os.environ.pop("PYTHONPATH", None)

@@ -148,6 +148,20 @@ A mock pins the call shape at one boundary. Moving the boundary — routing reso
 
 *Caught by C7 on coordinator-harvest-deferrals.*
 
+## Test What a Consumer Can Parse, Not Only What the Artifact Means
+
+*Recurs: example-store-repo. [universal]*
+
+Author-shaped tests (assert the artifact's meaning) and consumer-shaped tests (assert the consumer's loader accepts it) catch different failures; a suite of only the first passes through a total outage.
+
+**Concrete failure (example-store-repo).** A shipped clearance artifact declared `denyOn` as a string array. A cleanliness review rightly removed a parallel description structure, so `denyOn` became an object keyed by case. No test noticed: the assertion compared `set(deny_on)` to the expected case names, and iterating a dict yields its keys, so the object passed identically. The consumer's structural validator required `Array.isArray(denyOn)`, rejected the whole document, and fell back to deny-all with an empty scope registry: every source denied for every principal at every install with the store mounted. The consumer's session found it, not ours.
+
+- **A structural validator gates the whole document, not the field you broke.** The blast radius of a shape error is every key and every consumer, and it presents as a working fail-closed gate rather than an error: the worst shape for a security-adjacent defect.
+- **Set comparison over a mapping is the trap.** `set(x) == expected` is true for both a list and a dict with those keys, so it is blind to exactly the array-to-object change most likely to happen. Assert `isinstance` on the container before any content assertion.
+- **A cleanliness review can break a cross-repo contract** that neither reviewer (sees one file, reasons about duplication) nor suite (asserts meaning) reads. When a review touches an artifact another repo parses, the consumer's loader is part of the diff's blast radius.
+
+**Rule.** Write a test that mirrors the consumer's validator rule for rule, kept in lockstep with it, and demonstrate it rejects the shape the old assertions accepted. Ask the consumer for its exact rule set rather than inferring it, and get its commitment to announce a new rule before it ships. Do not "correct" your bytes to match a type the consumer declares but does not validate; pin that with a negative spec.
+
 ## Green Tests ≠ Runtime-Readiness
 
 A green test suite is not proof a change actually works end-to-end — three distinct ways this

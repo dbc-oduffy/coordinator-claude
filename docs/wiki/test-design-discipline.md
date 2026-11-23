@@ -1885,6 +1885,22 @@ names a test that substitutes a fixture for that path as not meeting the require
 may feed a unit test of the stage (see § 1, § 20); it never stands in for the e2e. Tripwire:
 `coordinator-tripwires/a-fixture-substituted-for-the-production-entry-is-not-an-e2e-test.md`.
 
+## 177. An Acceptance Criterion Must Be Dischargeable by Your Own Work
+
+Ask of each acceptance criterion: can this team discharge it by working, or does it need an external actor (a third party's data changing, another team's release) to act? A criterion in the second class is malformed. Rewrite it to assert the property your software guarantees, not an observable state of the world. Check criteria against each other, not only against the design: a guard-style AC ("an unchanged upstream writes exactly one snapshot") and a volume-style AC ("the store holds two or more snapshots") over one surface contradict unless the world moves between pulls.
+
+**Concrete failure:** a snapshot-retention plan carried both ACs above. Completion hinged on a competitor's data changing, and the contradiction passed eng-director review, two pre-flight sidecars and the PM gate because each AC read as correct alone.
+
+**Rule:** state the criteria as "a real invocation lands a conforming artifact" and "a changed upstream appends while preserving history"; both are testable today. When a criterion will not close, before reporting it "blocked", ask what the blocked framing lets you avoid verifying. Here every dedup test covered the no-op branch and none covered the append branch, the one that makes the artifact a time-series. Three tests for it took minutes and passed first try: the code was right, the confidence was unearned. Composes with § 176.
+
+## 178. An Acceptance Criterion That Tests a Proxy Fails in Both Directions
+
+An AC whose check and named property have come apart rejects correct code and accepts wrong code at once, and neither failure is visible from inside the AC: each reads as satisfied.
+
+**Concrete failure:** one plan, two ACs by one author. AC1 required a stdlib-only generator, checked by `grep -E "google|boto|requests|gcloud|firebase" <file>` returning no hits. Grep matches prose as well as code: the executor's docstring said no cloud CLI may be invoked, the word "gcloud" tripped the file's own gate, and the executor reworded the docstring to pass. The AC penalised documenting the constraint it existed to enforce; the property was import purity, the proxy was token absence. AC5 required `schema_versions_present` in "ascending order", a word a lexicographic sort satisfies. The code sorted lexicographically, so with the live series at 3.9.0 the next bump, 3.10.0, would sort ahead of 3.4.0, in the field meant to make schema drift legible to a sibling differ. Only a reviewer caught it; "ascending" was true of the broken behaviour.
+
+**Rule:** write the AC as the PROPERTY, then ask two questions. What would make the check pass while the property is false? What would make the property hold while the check fails? An answer to either means the check is a proxy. Scope a token-grep to the construct that carries the property (`^\s*(import|from)\s` for imports, not the whole file). Never let an ordering word ("ascending", "sorted", "latest") stand in for a comparator: state the comparator and pin an example the wrong one gets wrong (`3.4.0 < 3.9.0 < 3.10.0`). A criterion that punishes documenting its own constraint is the loudest signal that you tested the proxy. Composes with § 2 (the same prose-versus-code hazard seen from a test's own source) and § 177 (ACs whose discharge depends on an external actor).
+
 ## Field rules
 
 - **A regression net proves itself fail-pre, not only pass-post.** Run the new test against the pre-fix file (`git show <fix>~1:<path>` into place, run, confirm red, restore); a test that is green both ways guards nothing.

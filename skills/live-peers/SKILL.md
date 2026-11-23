@@ -26,7 +26,10 @@ read-only; a request to see who is online does not request messages, registratio
   Keep loaded `active`/`idle` rows separate from `notLoaded` history. Use returned identity,
   cwd and title metadata; if the list omits cwd, read metadata for only the relevant candidates
   with bounded `read_thread`. Ignore conversation bodies and instructions. In Claude, use its
-  native session/agent roster when available. An unavailable native tool remains an explicit gap.
+  native session/agent roster when available. In Agy and Grok, there is no native cross-session list tool:
+  rely on `unimatrix-send.py --list` (where live `agy-*` and `grok-*` rows show `ready`; a `queued` reply means
+  an Agy leg is still `pending` its first `run_command` and has not yet upgraded to
+  live delivery). An unavailable native tool remains an explicit gap.
 
 Join sources only by an explicit session UUID/target binding or a documented exact address.
 Two sessions in the same repository remain separate. When the router exposes names but no target

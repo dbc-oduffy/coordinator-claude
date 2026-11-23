@@ -36,7 +36,7 @@ It replaces `strategy.md` for every later stage, so it must be complete on its o
 For each `## Notebook {letter}` section keep Focus, Custom instructions, Questions, Source strategy, Search guidance for scout and Estimated ceiling, and rewrite them from what the survey found:
 
 1. **Questions:** specific and falsifiable, each answerable by a source listed for that notebook in `sources.md`, worded to demand citations, with one adversarial question per notebook. A notebook answers only from its own sources, so a question no listed source can answer is dropped and named as a gap under `## Brief notes`, never assigned.
-2. **Source strategy:** name the sources assigned by title or URL, mark each primary, secondary or weak, and keep `scout-provided` or `research_start` as the survey now shows. Copy paste-as-text and prior-run `sources.md` seeds from the strategy verbatim.
+2. **Source strategy:** name the sources assigned by title or URL, mark each primary, secondary or weak, and keep `scout-provided`, `research_start` or `existing_notebook` as the survey now shows. An `existing_notebook` section's `Notebook ID: <uuid>` line is copied verbatim; the worker reuses that notebook and never recreates it. Copy paste-as-text and prior-run `sources.md` seeds from the strategy verbatim.
 3. **Custom instructions:** the notebook's role, the output shape wanted, and what it should not cover versus its peers.
 4. **Effort and ceilings:** scale queries and the estimated ceiling to the question per the deep-research guide, within the strategy's `tier_assumption` rate limits; never raise `total_expected_queries` past what the tier allows.
 5. **Cross-cutting themes** between notebooks, named under `## Cross-notebook themes` so the sweep knows to look.

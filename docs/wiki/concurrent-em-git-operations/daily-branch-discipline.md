@@ -536,3 +536,11 @@ A naive union of an append-queue file (lessons, queues) across a long-divergent 
 entries the other line already triaged out. Take the more recently triaged side, then append only
 the other side's net-new delta (`git diff <merge-base>..<other> -- <file>`). Also grep `.sh`/`.ps1`
 parity pairs for flags that landed on one wrapper only before declaring the reconcile done.
+
+## Resolve conflicts on merit, not provenance
+
+When resolving (or advising on) a merge conflict, pick each hunk by which version is correct and better — read both and check against the code that will actually ship. Never "take theirs because they own it", "take main's", or "take the newer one". PM correction 2026-09-24 (PR #98): the side to take depends on what code is better, not who wrote it or where it is. Re-judging on merit found main's wiki text factually false and the day branch's plan carrying a 0-based/1-based error; a provenance rule would have kept both.
+
+- **State the merit reason per hunk** — what is wrong with the loser.
+- **Check non-textual fallout of the merged result** — e.g. a tripwire on one side that the other side's cleanly-merged lines will trip.
+- **Uncommitted work in the tree:** only when no peer session is live (single active EM) is nothing "not mine" — judge a crashed session's uncommitted diff on merit, then commit, fix, or leave it, and say which, staying on the assigned task. With live peers, the shared-bus peer doctrine above governs: out-of-scope dirty files belong to peers.

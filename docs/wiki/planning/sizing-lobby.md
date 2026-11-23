@@ -931,8 +931,8 @@ asked for; the elaboration was where the scope grew, invisibly, until the flag e
 newest-first and length-budgeted. The EM curates by cut and paste (trim, or split across sibling
 sizings) and never rewrites their text. `intent` remains the EM's routing restatement. The plan
 brief and `/workstream-complete` read them via the plan's own `sizing_object`. Every embedded
-turn is covered by a register row or listed in `requirement_register.unrelated_turns` with a
-reason; `sizing-assemble --register` refuses an uncovered turn.
+turn is covered by a register row, or by a break-glass entry that halts the run;
+`sizing-assemble --register` refuses an uncovered turn.
 
 **`--precedent shipped-before|novel`.** Has this fleet run this operation before, with a runbook
 that landed? `shipped-before` is the single strongest available collapse signal and fires the
@@ -1117,6 +1117,6 @@ writes it, the PM is never asked. The tier map, close per tier and preflight liv
 
 <!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-30-125, batch-35-012, batch-35-018, batch-35-021, batch-35-026, batch-35-035, batch-36-066, batch-49-016 -->
 - **Engine projection.** `sizing.read_object_fields` projects only intent, estimate, scout_evidence, appetite; contingency chunk C17 closed wont_do since `derived_from` is read directly.
-- **PM verbatims.** `pm_verbatims` captured per turn via `baton_pm_turns.append_turn`, rendered through `render_sizing_brief`, notice clause after a successful append (v4.4.10). Coverage rule: substring match after whitespace normalisation, or an `unrelated_turns` entry with a reason; engine predicate `coverage_gaps`.
+- **PM verbatims.** `pm_verbatims` captured per turn via `baton_pm_turns.append_turn`, rendered through `render_sizing_brief`, notice clause after a successful append (v4.4.10). Coverage rule: substring match after whitespace normalisation, or a halting break-glass entry; engine predicate `coverage_gaps`.
 - **Sizing-scout** sizes work.
 - **Breadth.** Item, door and file count are breadth; shared files resolve to after sequencing within grouped sibling asks; a sizing records a depth rationale.

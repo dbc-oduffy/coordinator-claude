@@ -813,18 +813,15 @@ def peer_recheck_staleness_banner(repo_root: Optional[str]) -> None:
         stale_threshold=168,
         very_stale_threshold=720,
         generator_name=None,
-        # _gen is always None here (generator_name=None above -> no generator CLI for
-        # this row) — kept as a param only to match the shared _staleness_banner callback
-        # shape, not referenced in either message below.
+        # Unused `_gen` keeps the shared _staleness_banner callback shape.
         very_stale_message=lambda age_hours, _gen: (
             f"── ⚠ Peer set VERY STALE: oldest re-check {age_hours}h old — "
-            "run a code-comparison re-check against your peers (see "
-            "state/peers/*.yaml, coordinator/pipelines/deep-research/"
-            "repo-driver.md) ──\n"
+            "run a code-comparison re-check against your peers "
+            "(state/peers/*.yaml, coordinator/pipelines/deep-research/repo-driver.md) ──\n"
         ),
         stale_message=lambda age_hours, _gen: (
             f"── Peer set stale: oldest re-check {age_hours}h old — consider "
-            "a code-comparison re-check against your peers "
+            "a code-comparison re-check against peers "
             "(state/peers/*.yaml) ──\n"
         ),
     )
@@ -877,8 +874,7 @@ def harness_version_drift_banner(repo_root: Optional[str]) -> None:
     except Exception:
         print(
             f"[coordinator] harness drift banner: pin file {pin_path} is present "
-            "but not parseable as JSON — drift detection is silently disabled "
-            "until it is repaired",
+            "but not parseable as JSON — drift detection is off until repaired",
             file=sys.stderr,
         )
         return
@@ -892,7 +888,7 @@ def harness_version_drift_banner(repo_root: Optional[str]) -> None:
         print(
             f"[coordinator] harness drift banner: pin file {pin_path} carries no "
             "usable 'reconciled_against_harness_version' — drift detection is "
-            "silently disabled until it is repaired",
+            "off until repaired",
             file=sys.stderr,
         )
         return
@@ -3035,6 +3031,27 @@ def full_mode(repo_root: Optional[str], state_root: str) -> None:
     _w(f"── Orientation: {found} document(s) available (read on demand) ──\n")
 
 
+def pending_freshness_banner(repo_root: Optional[str]) -> None:
+    """One factual, non-imperative boot line of pending doc-freshness signals; never raises."""
+    # read_pending is read-only and spawn-free, so a repeated boot repeats the same line.
+    try:
+        import _freshness_pending
+
+        pending = _freshness_pending.read_pending(repo_root or os.getcwd())
+        due = [s for s in pending.get("due", []) if isinstance(s, str)]
+        if not due:
+            return
+        observed = ""
+        ts = pending.get("ts")
+        if isinstance(ts, (int, float)) and not isinstance(ts, bool):
+            observed = datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d %H:%MZ")
+        head = pending.get("head") if isinstance(pending.get("head"), str) else ""
+        detail = ", ".join(p for p in (f"observed {observed}" if observed else "", f"head {head[:8]}" if head else "") if p)
+        _w(f"Doc freshness: {', '.join(due)} pending" + (f" ({detail})" if detail else "") + "\n")
+    except Exception:
+        return
+
+
 def _run_banners(banners: list) -> None:
     """Run each banner fail-open, folding staleness-class lines into one counted line.
 
@@ -3112,6 +3129,7 @@ def main(argv: list) -> int:
 
         _run_banners(
             [
+                lambda: pending_freshness_banner(repo_root),
                 lambda: repomap_staleness_banner(repo_root),
                 lambda: exec_summary_staleness_banner(repo_root),
                 lambda: peer_recheck_staleness_banner(repo_root),

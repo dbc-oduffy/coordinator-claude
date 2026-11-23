@@ -46,8 +46,20 @@ Two primitives, both the engine's:
 - **Compute shards.** Splitting one long job is an op-level shard runner, not a Claude session.
   (`engine pending`)
 
-Embedding and semantic-index builds (project-rag, project-rag-ue-addon) are placed on the
-Windows box, never granted a Mac capacity slot.
+The placement input is one query, `fleet-capacity`: every known box's maxima (cores, RAM, GPU,
+VRAM) beside its measured use, commit memory included (`CROSS-BOX-PLACEMENT-IS-THE-G-EM-S-FROM-ONE-QUERY`).
+A box that does not answer is listed `UNREACHABLE` with its last-known maxima; ask the PM to power
+it on rather than plan around its absence. Choose the
+box with measured headroom for the job's peak. Off Machine-a, prefer Gipsy over the Mac Mini.
+Machine-a keeps likeness work that needs its RTX 5090 and work on data that lives only on Machine-a.
+
+Place by how fast the target moves. Slow-moving semantic targets (embed
+sidecars, semantic query serving, the vector store) belong on the Mac Mini. The active Windows
+box keeps fast-moving targets (SCIP, structural, LSP, tree-sitter) and work that needs CUDA or
+the VRAM. Embed sidecars start on demand and stop when idle. Corpus embeddings are built on a
+bigger box, published as versioned index artifacts, and served from the Mini (semantic and
+ue-addon search); the Mini encodes queries with each lane's exact model, revision and
+preprocessing.
 
 The G-EM owns the placement GO/HOLD terms and the event definition. A box marked UE/p4-absent in
 the registry never receives UE work. Cockpit session spawn is a future primitive (`after
@@ -58,7 +70,7 @@ hardware`); until then a remote session is a headless `claude -p` job over the s
 The /rc walk-away contract: the PM starts the G-EM as a `/rc` session and leaves. Every job is
 checkpointed, resumable, and admitted on its own box. A job lacking any of the three is not
 placed. A box that goes silent is `GONE` on the feed; the G-EM re-places from the last
-checkpoint and tells the PM only what survives the escalation screen. (`engine pending` for the
+checkpoint and routes the loss to the owning session. (`engine pending` for the
 feed and checkpoints; the contract is the G-EM's today.)
 
 #### Cross-box SendMessage

@@ -33,6 +33,7 @@ import socket
 import stat
 import sys
 import time
+import uuid
 from pathlib import Path
 
 READY_SECONDS = 15
@@ -116,12 +117,12 @@ def __getattr__(name):
 
 def default_peers_file():
     """The peers file a default invocation reads."""
-    return _roster().settings_home() / "unimatrix" / "peers.json"
+    return _roster().delivery_settings_home() / "unimatrix" / "peers.json"
 
 
 def default_legs_dir():
     """Where the agy launch hook writes one leg record per conversation."""
-    return _roster().settings_home() / "unimatrix" / "agy-legs"
+    return _roster().delivery_settings_home() / "unimatrix" / "agy-legs"
 
 
 def leg_record_live(rec):
@@ -396,7 +397,7 @@ def load_lock_peers(lock_dir, vendor, taken_names=(), taken_targets=()):
         if vendor == 'codex':
             try:
                 address = _contract().read_codex_address(
-                    _roster().settings_home() / 'host-sessions' / 'codex', ident, socket.gethostname())
+                    _roster().delivery_settings_home() / 'host-sessions' / 'codex', ident, socket.gethostname())
             except _contract().PeerConfigError as exc:
                 print(f'unimatrix: refusing Codex address: {exc}', file=sys.stderr)
                 continue
@@ -428,6 +429,8 @@ SEND_SCRIPT = "unimatrix-send.py"
 STALE_CODEX_ERROR = "Codex peer is stale: no live attached process"
 NO_REPLY_MARKERS = {"[unimatrix-peer-codex] no reply before timeout",
                     "[unimatrix-peer-grok] no reply before timeout"}
+HELD_REPLY = "[unimatrix-router] held behind an unechoed Codex item"
+STRANDED_REPLY = "[unimatrix-peer-codex] queued item stranded"  # unimatrix-peer-codex.py STRANDED
 NOT_DELIVERED_PREFIXES = ("[unimatrix-peer-agy] not delivered", "[unimatrix-peer-agy] delivery failed",
                           "delivery failed:")
 
@@ -533,7 +536,7 @@ def is_ack(text):
 
 
 def default_state_dir():
-    return _roster().settings_home() / "unimatrix" / "router"
+    return _roster().delivery_settings_home() / "unimatrix" / "router"
 
 
 def endpoint_path(seed, endpoint_dir=None):
@@ -722,18 +725,22 @@ async def run_face(name, endpoint, forward, sessions_dir, cwd=None, transport=Fa
 
 # ------------------------------------------------------------------ router
 
-def default_adapters():
+def default_adapters() -> dict:
     """vendor -> async fn(peer, text) -> reply text, loading the adapters on first use."""
-    cache = {}
+    cache = {}  # key -> (source stamp, module)
 
     def mod(filename, key):
-        if key not in cache:
-            cache[key] = _load(filename, f"unimatrix_peer_{key}")
-        return cache[key]
+        st = (here() / filename).stat()
+        stamp = (st.st_mtime_ns, st.st_size)
+        hit = cache.get(key)
+        if hit is None or hit[0] != stamp:  # an edited adapter source is reloaded, never served stale
+            hit = cache[key] = (stamp, _load(filename, f"unimatrix_peer_{key}"))
+        return hit[1]
 
     async def codex(peer, text):
         m = mod("unimatrix-peer-codex.py", "codex")
-        return await m.codex_turn(m.socket_path(), peer["target"], text, tui_held=bool(peer.get("tui")))
+        return await m.codex_turn(m.socket_path(), peer["target"], text, tui_held=bool(peer.get("tui")),
+                                  on_queued=peer.get("on_queued"), on_echoed=peer.get("on_echoed"))
 
     async def agy(peer, text):
         m = mod("unimatrix-peer-agy.py", "agy")
@@ -757,8 +764,10 @@ class Router:
 
     def __init__(self, peers, sessions_dir=None, state_dir=None, endpoint_dir=None,
                  adapters=None, ready_seconds=READY_SECONDS, legs_dir=None,
-                 codex_locks_dir=None, presence_dir=None, grok_home=None):
+                 codex_locks_dir=None, presence_dir=None, grok_home=None, peers_file=None):
         peers = list(peers)
+        self.peers_file = str(peers_file) if peers_file else None
+        self._peers_stamp = None  # (mtime_ns, size) of peers_file at the last adoption read
         self.codex_home = Path(codex_locks_dir or default_codex_locks_dir()).resolve().parent
         metadata = codex_thread_metadata(self.codex_home) if any(p.get('vendor') == 'codex' for p in peers) else {}
         self.refused_codex_addresses = set()
@@ -775,10 +784,11 @@ class Router:
         self.adapters = adapters or default_adapters()
         self.ready_seconds = ready_seconds
         self.locks = {n: asyncio.Lock() for n in self.peers}
+        self.outbox = {}  # Codex peer name -> {"inflight": item|None, "held": [msg], "failed": [msg id], "p": peer row}
         self.ctl = endpoint_path(ROUTER_ENDPOINT_SEED, self.endpoint_dir)
         self.log_path = os.path.join(self.state_dir, "unimatrix-peer-router.log")
         self.faces = {}  # peer name -> Popen
-        self.addressed = {}  # peer name -> names it sent to during its open inbound turn
+        self.addressed = {}  # peer name -> one set per open inbound turn: names it sent to during that turn
         self.server = None
         self.tasks = set()
         self.legs_dir = str(legs_dir) if legs_dir else None
@@ -797,12 +807,21 @@ class Router:
         self.bound_faces = set()  # face endpoints whose child registration reached ready
         self.dead_holders = set()  # Codex peers whose recorded holder is gone: no face, not listed
 
-    def peer_stale(self, name):
-        """True for a Codex peer without a live attached holder: dead (False) or unrecorded (None)."""
+    def peer_stale(self, name) -> bool:
+        """True for a Codex peer without a live attached holder: dead (False) or unrecorded (None).
+
+        A discovered peer with no recorded holder is live while its writer lock is held; a recorded
+        dead holder stays stale.
+        """
         peer = self.peers.get(name)
         if not isinstance(peer, dict) or peer.get("vendor") != "codex":
             return False
-        return name in self.dead_holders or _liveness().codex_holder_live(peer) is not True
+        if name in self.dead_holders:
+            return True
+        live = _liveness().codex_holder_live(peer)
+        if live is None and name in self.discovered:
+            return not self.thread_held(peer.get("target"))
+        return live is not True
 
     async def _drop_dead_holders(self):
         """Stop the face of every peers-file Codex row whose recorded holder is gone.
@@ -922,6 +941,7 @@ class Router:
 
     async def refresh_discovered(self):
         """Register a face for each newly live discovered peer and retire the ones whose record or lock went."""
+        await self.adopt_peers_file()
         await self._drop_dead_holders()
         live = await asyncio.to_thread(self._live_discovered)
         for name in sorted(self.discovered - set(live)):
@@ -940,12 +960,71 @@ class Router:
                 self.log("DISCOVER-REGISTER-FAILED", name, type(e).__name__, e)
                 await self._retire(name)
 
+    async def adopt_peers_file(self) -> None:
+        """Adopt Codex rows peers.json gained or changed since the last read; one stat per tick.
+
+        A row for a target a discovered peer holds replaces that peer, so the file's holder fields
+        win and no `tui` flag is carried. A changed holder revives a row marked dead. An unreadable
+        or invalid file adopts nothing until it changes again.
+        """
+        if not self.peers_file:
+            return
+        try:
+            st = os.stat(self.peers_file)
+        except OSError:
+            return
+        stamp = (st.st_mtime_ns, st.st_size)
+        if stamp == self._peers_stamp:
+            return
+        self._peers_stamp = stamp
+        try:
+            rows = await asyncio.to_thread(_contract().load_peers, self.peers_file)
+        except (OSError, ValueError, _contract().PeerConfigError):
+            return
+        rows = [r for r in rows if r.get("vendor") == "codex"]
+        if not rows:
+            return
+        metadata = await asyncio.to_thread(codex_thread_metadata, self.codex_home)
+        for row in rows:
+            name, target = row["name"], row["target"]
+            if not codex_is_sendable_root(metadata.get(target, {})):
+                continue
+            current = self.peers.get(name)
+            if current is not None and name not in self.discovered:
+                if any(current.get(k) != row.get(k) for k in ("codexPid", "codexProcStart")):
+                    self.peers[name] = row
+                    self.dead_holders.discard(name)
+                    try:
+                        await (self.restart_face(name) if name in self.faces else self._spawn_face(name))
+                    except Exception as e:
+                        self.log("ADOPT-REFRESH-FAILED", name, type(e).__name__, e)
+                continue
+            if any(n not in self.discovered and p["target"] == target for n, p in self.peers.items()):
+                continue  # a construction-time row already owns this target
+            for n in [n for n, p in self.peers.items()
+                      if n in self.discovered and (n == name or p["target"] == target)]:
+                await self._retire(n)
+            self.peers[name] = row
+            self.locks[name] = asyncio.Lock()
+            try:
+                await self._spawn_face(name)
+            except Exception as e:
+                self.log("ADOPT-REGISTER-FAILED", name, type(e).__name__, e)
+                if name in self.faces:
+                    await self._stop_face(name)
+                self.peers.pop(name, None)
+                self.locks.pop(name, None)
+                self.outbox.pop(name, None)
+                continue
+            self.log("adopted", name)
+
     async def _retire(self, name):
         """Drop a discovered peer: stop its face, remove its registry files and endpoint."""
         if name in self.faces:
             await self._stop_face(name)
         self.peers.pop(name, None)
         self.locks.pop(name, None)
+        self.outbox.pop(name, None)
         self.discovered.discard(name)
         self.log("retired", name)
 
@@ -1160,7 +1239,9 @@ class Router:
             ready = await asyncio.to_thread(self.peer_readiness)
             reachable, agents = await asyncio.to_thread(self.roster_rows, str(req.get("as") or "cli"), ready)
             return {"ok": True, "peers": sorted(listed), "reachable": reachable, "sessions": sessions,
-                    "details": details, "ready": ready, "agents": agents}
+                    "details": details, "ready": ready, "agents": agents,
+                    "codex_pending": {n: self.codex_pending(n) for n, p in listed.items()
+                                      if p.get("vendor") == "codex"}}
         if op == "send":
             peer, text = req.get("to"), req.get("text")
             by_target = {p.get("target"): n for n, p in self.peers.items()}
@@ -1212,6 +1293,8 @@ class Router:
             if self.peer_stale(peer):
                 return {"ok": False, "error": STALE_CODEX_ERROR}
             reply = await self.turn(peer, wrap_inbound(sender, text, reply_to))
+            if reply == HELD_REPLY:
+                return {"ok": True, "held": True, **self.codex_pending(peer)}
             if not_delivered(reply):
                 return {"ok": False, "error": str(reply).strip()}
             return {"ok": True, "reply": _contract().label(peer, reply)}
@@ -1321,16 +1404,104 @@ class Router:
                 out[m["name"]] = m
         return out
 
-    async def turn(self, peer, text, addressed=None):
+    def codex_pending(self, peer) -> dict:
+        """What the Codex peer's outbox holds: messages queued or held and not yet echoed, the oldest's age, failures."""
+        box = self.outbox.get(peer) or {}
+        inflight = box.get("inflight")
+        msgs = (inflight["msgs"] if inflight else []) + box.get("held", [])
+        oldest = min((m["received"] for m in msgs), default=None)
+        return {"pending": len(msgs), "oldest_age_s": round(time.time() - oldest, 1) if oldest else 0.0,
+                "failed": list(box.get("failed", []))}
+
+    def _coalesce(self, msgs) -> str:
+        """One queue item from held messages, oldest first, each headed with its sender and send time."""
+        n = len(msgs)
+        parts = [f"[{n} message{'s' if n != 1 else ''} arrived while you were mid-turn; oldest first]"]
+        for i, m in enumerate(msgs, 1):
+            when = time.strftime("%H:%M:%S", time.localtime(m["received"]))
+            parts.append(f"--- {i}/{n} from {m['sender']} at {when} ---\n{m['text']}")
+        return "\n\n".join(parts)
+
+    def _on_echo(self, peer, item) -> None:
+        """The adapter saw `item` start as a Codex turn: log each message, then flush what was held."""
+        box = self.outbox.get(peer)
+        if box is None or item["echoed"]:
+            return
+        item["echoed"] = True
+        now = time.time()
+        for m in item["msgs"]:
+            self.log("INJECTED", peer, m["id"], time.strftime("echo=%H:%M:%S", time.localtime(now)),
+                     f"latency_s={now - m['received']:.1f}")
+        if box["inflight"] is item:
+            box["inflight"] = None
+        self._flush_held(peer)
+
+    def _flush_held(self, peer) -> None:
+        """Enqueue everything held for `peer` as ONE item, as a router-owned task; a no-op while an item is unechoed."""
+        box = self.outbox.get(peer)
+        if box is None or box["inflight"] is not None or not box["held"]:
+            return
+        msgs, box["held"] = box["held"], []
+        item = {"msgs": msgs, "text": self._coalesce(msgs), "echoed": False}
+        box["inflight"] = item
+        task = asyncio.get_running_loop().create_task(self._flush_task(peer, item))
+        self.tasks.add(task)
+        task.add_done_callback(self.tasks.discard)
+
+    async def _flush_task(self, peer, item) -> None:
+        ids = ",".join(m["id"] for m in item["msgs"])
+        try:
+            reply = await self._run_codex_item(peer, item)
+        except Exception as e:
+            self.log("TURN-FAILED", peer, type(e).__name__, e)
+            return
+        self.log("HARVESTED", peer, ids, str(reply).strip()[:200])  # held senders get no routed reply
+
+    async def _run_codex_item(self, peer, item, on_queued=None) -> str:
+        """Run `item` through the Codex adapter; a stranded item is enqueued once more, a second miss is recorded.
+
+        When the adapter returns without the echo having been seen (socket turn, exec fallback, no
+        rollout), inflight is cleared and the held messages flush so the peer never wedges."""
+        box = self.outbox[peer]
+        p = {**box["p"], "on_queued": on_queued, "on_echoed": lambda: self._on_echo(peer, item)}
+        try:
+            reply = await self.adapters["codex"](p, item["text"])
+            if reply == STRANDED_REPLY and not item["echoed"]:
+                self.log("STRANDED", peer, ",".join(m["id"] for m in item["msgs"]), "re-enqueue")
+                reply = await self.adapters["codex"](p, item["text"])
+                if reply == STRANDED_REPLY and not item["echoed"]:
+                    ids = [m["id"] for m in item["msgs"]]
+                    self.log("STRAND-FAILED", peer, ",".join(ids))
+                    box["failed"] = (box["failed"] + ids)[-20:]
+                    return "delivery failed: queued item stranded twice and was not delivered"
+            return reply
+        finally:
+            if box["inflight"] is item:
+                box["inflight"] = None
+                self._flush_held(peer)
+
+    async def turn(self, peer, text, addressed=None) -> str:
         """One adapter turn for `peer` under its lock; a failure becomes the reply text.
 
         `addressed`, when given, collects the names the peer sent to by its own addressed send
-        during this turn, so the caller can skip the harvested reply for those.
+        during this turn, so the caller can skip the harvested reply for those. A Codex peer with an
+        unechoed item in its queue holds the message instead and returns HELD_REPLY.
         """
         p = self.peers[peer]
-        async with self.locks[peer]:
-            if addressed is not None:
-                self.addressed[peer] = addressed
+        lock = self.locks[peer]
+        await lock.acquire()
+        held = True
+
+        def release():
+            # The lock orders enqueues, not replies: a queued Codex message must not wait on an earlier turn's reply.
+            nonlocal held
+            if held:
+                held = False
+                lock.release()
+
+        if addressed is not None:
+            self.addressed.setdefault(peer, []).append(addressed)
+        try:
             try:
                 if self.peer_stale(peer):
                     return f"delivery failed: {STALE_CODEX_ERROR}"
@@ -1340,12 +1511,33 @@ class Router:
                         return 'delivery failed: Codex target is not an independently sendable root'
                 if p["vendor"] == "codex" and not p.get("tui") and self.thread_held(p["target"]):
                     p = {**p, "tui": True}
+                if p["vendor"] == "codex":
+                    msg_id = uuid.uuid4().hex[:12]
+                    named = re.match(r"\[([^\]\n]+)\] ", text)  # wrap_inbound's `[sender] ` head
+                    msg = {"id": msg_id, "sender": named.group(1) if named else "unknown",
+                           "received": time.time(), "text": text}
+                    self.log("INBOUND", peer, msg_id, f"from={msg['sender']}",
+                             time.strftime("received=%H:%M:%S", time.localtime(msg["received"])))
+                    box = self.outbox.setdefault(peer, {"inflight": None, "held": [], "failed": [], "p": p})
+                    box["p"] = p
+                    if box["inflight"] is not None:
+                        box["held"].append(msg)
+                        self.log("HELD", peer, msg_id, f"pending={self.codex_pending(peer)['pending']}")
+                        return HELD_REPLY
+                    item = {"msgs": [msg], "text": text, "echoed": False}
+                    box["inflight"] = item
+                    return await self._run_codex_item(peer, item, on_queued=release)
                 return await self.adapters[p["vendor"]](p, text)
             except Exception as e:
                 self.log("TURN-FAILED", peer, type(e).__name__, e)
                 return f"delivery failed: {e}"
-            finally:
-                if addressed is not None:
+        finally:
+            release()
+            if addressed is not None:
+                open_turns = [t for t in self.addressed.get(peer, []) if t is not addressed]
+                if open_turns:
+                    self.addressed[peer] = open_turns
+                else:
                     self.addressed.pop(peer, None)
 
     def thread_held(self, thread_id):
@@ -1442,7 +1634,7 @@ class Router:
                     raise
         return name
 
-    def resolve_relay_target(self, name):
+    def resolve_relay_target(self, name) -> dict:
         """Strict relay target for the live local session called `name`; the answer an inbound relay delivers by.
 
         {"ok": True, "endpoint", "name", "box"} for exactly one live session. Otherwise a refusal
@@ -1450,6 +1642,15 @@ class Router:
         never mapped to another session or a default inbox.
         """
         endpoint = self.resolve_sender(name) if isinstance(name, str) and name else ""
+        if not endpoint and isinstance(name, str) and name in self.peers:
+            # resolve_sender skips the router's own faces (they are never a Claude reply target), but a
+            # Codex/agy peer's inbox IS its face: an inbound relay delivers there, as a local send does.
+            if self.peer_stale(name):
+                self.last_refusal = STALE_CODEX_ERROR
+            elif (self.faces.get(name) is not None and self.faces[name].poll() is None
+                    and name not in self.dead_holders):
+                endpoint = self.endpoint_of(name)
+                self.last_resolved_row = (name, _contract().local_box())
         if not endpoint:
             reason = self.last_refusal or "no live session"
             self.log("RELAY-REFUSED", name, reason)
@@ -1630,8 +1831,8 @@ class Router:
         except Exception as e:
             self.log("POST-FAILED", peer, "->", to, type(e).__name__, e)
             return {"ok": False, "error": f"delivery to {to} failed: {e}"}
-        if peer in self.addressed:
-            self.addressed[peer].add(to)
+        for turn_set in self.addressed.get(peer, ()):
+            turn_set.add(to)
         self.log("SENT", peer, "->", to, frame["msg_id"])
         return {"ok": True, "msg_id": frame["msg_id"], "written": True, **_receipt(reached)}
 
@@ -1706,7 +1907,7 @@ class Router:
                     e = json.load(fh)
             except (OSError, ValueError):
                 continue
-            if (not isinstance(e, dict) or name not in [e.get("name"), e.get("unimatrixFarName"), *_contract().projected_addresses(e)]
+            if (not isinstance(e, dict) or name not in [*_contract().mirror_addresses(e), *_contract().projected_addresses(e)]
                     or name in self.peers or name in self.transport_sources):
                 continue
             ep, pid = e.get("messagingSocketPath"), e.get("pid")
@@ -1753,6 +1954,8 @@ class Router:
             return
         addressed = set()
         reply = await self.turn(peer, wrap_inbound(sender_name, body), addressed)
+        if reply == HELD_REPLY:
+            return  # the coalesced item's reply is harvested and logged by the outbox, not routed back
         if not sender_ep:
             return
         if sender_name in addressed:
@@ -1920,7 +2123,7 @@ def cmd_serve(argv):
         return 2
     asyncio.run(serve(Router(peers, a.sessions_dir, a.state_dir, a.endpoint_dir,
                              legs_dir=default_legs_dir(), codex_locks_dir=default_codex_locks_dir(),
-                             presence_dir=default_presence_dir(),
+                             presence_dir=default_presence_dir(), peers_file=peers_file,
                              grok_home=_sibling("unimatrix-peer-grok.py", "unimatrix_peer_grok").grok_home())))
     return 0
 

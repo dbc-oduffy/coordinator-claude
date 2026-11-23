@@ -48,9 +48,9 @@ cfg = None
 bound_ino = None  # inode of the endpoint socket this bridge bound (unix only)
 
 
-def settings_home():
+def settings_home() -> Path:
     env = os.environ.get("COORDINATOR_SETTINGS_HOME")
-    return Path(env) if env else Path.home() / ".coordinator-claude-settings"
+    return Path(env) if env and env.strip() else Path.home() / ".coordinator-claude-settings"
 
 
 def default_key():
@@ -75,6 +75,30 @@ def _roster():
 
 def pick_remote(lan, tunnel):
     return _roster().pick_remote(lan, tunnel)
+
+
+#: `unimatrix_far_addresses.Route.verification` values that may carry a frame: a host-key-verified LAN
+#: address, or the recorded fallback that ssh verifies strictly when it dials. Trap: keep in step with
+#: VERIFIED / SSH_STRICT_AT_DIAL there; any other value (unavailable, not-this-box, ...) is refused.
+DIALABLE = ("verified", "ssh-strict-at-dial")
+
+
+class RouteRefused(Exception):
+    """The roster named no authenticated route; nothing was dialled."""
+
+
+def route_target(picked) -> "tuple[str, str | None]":
+    """(ssh remote, transport label or None) for what the roster's `pick_remote` returned.
+
+    A string is the legacy alias answer (label None: the caller derives ssh/tunnel). A Route-shaped
+    result (`endpoint`, `transport`, `verification`) is dialled only when `verification` is in DIALABLE;
+    anything else raises RouteRefused with its reason, so a TCP-only or wrong-peer route never carries a frame."""
+    if isinstance(picked, str) or not hasattr(picked, "verification"):
+        return picked, None
+    if picked.verification not in DIALABLE or not picked.endpoint:
+        why = getattr(picked, "fallback_reason", None) or picked.verification
+        raise RouteRefused(f"no authenticated route to {getattr(picked, 'peer', None) or getattr(picked, 'alias', '?')}: {why}")
+    return picked.endpoint, picked.transport
 
 
 def parse_args(argv):
@@ -255,12 +279,15 @@ def record_delivery(entry):
         log.write(f"delivery record failed: {e}\n")
 
 
-def notify_sender(line, target, error):
+def notify_sender(line, target, error) -> None:
     """Tell the sender of `line` its cross-box message did not land, through the return leg's write_local.
 
     The notice is stamped from this bridge's own endpoint: the inbox accepts it because
     this process is the one the mirror entry vouches for.
     """
+    if "unconfirmed" in error:
+        _tell_sender(line, f"Delivery unconfirmed: your message to {target} may have reached the far box ({error}). Do not resend blindly.")
+        return
     _tell_sender(line, f"Delivery failed: your message to {target} did not reach the far box ({error}). It was not delivered.")
 
 
@@ -280,9 +307,13 @@ def _tell_sender(line, text):
         log.write(f"sender notice not delivered: {e}\n")
 
 
-def ack_sender(line, target, reached, reached_box):
-    """Tell the sender which far session its message was written to; `reached` is None for a far relay that does not name it."""
-    if reached:
+def ack_sender(line, target, reached, reached_box, queued=False) -> None:
+    """Tell the sender which far session its message was written to; `reached` is None for a far relay that does not name it.
+
+    `queued`: the far reader was slow and the line is parked for delivery."""
+    if queued:
+        text = f"Queued for {reached or target} on {reached_box or 'the far box'}; delivered when its reader drains."
+    elif reached:
         text = f"Delivered to {reached} on {reached_box or 'the far box'}."
     else:
         text = f"Delivered to {target}; receiver unconfirmed (far relay does not name it)."
@@ -334,18 +365,79 @@ def _roster_wrote_name(addressed, far_name, remote, entry_box=None):
 
 #: The prefix unimatrix-relay.py puts on every wrong-target refusal; a match unmirrors the mirror.
 TARGET_MISMATCH = "target mismatch"
+#: Marks a send whose far write may have happened with no receipt readable: the bridge never resends it.
+UNCONFIRMED_NOTE = "far write unconfirmed; check the far inbox before resending"
+#: ssh failures that occur before any byte reaches the far relay: the write cannot have happened, so no UNCONFIRMED_NOTE.
+PRE_WRITE_FAILURE = re.compile(
+    r"Connection (refused|timed out)|Permission denied|Too many authentication|No route to host|"
+    r"Could not resolve|Host key verification failed|Network is unreachable|TimeoutExpired", re.I)
 
 
-def relay_send(conn):
-    # The relay forwards one message line and authenticates for its local recipient;
-    # the near recipient's auth header must not cross the box boundary.
+def _target_of(mine) -> tuple:
+    """(far pid, far session id, delivery-row target) for a mirror entry; the target leads with the mirror's name."""
+    far_pid = str(mine.get("farPid") or os.path.basename(mine[FAR_SOCKET_FIELD]).removesuffix(".sock"))
+    far_sid = mine.get("sessionId")
+    return far_pid, far_sid, f"{mine.get('name') or far_pid} (pid {far_pid}, session {far_sid})"
+
+
+_verdict = threading.local()
+
+#: Win32 pipe errors for a client that left before the verdict: broken pipe, no process on the other end, pipe closing.
+_PIPE_GONE_WINERRORS = (109, 232, 233)
+
+
+def _client_gone(e) -> bool:
+    """True when `e` is the client having hung up (a liveness probe connects and leaves), not a bridge fault."""
+    if isinstance(e, (BrokenPipeError, ConnectionResetError)):
+        return True
+    return type(e).__name__ == "error" and bool(e.args) and e.args[0] in _PIPE_GONE_WINERRORS
+
+
+def relay_send(conn) -> None:
+    """Relay one client's message lines; answer the client when the bridge takes custody, not after the far leg.
+
+    Custody is the point just before the far ssh run: frames parsed, mirror validated, nothing refused.
+    There the connection closes having written nothing: silence is acceptance, as on the router faces
+    (`unimatrix-peer-router.py` on_conn), because the client reads any written line as a refusal. A refusal
+    or local fault before custody writes one `{"ok": false, "error": ...}` line. A far failure after custody
+    is never an answer: it lands as a deliveries row and the sender's failure notice (`_record_outcome`),
+    and the bridge never resends."""
     buf = b""
     while chunk := conn.read():
         buf += chunk
-    # Close before the ssh leg: a cold leg takes 5-10s and the sender reports a held-open
-    # connection as "Failed to send" though the relay delivers. A failed relay still
-    # reaches the sender, as notify_sender's delivery-failure notice in its inbox.
-    conn.close()
+    _verdict.errors = []
+    _verdict.answered = False
+
+    def accept() -> None:
+        _verdict.answered = True
+        conn.close()
+
+    def answer(reply) -> None:
+        _verdict.answered = True
+        try:
+            conn.write(json.dumps(reply).encode() + b"\n")
+        except Exception as e:  # pywintypes.error is not an OSError subclass
+            if not _client_gone(e):
+                log.write(f"client verdict not delivered: {e}\n")
+        conn.close()
+
+    try:
+        _relay_deliver(buf, on_custody=accept)
+        if not _verdict.answered:
+            errors = [e for e in _verdict.errors if e]
+            answer({"ok": False, "error": (errors[0] if errors else "nothing to send")[-300:]})
+    except Exception as e:  # a local fault before custody is still a failed send to the client
+        if _verdict.answered:
+            log.write(f"relay: far leg fault after custody: {type(e).__name__}: {e}\n")
+        else:
+            answer({"ok": False, "error": f"{LOCAL_FAULT}: {type(e).__name__}: {e}"[-300:]})
+    finally:
+        _verdict.errors = None
+
+
+def _relay_deliver(buf, on_custody=None) -> None:
+    # The relay forwards one message line and authenticates for its local recipient;
+    # the near recipient's auth header must not cross the box boundary.
     lines = frames_to_send(buf)
     mine = _load(f"{os.getpid()}.json")
     if mine and (mine.get("pid") != os.getpid() or mine.get("messagingSocketPath") != cfg.endpoint
@@ -355,9 +447,7 @@ def relay_send(conn):
         log.write(f"relay: nothing to send (mirror={bool(mine)}, bytes={len(buf)})\n")
         return
     # A win32 peer's socket is a named pipe with no pid in its name; the roster records `farPid`.
-    far_pid = str(mine.get("farPid") or os.path.basename(mine[FAR_SOCKET_FIELD]).removesuffix(".sock"))
-    far_sid = mine.get("sessionId")
-    target = f"{mine.get('name') or far_pid} (pid {far_pid}, session {far_sid})"
+    far_pid, far_sid, target = _target_of(mine)
     for line in lines:
         log.write(f"relay >> {line!r}\n")
     ts = time.strftime("%Y-%m-%dT%H:%M:%S%z")
@@ -383,6 +473,8 @@ def relay_send(conn):
             _record_outcome(line, target, ts, 0, error, box, transport, ref)
         _mark_misroute()
         return
+    if on_custody:
+        on_custody()
     started = time.monotonic()
     started_wall = time.time()
     far_digest = hashlib.sha256(mine[FAR_SOCKET_FIELD].encode("utf-8")).hexdigest()[:16]
@@ -397,6 +489,11 @@ def relay_send(conn):
             _record_outcome(line, target, ts, ms, stderr[-300:], box, transport, ref)
         if stderr.startswith(TARGET_MISMATCH):
             _mark_misroute()
+        return
+    if r.returncode == LOCAL_FAULT_EXIT and stderr.startswith(LOCAL_FAULT):
+        log.write(f"relay: {stderr}\n")
+        for line in lines:
+            _record_outcome(line, target, ts, ms, stderr[-300:], box, transport, ref)
         return
     replies = _batch_replies(r.stdout)
     if r.returncode and not replies and r.returncode != 255:
@@ -415,6 +512,7 @@ def relay_send(conn):
     for i, (line, (ok, unacked)) in enumerate(zip(lines, acks)):
         error = None
         reached = reached_box = None
+        queued = bool(ok and i < len(replies) and replies[i].get("queued") is True)
         if ok and i < len(replies):
             reached = replies[i].get("reached") if isinstance(replies[i].get("reached"), str) else None
             reached_box = replies[i].get("reached_box") if isinstance(replies[i].get("reached_box"), str) else None
@@ -426,13 +524,15 @@ def relay_send(conn):
             elif r.returncode:
                 log.write(f"relay send failed {r.returncode}: {r.stderr!r}\n")
                 error = f"ssh exit {r.returncode}: " + stderr[-300:]
+                if transport != "none" and not PRE_WRITE_FAILURE.search(stderr):
+                    error += f"; {UNCONFIRMED_NOTE}"
             else:
-                error = "relay: no delivery reply for this message"
+                error = f"relay: no delivery reply for this message; {UNCONFIRMED_NOTE}"
         if error and TARGET_MISMATCH in error and not marked:
             _mark_misroute()
             marked = True
         _record_outcome(line, target, ts, ms, error, box, transport, ref, reached=reached, reached_box=reached_box,
-                        acked=ok, misdelivered=bool(error and reached))
+                        acked=ok, misdelivered=bool(error and reached), queued=queued)
 
 
 def _caps():
@@ -499,18 +599,28 @@ def _box_mux():
     return mod
 
 
-def _ssh_relay(command, data):
-    """The far relay running `command` with `data` on stdin, through the far box's one channel; any fault is a 255 result."""
+LOCAL_FAULT = "local send-leg fault"
+LOCAL_FAULT_EXIT = 70  # never 255: that is ssh's own failure code, and a fault raised here never reached ssh
+
+
+def _ssh_relay(command, data) -> "subprocess.CompletedProcess":
+    """The far relay running `command` with `data` on stdin, through the far box's one channel.
+
+    A route refusal is a 255 result; any other fault raised in this process is a LOCAL_FAULT_EXIT result naming LOCAL_FAULT."""
     label = "ssh"
     try:
-        remote = pick_remote(cfg.remote, getattr(cfg, "tunnel_remote", None))
-        label = "ssh" if remote == cfg.remote else "tunnel"
+        remote, route_label = route_target(pick_remote(cfg.remote, getattr(cfg, "tunnel_remote", None)))
+        label = route_label or ("ssh" if remote == cfg.remote else "tunnel")
         r = _box_mux().for_remote(remote, key=cfg.key, extra=["-o", "ConnectTimeout=10"]).run(command, data, timeout=30)
         r.transport = label
         return r
+    except RouteRefused as e:
+        r = subprocess.CompletedProcess([], 255, b"", str(e).encode())
+        r.transport = "none"
+        return r
     except Exception as e:  # any send-leg fault is a failed delivery, never a silent one
-        r = subprocess.CompletedProcess([], 255, b"", f"{type(e).__name__}: {e}".encode())
-        r.transport = label
+        r = subprocess.CompletedProcess([], LOCAL_FAULT_EXIT, b"", f"{LOCAL_FAULT}: {type(e).__name__}: {e}".encode())
+        r.transport = "none"  # raised in this process: nothing reached ssh
         return r
 
 
@@ -528,21 +638,28 @@ def _batch_replies(stdout):
 
 
 def _record_outcome(line, target, ts, ms, error, box="unknown", transport="none", ref=None,
-                    reached=None, reached_box=None, acked=False, misdelivered=False):
+                    reached=None, reached_box=None, acked=False, misdelivered=False, queued=False) -> None:
     """Record one line's outcome; `digest` is the sha256 the far relay's receipt row carries for the same line.
 
     `box` is the mirror row's BOX_FIELD; `transport` is the leg label: `ssh`, `tunnel`, or `none` when refused before any ssh.
     `ref` is the `<bare>.<box>` address the far box resolves; the failure notice leads with it.
     `reached`/`reached_box` name the far session the relay wrote to. `acked` is a far-confirmed write: with no
-    error the sender gets a delivery ack; with `misdelivered` it gets the wrong-session notice, not the not-delivered one."""
+    error the sender gets a delivery ack; with `misdelivered` it gets the wrong-session notice, not the not-delivered one.
+    `queued` is a far-accepted line parked for a slow reader: an ok row marked `queued`, acked as `queued`, never a failure."""
+    if getattr(_verdict, "errors", None) is not None:
+        _verdict.errors.append(error)
     row = {"ts": ts, "at": time.time(), "target": target, "ok": not error, "ms": ms, "box": box, "transport": transport,
            "digest": hashlib.sha256(line.rstrip(b"\n")).hexdigest()}
     if ref:
         row["ref"] = ref
     if reached:
         row["reached"] = reached
+    if queued and not error:
+        row["queued"] = True
     if error:
         row["error"] = error
+        if "unconfirmed" in error:
+            row["unconfirmed"] = True
     record_delivery(row)
     shown = f"{ref} ({target})" if ref else target
     shown = shown if box in (None, "", "unknown") else f"{shown} on box {box}"
@@ -551,13 +668,35 @@ def _record_outcome(line, target, ts, ms, error, box="unknown", transport="none"
     elif error:
         notify_sender(line, shown, error)
     elif acked:
-        ack_sender(line, shown, reached, reached_box)
+        ack_sender(line, shown, reached, reached_box, queued)
 
 
-def pump_local_to_sock(conn, s):
+def _record_socket_send(data, started, error=None) -> None:
+    """Record each message line of a mirror-socket send through _record_outcome (the only delivery writer).
+
+    A socket write has no far ack, so a clean write records ok with transport `socket`; an unreadable mirror entry records nothing."""
+    mine = _load(f"{os.getpid()}.json")
+    lines = frames_to_send(data)
+    if not mine or not lines or FAR_SOCKET_FIELD not in mine:
+        return
+    _, _, target = _target_of(mine)
+    box = mine.get(BOX_FIELD) or "unknown"
+    ts = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    ms = round((time.monotonic() - started) * 1000)
+    for line in lines:
+        _record_outcome(line, target, ts, ms, error, box, "socket")
+
+
+def pump_local_to_sock(conn, s) -> None:
     while data := conn.read():
         log.write(f">> {data!r}\n")
-        s.sendall(data)
+        started = time.monotonic()
+        try:
+            s.sendall(data)
+        except OSError as e:
+            _record_socket_send(data, started, f"socket write failed: {e}")
+            raise
+        _record_socket_send(data, started)
     log.write("local->sock end\n")
     try:
         s.shutdown(socket.SHUT_WR)
@@ -577,9 +716,9 @@ def pump_sock_to_local(conn, s):
         log.write(f"sock->local end: {e}\n")
 
 
-def serve_one(conn):
+def serve_one(conn) -> None:
     if cfg.port is None:
-        relay_send(conn)  # closes conn itself, before the ssh leg
+        relay_send(conn)  # closes conn at custody (silent) or after a refusal line
         return
     s = socket.create_connection((LOOPBACK, cfg.port))
     t = threading.Thread(target=pump_sock_to_local, args=(conn, s), daemon=True)
@@ -618,7 +757,7 @@ def _name_routed(msg, src):
     return msg
 
 
-def localize_from(data):
+def localize_from(data) -> tuple:
     # The local inbox drops a message whose `from` is not an address registered on
     # this box, so a far socket path is swapped for its mirror's local endpoint.
     # Returns (bytes, inject port of the mirror's bridge or None).
@@ -636,6 +775,10 @@ def localize_from(data):
         return data, None  # already localized: a mirror of this box owns the address
     m = mirror_for(src, entries)
     if not m:
+        m = _reply_mirror(msg, entries)
+        if m:
+            m = {**m, "injectPort": None}  # served by the box's reply inbox, not a session bridge
+    if not m:
         log.write(f"no mirror for sender {src}\n")
         named = _name_routed(msg, src)
         return (head + json.dumps(named).encode() + b"\n" if named else data), None
@@ -645,6 +788,33 @@ def localize_from(data):
         content = msg["message"]["content"]
         msg["message"]["content"] = content.replace(f'from="uds:{src}"', f'from="uds:{local}"', 1)
     return head + json.dumps(msg).encode() + b"\n", m.get("injectPort")
+
+
+def _reply_mirror(msg, entries) -> "dict | None":
+    """The local mirror a reply to an unmatched far sender can use, else None.
+
+    The mirror of the same session by `from-name` (the far socket can be a cc-msg path no mirror
+    lists); failing that, the sending box's single reply-inbox mirror, the one address that routes
+    back to that box. Several candidates are ambiguous and give None."""
+    body = msg.get("message")
+    found = re.search(r'from-name="([^"]+)"', body["content"]) if (
+        isinstance(body, dict) and isinstance(body.get("content"), str)) else None
+    remote = getattr(cfg, "remote", None)
+    mirrors = _roster().remote_mirrors(entries, remote)
+    if found:
+        name, label = found.group(1), _roster().box_label(remote) if remote else None
+        want = f"{name}.{label}" if label else name
+        named = [d for d in mirrors if d.get(FAR_SOCKET_FIELD) and d.get("messagingSocketPath")
+                 and (d.get("name") == want or d.get("unimatrixFarName") == name)]
+        if len(named) == 1:
+            return named[0]
+    if remote:
+        label = _roster().box_label(remote)
+        replies = [d for d in entries if d.get("unimatrixMirror") and d.get("unimatrixReplyInbox") is True
+                   and d.get("messagingSocketPath") and d.get("unimatrixClient") == label]
+        if len(replies) == 1:
+            return replies[0]
+    return None
 
 
 def serve_return(c):

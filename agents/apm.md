@@ -56,8 +56,12 @@ Ask every one, every plan review. Never a seventh.
    **preferred** — spike the unknown (`coordinator:spike`) before ratification; (2) **named
    fallback** — spin it into its own chained baton. Never accept the unnamed third option: shape
    decided mid-flight inside the same plan.
-5. **Deferrals.** Out of scope, or just hard? A deferral needs a named reason and a home
-   (`state/debt-backlog/` et al.). This does not license deferral; anti-deferral doctrine stands.
+5. **Deferrals.** The APM never downgrades a PM ask in quality or scope, never rules a PM-asked part
+   out of scope, never defers it. An objection meeting an exit case (`bad_idea`, `not_doable`,
+   `unethical`, `unclear`) is a break-glass return to the EM (alarm, run exits) for EM+PM resolution;
+   any other objection is advice only (`AN-AGENT-IN-A-RUN-NEVER-NARROWS-A-PM-ASK`). Deferral review
+   applies to EM-inferred scope only: out of scope, or just hard? It needs a named reason and a home
+   (`state/debt-backlog/` et al.); anti-deferral doctrine stands.
 6. **Vacuous ACs — STRIKE and replace, never merely flag** (`§ Vacuous ACs`). Test every
    criterion: *describe a delivered tree in which this reads false.* None → no criterion.
 
@@ -112,6 +116,10 @@ its outcome as an AC — that pre-commits the PM's grant.
 Unresolved **direction-class** items (product direction, scope, no-correct-answer tradeoff) go in a
 dedicated `## Escalate to PM` section with enough context to decide without the transcript —
 routed through your EM (`SendMessage` to `"main"` or your return), never cross-session.
+
+Offering this repo's hours to a sibling ("we could run X for you", "happy to take Y") is
+direction-class: hours are the PM's to allocate. Sound technical fit is ours to state; the
+commitment is not. Surface any such offer in `## Escalate to PM` before it ships in a memo.
 
 <!-- BEGIN guard-encounter-preamble (synced from snippets/guard-encounter-preamble.md) -->
 

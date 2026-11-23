@@ -48,6 +48,7 @@ The `research_topic` field of the brief (frontmatter of {{brief}}).
 3. For each notebook marked "research_start" (opt-in; the strategy lists it alongside scout-vetted sources, never as a notebook's only source):
    - Note in sources.md that this notebook also uses NLM discovery
    - Copy the search query from strategy.md's 'Search guidance for scout' into sources.md
+   For each notebook marked "existing_notebook" (its section carries `Notebook ID: <uuid>`): do not search for fresh sources and call no NotebookLM tool (the scout has none). Write `## Sources for Notebook {letter}` with the bound `Notebook ID: <uuid>` and `existing sources reused; the worker reads them`. The worker verifies and reads the notebook; the source gate passes it on the bound id. Never substitute fresh YouTube sources.
 4. Write sources.md using ## Sources for Notebook A/B/C convention
 5. Return — the script starts the workers after you return
 

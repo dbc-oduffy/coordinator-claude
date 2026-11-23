@@ -127,7 +127,7 @@ ledger row.
 ## What to read
 
 1. The whole plan: frontmatter, `prime_exit_criterion`, `## PM brief`/`## PM intent (verbatim)` if present, body, Acceptance criteria, Test surface, Anti-scope, and the `plan-tasks` spine.
-2. The files the plan names as its write scope and the evidence it cites. Verify each cited path, symbol and command exists at HEAD with `Read`/`Grep`/`Glob`; an unverifiable citation is a finding, not an assumption.
+2. The files the plan names as its write scope, its `corpus-basis.md` when present, and the evidence it cites. Verify each cited path, symbol and command exists at HEAD with `Read`/`Grep`/`Glob`; an unverifiable citation is a finding, not an assumption.
 3. When the brief carries a `## PM intent (verbatim)` block, judge the plan against it. Scope beyond the ask, and anything that contradicts it, are findings.
 
 Content search is `Grep`. A search you could not run that was needed for a conclusion is stated in the finding.
@@ -149,7 +149,7 @@ Content search is `Grep`. A search you could not run that was needed for a concl
 
 ### UE/MH citation lens (with project-rag and UE work; else skip)
 
-Each UE/MH claim in the plan with no bracketed form is a **P1** finding `uncited: <claim>`, raised whether or not you verify it yourself; verifying it does not discharge the finding. The plan goes back to its author.
+Each UE/MH claim in the plan with no bracketed form is a **P1** finding `uncited: <claim>`, raised whether or not you verify it yourself; verifying it does not discharge the finding. The plan goes back to its author. With `corpus-basis.md` present, a UE implementation choice that does not cite it or contradicts it is P1; a UE plan at M+ under example-game-repo with none is P1 naming the missing stage `game-dev:ue-corpus-checker` (`coordinator/docs/wiki/planning/pre-planning-stage-slot.md`).
 
 ### Design-conformance lens
 

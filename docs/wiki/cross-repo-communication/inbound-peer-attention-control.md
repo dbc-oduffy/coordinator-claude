@@ -120,8 +120,8 @@ PM-chosen moment, which is the right moment for anything not already on their de
 ## Inbound delivery default
 
 Coordinator installs seed `crossSessionInbound: "accept"` where it is unset; an explicit user value
-is left untouched. Peer consult (the Unimatrix inbox, and live peer consult replies from GPT/Codex
-and AGY/Antigravity) arrives as `<cross-session-message>` and is lost when inbound is off. Accept
+is left untouched. Peer consult (the Unimatrix inbox, and live peer consult replies from any
+non-Claude model family) arrives as `<cross-session-message>` and is lost when inbound is off. Accept
 changes delivery only: arrivals still park per
 `PEER-MESSAGE-IS-NOT-A-PRIORITY-CLAIM`.
 Setting: `coordinator/templates/settings-manifest.md` § Cross-Session Inbound. Tripwire:

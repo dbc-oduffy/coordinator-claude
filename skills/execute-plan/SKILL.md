@@ -112,7 +112,7 @@ Plan in another repo: `coordinator-tasks-mirror --repo-root <it>`.
 <!-- engine-gap: field=execute_plan.wave_boundary_gated_artifact_check producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 
 Per task: write-ahead (mark `In progress` on disk + TaskUpdate `in_progress`) → execute
-→ **reachability gate** (new entry point? confirm a production call site: caller-grep or traced entry, never an import smoke-check; the judge re-checks via `review.reachability`, wiki `judge-reachability-check`) → mark complete (on disk + TaskUpdate `completed`) → proceed
+→ **reachability gate** (new entry point? confirm a production call site: caller-grep or traced entry, never an import smoke-check; a check added to a dispatcher-style function counts: grep its name and expect a call site beyond the definition, and drive its test red once, since an unwired guard and a clean run both return an empty violation list; an assertion whose scan finds no eligible subject also passes vacuously, so make the test prove at least one subject was examined; treat a "not accessed" or unused-symbol diagnostic on new code as a real signal of an unwired path, never dismiss it as noise; the judge re-checks via `review.reachability`, wiki `judge-reachability-check`) → mark complete (on disk + TaskUpdate `completed`) → proceed
 immediately, never stopping to ask. Mid-dispatch decisions are the EM's: pick, note one line, continue; only the Phase 5 list escalates. A residual needs a closed exit: dispatch it, add a spine row, `coordinator-queue-append --schema
 bug-backlog|debt-backlog|improvement-queue`, or take it to the PM.
 

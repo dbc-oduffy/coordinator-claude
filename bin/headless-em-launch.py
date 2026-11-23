@@ -7,7 +7,9 @@ Usage: headless-em-launch.py <codex|agy|grok|claude> [--session-id ID] [--prepar
        (--help prints this text)
 
 Without --native-executable the CLI is resolved from PATH (on Windows a .exe as-is, or codex's npm shim
-mapped to its native exe).
+mapped to its native exe). For Darwin codex exec --json, a profile installed by
+scripts/build_darwin_diagnostic_codex.py selects its diagnostic binary. PTY commands receive no
+diagnostic registration. An explicit --native-executable selects that executable.
 
 Resolves the child session id (--session-id, else COORDINATOR_SESSION_ID, else a fresh uuid4), writes
 the grant for (session id, family), and hands the child COORDINATOR_SESSION_ID plus the grant token
@@ -15,7 +17,8 @@ the grant for (session id, family), and hands the child COORDINATOR_SESSION_ID p
 
 codex, agy and grok run as a supervised child (POSIX): when it exits 0 while a run its session fired is
 neither landed nor halted, one stderr line per run names its fire_wait command and the launcher exits 3;
-a non-zero child code is returned as is (a signal death as 128+signum). A check that itself fails exits 3.
+a non-zero child code is returned as is (a signal death as 128+signum). Codex exec --json also
+propagates a failed engine_ask.submit command reported by the native child. A check that itself fails exits 3.
 --exit-check runs only that check (0 clean, 3 open runs or an unchecked exit): the Windows path, whose
 --prepare-only JSON names its argv as "exit_check".
 
@@ -33,8 +36,10 @@ import argparse
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import uuid
@@ -94,6 +99,8 @@ def _run_bg(argv, *, cwd, env, runner, name):
 GROK_ENGINE_OPS = ("engine_ask.submit", "workflow.fire", "workflow.fire_status", "workflow.fire_wait",
                    "workflow.revise")
 
+GROK_WORKER_EXES = ("sizing-assemble", "coordinator-doc-new")
+
 
 def _settings_bin_dir(environ) -> str:
     home = environ.get("COORDINATOR_SETTINGS_HOME") or str(Path.home() / ".coordinator-claude-settings")
@@ -101,7 +108,8 @@ def _settings_bin_dir(environ) -> str:
 
 
 def _grok_launch_args(extra, environ, platform) -> list[str]:
-    """`extra` led by `--permission-mode auto` and one `--allow Bash(<abs coordinator-invoke> <op>:*)` per engine op.
+    """`extra` led by `--permission-mode auto` and one `--allow Bash(<abs coordinator-invoke> <op>:*)` per engine op, plus one `Bash(<abs exe>:*)` per
+    worker executable in `GROK_WORKER_EXES` (the settings-home bin only, never a blanket Execute).
 
     grok does not expand `$HOME` when matching, so each rule names the resolved absolute path. A caller's
     own `--permission-mode` and any allow rule it already passed are kept, never doubled.
@@ -110,24 +118,37 @@ def _grok_launch_args(extra, environ, platform) -> list[str]:
                                                   else "coordinator-invoke"))
     head = [] if any(a == "--permission-mode" or a.startswith("--permission-mode=") for a in extra) \
         else ["--permission-mode", "auto"]
-    for op in GROK_ENGINE_OPS:
-        rule = f"Bash({exe} {op}:*)"
+    suffix = ".exe" if platform == "win32" else ""
+    rules = [f"Bash({exe} {op}:*)" for op in GROK_ENGINE_OPS]
+    rules += [f"Bash({Path(_settings_bin_dir(environ)) / (name + suffix)}:*)" for name in GROK_WORKER_EXES]
+    for rule in rules:
         if rule not in extra:
             head += ["--allow", rule]
     return [*head, *extra]
 
 
-def _agy_launch_args(extra, cwd) -> list[str]:
-    """`extra` led by `--add-dir <cwd>`, `--add-dir ~/.coordinator` and `--mode accept-edits`.
+def _agy_launch_args(extra, cwd, environ=None) -> list[str]:
+    """`extra` led by one `--add-dir` per workspace root and `--mode accept-edits`.
 
-    agy's workspace is its launch cwd, not `--cwd`, so the grant is explicit. `--dangerously-skip-permissions`
-    is dropped; a caller's own `--mode` and any dir it already granted are kept, never doubled.
+    agy's workspace is its add-dirs, not `--cwd`, and a `read_file` outside it is auto-denied headless.
+    Roots: the launch cwd, `~/.coordinator`, and `agy_grant_guard.grant_dirs` (the generated plugin skills,
+    the only outside subtree a stage was measured reading). Never the settings home or engine root whole.
+    `--dangerously-skip-permissions` is dropped; a caller's own `--mode` and any dir it already granted are
+    kept, never doubled.
+
+    Trap: agy has no read-only grant, so each add-dir is writable; `launch` hashes the granted dirs around
+    the stage (`agy_grant_tamper`). When agy ships read-only grants, switch to them and drop the hash guard.
     """
+    from coordinator_core import agy_grant_guard
+
     rest = [a for a in extra if a != "--dangerously-skip-permissions"]
     head = []
     granted = {rest[i + 1] for i, a in enumerate(rest[:-1]) if a == "--add-dir"}
-    for d in (cwd or os.getcwd(), str(Path.home() / ".coordinator")):
+    roots = [cwd or os.getcwd(), str(Path.home() / ".coordinator"),
+             *map(str, agy_grant_guard.grant_dirs(environ))]
+    for d in roots:
         if d not in granted:
+            granted.add(d)
             head += ["--add-dir", d]
     if not any(a == "--mode" or a.startswith("--mode=") for a in rest):
         head += ["--mode", "accept-edits"]
@@ -148,7 +169,77 @@ def _with_settings_bin(environ) -> str:
     return os.pathsep.join(entries)
 
 
-def _spawn(cmd, env):
+def _submit_exit(line: bytes) -> int:
+    """Read the tool's completion status, ignoring model text and unrelated failed commands."""
+    try:
+        event = json.loads(line)
+        if not isinstance(event, dict) or event.get("type") != "item.completed":
+            return 0
+        item = event.get("item")
+        if not isinstance(item, dict) or item.get("type") != "command_execution":
+            return 0
+        code = item.get("exit_code")
+        if type(code) is not int or code == 0:
+            return 0
+        command = item.get("command")
+        if not isinstance(command, str):
+            return 0
+        argv = shlex.split(command)
+        if len(argv) == 3 and Path(argv[0]).name in ("sh", "bash", "zsh", "dash", "ksh") and argv[1] in ("-c", "-lc"):
+            command = argv[2]
+            argv = shlex.split(command)
+        if len(argv) < 2 or argv[1] != "engine_ask.submit" or Path(argv[0]).name != "coordinator-invoke":
+            return 0
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        if not any(token in (";", "&&", "||", "|", "&") for token in lexer):
+            return code
+    except ValueError:
+        pass
+    return 0
+
+
+def _diagnostic_install(environ):
+    """Resolve one atomically installed native binary and its compiled endpoint."""
+    generation = Path(_settings_bin_dir(environ)).parent / "native-diagnostics/current"
+    if not generation.is_symlink():
+        return None
+    root = generation.parent
+    info = root.lstat()
+    generation = generation.resolve(strict=True)
+    if (root.is_symlink() or info.st_uid != os.getuid() or info.st_mode & 0o077
+            or generation.parent != root.resolve() or not generation.name.startswith("build-")):
+        raise PermissionError("invalid host diagnostic installation")
+    for member, expected_type in ((generation, stat.S_ISDIR), (generation / "codex", stat.S_ISREG),
+                                  (generation / "socket-directory", stat.S_ISREG)):
+        info = member.lstat()
+        if info.st_uid != os.getuid() or info.st_mode & 0o022 or not expected_type(info.st_mode):
+            raise PermissionError("unsafe native diagnostic installation member")
+    directory = Path((generation / "socket-directory").read_text())
+    if not directory.is_absolute():
+        raise ValueError("diagnostic socket directory must be absolute")
+    return generation / "codex", directory
+
+
+def _spawn_codex_events(cmd, env):
+    """Forward the native JSON event stream immediately and retain the first failed submit."""
+    install = _diagnostic_install(env) if sys.platform == "darwin" else None
+    if install and Path(cmd[0]).resolve() == install[0]:
+        from coordinator_core.warm.restricted_endpoint import diagnostic_spawn
+        child_context = diagnostic_spawn(install[1], cmd, env)
+    else:
+        child_context = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE)
+    with child_context as child:
+        failure = 0
+        for line in child.stdout:
+            sys.stdout.buffer.write(line)
+            sys.stdout.buffer.flush()
+            failure = failure or _submit_exit(line)
+        code = child.wait()
+    return code or failure
+
+
+def _spawn(cmd, env, *, codex_events=False):
     """Run the CLI with inherited stdio and return its exit code (a signal death as 128+signum).
 
     SIGINT gets a no-op handler, not SIG_IGN: an ignored signal stays ignored across exec, a handler
@@ -156,10 +247,42 @@ def _spawn(cmd, env):
     """
     prior = signal.signal(signal.SIGINT, lambda *_: None)
     try:
-        code = subprocess.run(cmd, env=env).returncode
+        if codex_events:
+            code = _spawn_codex_events(cmd, env)
+        else:
+            code = subprocess.run(cmd, env=env).returncode
     finally:
         signal.signal(signal.SIGINT, prior)
     return 128 - code if code < 0 else code
+
+
+def _spawn_captured(cmd, env):
+    """Run the CLI with captured output: (exit code, stdout bytes, stderr bytes)."""
+    done = subprocess.run(cmd, env=env, capture_output=True)
+    return done.returncode, done.stdout, done.stderr
+
+
+def _run_agy_guarded(cmd, env, spawn_captured):
+    """Run an agy stage over hash-watched grant dirs; (code, refusal paths).
+
+    The stage's output is held and released only when no granted file changed; a changed file discards
+    it and returns the paths for the typed `agy_grant_tamper` refusal.
+    """
+    from coordinator_core import agy_grant_guard
+
+    dirs = [cmd[i + 1] for i, a in enumerate(cmd[:-1]) if a == "--add-dir"]
+    watched = [Path(d) for d in dirs if Path(d) in set(agy_grant_guard.grant_dirs(env))]
+    before = agy_grant_guard.snapshot(watched)
+    code, out, err = spawn_captured(cmd, env)
+    changed = agy_grant_guard.changed_paths(before, agy_grant_guard.snapshot(watched))
+    if changed:
+        agy_grant_guard.write_marker(changed)
+        return code, changed
+    sys.stdout.buffer.write(out)
+    sys.stdout.flush()
+    sys.stderr.buffer.write(err)
+    sys.stderr.flush()
+    return code, []
 
 
 def exit_check(session_id, cwd=None, *, open_runs=None):
@@ -204,9 +327,20 @@ def _codex_writable_dirs(extra: list[str], cwd: str | None = None) -> list[str]:
     return [*flag, *extra]
 
 
+def _codex_workdir(extra: list[str], cwd: str | None) -> str:
+    """The directory the codex child works in: the caller's `-C`/`--cd`, else `cwd`, else this process's."""
+    for i, arg in enumerate(extra):
+        if arg in ("-C", "--cd") and i + 1 < len(extra):
+            return extra[i + 1]
+        if arg.startswith("--cd="):
+            return arg[len("--cd="):]
+    return cwd or os.getcwd()
+
+
 def launch(family, extra, *, session_id=None, which=shutil.which, spawn=_spawn, environ=None,
            prepare_only=False, platform=None, native_executable=None, mint=uuid.uuid4,
-           name=None, resume=None, cwd=None, runner=subprocess.run, open_runs=None) -> int:
+           name=None, resume=None, cwd=None, runner=subprocess.run, open_runs=None,
+           spawn_captured=_spawn_captured) -> int:
     """Write the grant and run the CLI with the token env; returns an exit code.
 
     claude is not supervised: `claude --bg [-n NAME | --resume ID]` runs captured in `cwd` on both OSes and
@@ -233,6 +367,10 @@ def launch(family, extra, *, session_id=None, which=shutil.which, spawn=_spawn, 
               "use --prepare-only and start the CLI from it", file=sys.stderr)
         return REFUSED
     cli = native_executable
+    if not cli and family == "codex" and platform == "darwin" and extra[:1] == ["exec"] and "--json" in extra:
+        install = _diagnostic_install(environ)
+        if install:
+            cli = str(install[0])
     if not cli and family == "claude":
         cli = (which("claude.exe") if platform == "win32" else None) or which("claude")
     elif not cli:
@@ -249,6 +387,13 @@ def launch(family, extra, *, session_id=None, which=shutil.which, spawn=_spawn, 
         print("headless-em-launch: Windows requires the native CLI .exe, not a .cmd/.bat shim; "
               "pass --native-executable with its installed path", file=sys.stderr)
         return REFUSED
+    if family == "codex":
+        from coordinator_core.codex_runner.sandbox_scratch import ScratchGrantRefused, ensure_sandbox_scratch
+        try:
+            ensure_sandbox_scratch(Path(_codex_workdir(extra, cwd)))
+        except ScratchGrantRefused as exc:
+            print(f"headless-em-launch: refused: {exc}", file=sys.stderr)
+            return REFUSED
     sid = (session_id or environ.get(SESSION_ENV) or "").strip() or str(mint())
     try:
         token = write_headless_em_grant(sid, family)
@@ -260,7 +405,7 @@ def launch(family, extra, *, session_id=None, which=shutil.which, spawn=_spawn, 
     elif family == "grok":
         cmd = [cli, *_grok_launch_args(extra, environ, platform)]
     elif family == "agy":
-        cmd = [cli, *_agy_launch_args(extra, cwd)]
+        cmd = [cli, *_agy_launch_args(extra, cwd, environ)]
     elif family == "claude":
         cmd = [cli, "--bg", *(["--resume", resume] if resume else ["-n", name] if name else []), *extra]
     else:
@@ -282,7 +427,15 @@ def launch(family, extra, *, session_id=None, which=shutil.which, spawn=_spawn, 
         return 0
     if family == "claude":
         return _run_bg(cmd, cwd=cwd, env={**environ, **child}, runner=runner, name=name)
-    code = spawn(cmd, {**environ, **child})
+    if family == "agy" and any(a == "-p" or a.startswith("--print") for a in cmd):
+        code, tampered = _run_agy_guarded(cmd, {**environ, **child}, spawn_captured)
+        if tampered:
+            print(json.dumps({"refused": "agy_grant_tamper", "paths": tampered}), file=sys.stderr)
+            return REFUSED
+    elif family == "codex" and extra and extra[0] in _CODEX_SUBCOMMANDS and "--json" in extra and spawn is _spawn:
+        code = _spawn(cmd, {**environ, **child}, codex_events=True)
+    else:
+        code = spawn(cmd, {**environ, **child})
     gate = exit_check(sid, cwd, open_runs=open_runs)
     return gate if code == 0 else code
 

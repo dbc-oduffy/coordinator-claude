@@ -105,10 +105,10 @@ files or 1.5 MB per chunk) is sized at `deep` or above; Haiku scouts fail silent
 
 `emit-dispatch-workflow --from-sizing <path>` accepts `--list NAME=a,b,c`, `--flag NAME=value`
 and `--context <file>` (each repeatable) and `--scratch-dir`. Lists default to what the scope
-templates fix (repo `chunks=A,B,C,D` and `haiku_scouts=1,2`, web `topics=a,b,c,d`). NotebookLM
-has no default: a `notebooklm` source needs its notebooks, recorded on the sizing with
-`--research-target notebooklm=<letter or id>` (one per notebook) or passed as
-`--list notebooks=A,B`; `--research-source notebooklm` alone is refused. `--context` takes a real
+templates fix (repo `chunks=A,B,C,D` and `haiku_scouts=1,2`, web `topics=a,b,c,d`), NotebookLM `notebooks=A`.
+`--research-source notebooklm` alone emits one fresh-notebook slot per question letter, or slot `A`.
+A letter slot creates a fresh notebook; an existing notebook id is an optional reuse target,
+recorded with `--research-target notebooklm=<letter or id>` or passed as `--list notebooks=A,B`. `--context` takes a real
 file path; process substitution (`<(...)`) fails under Git Bash, so write the text to a scratch
 file first. A `--flag`
 goes to the pipeline that declares it (e.g. `compare=true`). The emit reply lists each segment's
@@ -195,7 +195,7 @@ repo-relative paths only.
   commits only the trail record, with no excerpt of the output content.
 - **NotebookLM:** the sweep never deletes notebooks. Once the coverage-audit sidecar exists, if the
   sizing asked for cleanup, read each `{letter}-summary.md`'s `notebook_id` and call `notebook_delete`
-  for each, logging failures; otherwise report the preserved notebook names to the PM. The NotebookLM
+  for each except a reused `existing_notebook` id, which is never deleted, logging failures; otherwise report the preserved notebook names to the PM. The NotebookLM
   pipeline needs the external `gemini-notebook-mcp` server (upstream README: https://github.com/jacob-bd/gemini-notebook-mcp-cli), an external dependency the plugin does not bundle:
   `coordinator/docs/wiki/mcp-topology/notebooklm-for-your-research.md`.
 

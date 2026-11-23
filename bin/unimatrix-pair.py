@@ -69,11 +69,13 @@ def _no_window():
     return getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
 
 
-def agent_socket(environ=None, platform=None, home=None):
-    """The 1Password agent socket or pipe: an already-set SSH_AUTH_SOCK first, else the per-OS default."""
+def agent_socket(environ=None, platform=None, home=None) -> str:
+    """The 1Password agent socket or pipe: an already-set SSH_AUTH_SOCK only when it names 1Password
+    (launchd's or another agent would hijack headless signing), else the per-OS default."""
     env = os.environ if environ is None else environ
-    if env.get("SSH_AUTH_SOCK"):
-        return env["SSH_AUTH_SOCK"]
+    inherited = env.get("SSH_AUTH_SOCK")
+    if inherited and "1password" in inherited.lower():
+        return inherited
     plat = platform or sys.platform
     if plat == "win32":
         return WINDOWS_AGENT_PIPE

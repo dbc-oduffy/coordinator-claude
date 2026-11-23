@@ -22,8 +22,8 @@ stop_warm_pair`: the supervisor is stopped first, then the front door, then the 
 ask, then a direct signal), and a final exact-argv command-line sweep under
 the engine root decides success.
 
-EXIT CODES: 0 when neither process survives ("stopped", or "nothing to stop"
-when no process was found, or psutil is not importable and warmth is disabled
+EXIT CODES: 0 when neither process survives ("stopped", or "no warm engine running for <root>"
+plus any servers running from other roots, when no process was found; "nothing to stop" when psutil is not importable and warmth is disabled
 by configuration); `_EXIT_COULD_NOT_STOP` (4) otherwise, with every
 survivor's pid and role on stderr; `_EXIT_PSUTIL_MISSING` (5) when warmth is
 on and psutil is not importable (one-line stderr message, no traceback).
@@ -162,7 +162,12 @@ def main(argv=None) -> int:
     _request_server_dump()
     result = pair_stop.stop_warm_pair(_REPO_ROOT)
     if result.ok():
-        print("stopped" if result.stopped else "nothing to stop", file=sys.stderr)
+        if result.stopped:
+            print("stopped", file=sys.stderr)
+        else:
+            print(f"no warm engine running for {_REPO_ROOT}", file=sys.stderr)
+            for pid, root in pair_stop.find_servers_under_other_roots(_REPO_ROOT):
+                print(f"  warm server pid={pid} is running from {root}", file=sys.stderr)
         return _EXIT_OK
 
     print(result.render_survivors(), file=sys.stderr)

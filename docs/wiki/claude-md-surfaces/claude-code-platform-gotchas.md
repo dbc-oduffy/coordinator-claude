@@ -845,6 +845,16 @@ Empirical basis (Machine-c workstream-complete): a subagent reported "1Password 
 
 Empirical basis (Machine-c plan-persistence-hook-automation C0, Claude Code 2.1.170).
 
+## "Always allow" stores the command verbatim as a glob rule
+
+Clicking "always allow" stores the approved command text verbatim as a permission rule. The Bash permission matcher treats `*` as a glob, not regex, so a rule whose text contains `.*`, `+`, or `{n,}` has its literal prefix end at the first `*` and everything after is wildcard. Shipped example (project-rag `.claude/settings.local.json`): a `grep -n "^+.*['\"][A-Za-z0-9+/]{30,}..."` rule meant `grep -n "^+.` + ANYTHING.
+
+Interpreter grants are the same hazard in legal-shape clothing: `Bash(bash *)`, `Bash(python3 *)`, `Bash(awk *)` each approve arbitrary code via `-c` / `BEGIN{system()}`. A trailing `*` does not make a rule narrow.
+
+**Why:** the rule looks like the one command you approved, so nobody re-reads it; the widened grant stays invisible until a warning surfaces it.
+
+**How to apply:** for any command containing `*`, `.*`, `+`, `{n,}`, press `y`, never "always". A persistent rule is safe only as a fixed prefix with `*` in trailing position over a non-interpreter binary. Ported settings files also carry dead host-specific rules (macOS home-directory paths, `/private/tmp/claude-501/...`, PID- and session-UUID-stamped paths): unmatchable cruft, delete on sight.
+
 ## Field rules
 
 - **An Agent SDK host does not load `source_is_live` plugins.** `settingSources` brings CLAUDE.md and marketplace plugins only; pass `plugins: [{type: 'local', path: <content-root>/coordinator}]` explicitly, and commands register namespaced (`/coordinator:pickup`).

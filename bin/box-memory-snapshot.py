@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""box-memory-snapshot.py [--top N] [--admit-peak GIB] -- one-screen box memory snapshot (Windows and macOS).
+"""box-memory-snapshot.py [--top N] [--admit-peak GIB] -- one-screen box memory snapshot (Windows, macOS and Linux).
+
+On Linux available is MemAvailable, commit limit is physical + swap capacity, the cache field is `Cached`,
+standby and nonpaged pool print `unavailable`, and a `Memory PSI` line gives the some/full avg10 of
+/proc/pressure/memory. Admission is the same as on macOS.
 
 On macOS available is the kernel figure, commit limit is physical + swap capacity, nonpaged pool
 and cache fields print `unavailable`, and top consumers rank by `ri_phys_footprint` (resident +
@@ -161,7 +165,7 @@ def build_snapshot(
         "commit_used_gib": _gib(status.commit_used) if status else _UNAVAILABLE,
         "commit_limit_gib": _gib(status.commit_limit) if status else _UNAVAILABLE,
         "system_cache_ws_gib": _gib(cache.cache_bytes) if cache else _UNAVAILABLE,
-        "standby_gib": _gib(cache.standby_bytes) if cache else _UNAVAILABLE,
+        "standby_gib": _gib(cache.standby_bytes) if cache and cache.standby_bytes is not None else _UNAVAILABLE,
         "nonpaged_pool_gib": _gib(nonpaged) if nonpaged is not None else _UNAVAILABLE,
         "top_consumers": consumers if consumers is not None else _UNAVAILABLE,
         "process_counts": counts if counts is not None else _UNAVAILABLE,
@@ -185,6 +189,9 @@ def _render(snap: dict) -> str:
         lines.append(f"Process counts:   {_UNAVAILABLE}")
     else:
         lines.append("Process counts:   " + "  ".join(f"{k}={v}" for k, v in pc.items()))
+    psi = snap.get("memory_psi")
+    if psi:
+        lines.append("Memory PSI:       " + "  ".join(f"{k}={v}" for k, v in psi.items()))
     if "note" in snap:
         lines.append(f"Note:             {snap['note']}")
     top = snap["top_consumers"]
@@ -331,8 +338,8 @@ def _main(
     if args.run and args.admit_peak is None and args.release_pid is None:
         parser.error("--run requires a known recorded peak or explicit --admit-peak")
     plat = platform if platform is not None else sys.platform
-    if plat not in ("win32", "darwin"):
-        return host.unsupported(PROG, plat, "reads Windows or macOS memory counters")
+    if plat not in ("win32", "darwin") and not plat.startswith("linux"):
+        return host.unsupported(PROG, plat, "reads Windows, macOS or Linux memory counters")
     if governor is None and proc_table_fn is None and names_fn is None:
         missing = host.require_psutil(PROG)
         if missing is not None:
@@ -343,6 +350,11 @@ def _main(
         # No nonpaged pool or file-cache counters on macOS: those fields print `unavailable`.
         nonpaged_fn = nonpaged_fn or (lambda: None)
         cache_host_fn = cache_host_fn or (lambda: SimpleNamespace(read_memory=lambda: None))
+    elif plat.startswith("linux"):
+        # No nonpaged pool or standby counter on Linux; the file cache is meminfo's Cached.
+        nonpaged_fn = nonpaged_fn or (lambda: None)
+        cache_host_fn = cache_host_fn or (lambda: SimpleNamespace(read_memory=lambda: (lambda c: SimpleNamespace(
+            cache_bytes=c, standby_bytes=None) if c is not None else None)(host.linux_cached_bytes())))
     else:
         nonpaged_fn = nonpaged_fn or host.nonpaged_pool_bytes
         cache_host_fn = cache_host_fn or _load_cache_host
@@ -367,6 +379,8 @@ def _main(
     status = _try(_read_status)
     counts_fn = lambda: _process_counts(table_fn, names_fn or _psutil_image_names)
     snap = build_snapshot(status, nonpaged_fn, cache_host_fn, consumers_fn, args.top, counts_fn)
+    if plat.startswith("linux"):
+        snap["memory_psi"] = _try(host.read_psi_memory)
     code = 0
     admit_line = None
     reserved_kw = {

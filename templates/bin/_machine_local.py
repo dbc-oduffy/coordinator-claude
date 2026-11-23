@@ -1791,7 +1791,7 @@ def cmd_dir(args: argparse.Namespace) -> int:
     return 0
 
 
-def _build_header_pats(prefix_parts):
+def _build_header_pats(prefix_parts: list[str]) -> tuple[re.Pattern[str], re.Pattern[str]]:
     table_path = ".".join(prefix_parts)
     quoted_segs = r'\s*\.\s*'.join(f'"{re.escape(p)}"' for p in prefix_parts)
     h_pat = re.compile(
@@ -2233,7 +2233,7 @@ def cmd_array_append(args: argparse.Namespace) -> int:
         return 1
 
     if dry_run:
-        print(f"[dry-run] would {action} array '{key}' (append {element!r}) in {target_path}")
+        print(f"[dry-run] would have {action} array '{key}' (append {element!r}) in {target_path}")
         return 0
 
     rc = _write_registry_file(target_path, new_content, is_new)
@@ -2365,7 +2365,7 @@ def cmd_array_set(args: argparse.Namespace) -> int:
         return 1
 
     if dry_run:
-        print(f"[dry-run] would {action} array '{key}' = {deduped!r} in {target_path}")
+        print(f"[dry-run] would have {action} array '{key}' = {deduped!r} in {target_path}")
         return 0
 
     rc = _write_registry_file(target_path, new_content, is_new)
@@ -2546,7 +2546,7 @@ def _toml_foreign(parsed: dict, name: str, segs: list) -> dict:
         if isinstance(cur, dict):
             cur.pop(path[-1], None)
 
-    def prune(d):
+    def prune(d: object) -> object:
         if not isinstance(d, dict):
             return d
         kept = {k: prune(v) for k, v in d.items()}
@@ -2924,7 +2924,7 @@ def cmd_set(args: argparse.Namespace) -> int:
         return 1
 
     if dry_run:
-        print(f"[dry-run] would {action} {key!r} = {value!r} in {target_path}")
+        print(f"[dry-run] would have {action} {key!r} = {value!r} in {target_path}")
         return 0
 
     if _write_registry_file(target_path, new_content, is_new) != 0:

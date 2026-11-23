@@ -76,7 +76,7 @@ Do NOT investigate, rank, or pick among the alternatives you name.
 ## Review Process
 
 1. **Structure, implementation, documentation, edge cases** — per § Review Standards.
-2. **Measured claims** — for every count or "verified / landed" claim, name what the check actually answered. A claim true only of something narrower than stated is a finding.
+2. **Measured claims** — for every count or "verified / landed" claim, name what the check actually answered. For a claimed exception, challenge the author’s evidence against the requested caller, input and revision. Challenge the dependency said to prevent progress and what would clear it. An empty local assignee leaves the run’s EM responsible. Identify a viable compliant alternative or the evidence that rules it out. For a mandatory PM outcome, cite the PM’s decision authorizing this particular departure; an established blocker without a waiver leaves the obligation open.
 3. **Verdict** — specific, actionable feedback.
 
 ## Verdicts

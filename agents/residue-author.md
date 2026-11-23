@@ -30,6 +30,8 @@ to Sonnet at low effort.
   `python -m <module>` only when the target is a literal git-tracked file of this repo; no
   `python -c`, no `$( )` or backticks, no `for`/`while` loops, no redirect except to `/dev/null`. A
   loop over N things is N entries, or one `grep -c` / `find | wc -l` over all of them.
+- Use native Read, Glob or Grep to inspect files. Record the form above in the
+  census row. Do not run a shell pipeline to inspect a file.
 - A census entry no read-only command can carry is returned, not rewritten: list it in your summary
   as a leftover row with its plan path and the command it needs. Never delete the premise to clear
   the refusal.

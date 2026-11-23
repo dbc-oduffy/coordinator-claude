@@ -394,7 +394,7 @@ When effort level is Medium:
 
 ## Optional: Peer Lens (EM-run, not a phase)
 
-A live Codex or agy peer may be consulted on a plan or diff as an additional reviewer, never a persona. Opt-in, EM-run: no phase dispatches, waits on or consumes it, no verdict depends on it, and with no peer live it is silently absent. A fresh-context Claude stays the default second reviewer; the peer reports findings only, and the EM triages them into the Phase 5 table. Contract: [live-peer-consult.md § Peer lens in pipelines](cross-repo-communication/live-peer-consult.md#peer-lens-in-pipelines). `external-reviewer.md` is unchanged.
+A live peer of another model family may be consulted on a plan or diff as an additional reviewer, never a persona. Opt-in, EM-run: no phase dispatches, waits on or consumes it, no verdict depends on it, and with no peer live it is silently absent. A fresh-context Claude stays the default second reviewer; the peer reports findings only, and the EM triages them into the Phase 5 table. Contract: [live-peer-consult.md § Peer lens in pipelines](cross-repo-communication/live-peer-consult.md#peer-lens-in-pipelines). `external-reviewer.md` is unchanged.
 
 ---
 

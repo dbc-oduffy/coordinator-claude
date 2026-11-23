@@ -707,7 +707,9 @@ def render_additional_context(
         # Truncation drops roster rows, never the tail: a session that loses the gate line is
         # the one the send gate exists to stop, and a session that loses the arm line stops
         # watching without noticing. Both are obligations, not listings.
-        keep = max(0, budget - len(tail) - 24)
+        # The head's first line is the standing verdict (ACTIVE / NOT ENTERED); it survives even
+        # when the tail alone fills the budget.
+        keep = max(len(head.split("\n", 1)[0]), budget - len(tail) - 24)
         text = head[:keep] + "\n... (truncated)\n\n" + tail
     return text
 

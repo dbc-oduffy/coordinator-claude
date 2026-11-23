@@ -177,6 +177,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import os
 import shlex
 import shutil
@@ -851,6 +852,7 @@ def do_pathspec(args: "Args") -> None:
         print(f"WARNING: {warning}", file=sys.stderr)
 
     print(f"committed sha={result.get('sha')}", file=sys.stderr)
+    _print_committed_state(worktree_root, result.get("sha"))
 
 
 #: Appended to a rendered holder whose liveness rests on a `stable_pid` also
@@ -1730,6 +1732,7 @@ def _reconcile_after_indeterminate(
             "not a failure.",
             file=sys.stderr,
         )
+        _print_committed_state(worktree_root, probe.sha)
         sys.exit(0)
 
     # ABSENCE IS NOT A DETERMINATE NEGATIVE. Presence of the Attempt-Id proves
@@ -2159,23 +2162,38 @@ def _git_write_index_tree() -> Optional[str]:
     return tree if result.returncode == 0 and tree else None
 
 
-def _git_diff_cached_paths_nul(env: Optional[dict] = None) -> List[str]:
-    """Staged paths, NUL-delimited and rename-split (`--no-renames`) so the
-    commit log names both halves of a rename and quoted non-ASCII names
-    survive. `env` selects an alternate index (`GIT_INDEX_FILE`)."""
+def _git_nul_records(argv: Sequence[str], env: Optional[dict] = None) -> Optional[List[str]]:
     try:
         result = subprocess.run(
-            ["git", "diff", "--cached", "--name-only", "--no-renames", "-z"],
+            ["git", *argv],
             capture_output=True,
             check=False,
             env=env,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except OSError:
-        return []
+        return None
     if result.returncode != 0:
-        return []
+        return None
     return [p.decode("utf-8", "surrogateescape") for p in result.stdout.split(b"\0") if p]
+
+
+def _git_diff_cached_paths_nul(env: Optional[dict] = None) -> List[str]:
+    return _git_nul_records(["diff", "--cached", "--name-only", "--no-renames", "-z"], env) or []
+
+
+def _print_committed_state(root: str, sha: Optional[str]) -> None:
+    # Another writer may have advanced HEAD since commit_v2 returned.
+    paths = None
+    if sha and re.fullmatch(r"[0-9a-fA-F]{4,64}", sha):
+        paths = _git_nul_records([
+            "-C", root, "diff-tree", "--root", "--no-commit-id", "--name-only",
+            "--no-renames", "-r", "-z", sha, "--",
+        ])
+    status = _git_nul_records([
+        "--no-optional-locks", "-C", root, "status", "--porcelain=v1", "-z", "--untracked-files=all",
+    ])
+    print(json.dumps({"committed_paths": paths, "porcelain_records": status}), file=sys.stderr)
 
 
 def _override_blanket_peers(session_id: str, cs_liveness) -> List[str]:

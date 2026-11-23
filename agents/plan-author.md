@@ -31,18 +31,23 @@ a failed build returns PARTIAL.
 
 ## What the document owes
 
+Use native Read, Glob or Grep to inspect files. The pipeline form below is
+for commands recorded in census rows. Do not run a shell pipeline to inspect a file.
+
 - Problem paragraph first; file scope; tests touched (no suite tier).
 - `docs/research` writes go to `docs/research/<topic>/<date>-<slug>/` (`synthesis.md` and its run children), never a flat top-level file; plan-spine-check flags the rest.
 - ACs true/false against the tree, calling the user-facing default invocation the PM described,
   never non-default arguments; an **Anti-scope**. Every PM done-clause is copied verbatim into a
   spine row's `acceptance:`, an executable check through the real entry point at default
   arguments; no plan-level-only exit criterion.
+- For atomic visibility, define legal reader states first, including removals on replacement. Pause between writes, read through an independent consumer during the pause, then read after completion. If one public operation promises a multi-read snapshot, publish between its reads and verify both see the same version.
 - A plan delivering a PM method-step register row by another mechanism than the step's carries a
   `deviation:` entry routed to the APM or PM; a plan chained on another plan re-checks each inherited
   method-step premise against the register row (`coordinator/docs/wiki/planning/requirement-register.md` § Method steps).
+- A `corpus-basis.md` in the brief or the plan's directory (from pre-planning stage `game-dev:ue-corpus-checker`) is read first; each UE implementation choice cites it by section, an uncovered choice is an open question, never a memory choice (`coordinator/docs/wiki/planning/pre-planning-stage-slot.md`; `UE-HOW-DO-WE-HANDLE-X-IS-ANSWERED-FROM-RESEARCH-NEVER-MEMORY`).
 - `review_signals` carries `unreal` when any write touches a UE plugin tree or .uproject repo (`UE-TOUCHING-PLAN-CARRIES-UNREAL-SIGNAL`).
 - A measured objective (perf, size, speed): ONE row builds and runs the before/after measurement
-  at base and at the end on every axis the brief names; the exit criterion cites its numbers.
+  at base and at the end on every axis the brief names. That row owns final integration: identify the requested subject, ordinary caller, observed output and acceptance threshold from the brief. Cite its numbers.
   Wave 0 builds, calibrates and pins that falsifier (the contract in exit-criterion-falsifier.md).
 - Start from the brief's extant-artifact list; cite each hit reused, extended or superseded, with
   a reason; never author blind. Revise mode: edit the given plan in place against the given
@@ -86,6 +91,9 @@ a failed build returns PARTIAL.
 - DELIVERY-MEANS-IT-RAN-END-TO-END: a plan with a runtime seam declares `wiring:` parts (wired, not_built, blocked or off_route); wired needs `built_path` and `runs_evidence`; each `consumes` needs a `produces`; `consumes_external` only for a verified seam (`coordinator/docs/wiki/planning/wiring-table.md`).
 - A row no brief text or register row asks for carries `authorization` (cited PM/APM signoff)
   or `{source: em-inferred, rationale}`.
+- The sizing's `standing_rulings` (PM rulings in force the ask bears on) are an input; a row departing from one carries a
+  `deviation:` routed to the PM through the EM; never narrow, downgrade or rule out of scope what the PM asked
+  (`A-PM-TURN-IN-A-RUN-IS-AN-ASK-FOR-DELIVERY`).
 - The baton's `deliverable_id`, copied.
 - Citations resolve to the tree at authoring time; a peer one names the ref it was read at.
 - `## PM brief` = sizing `pm_verbatims` verbatim (else baton `summary:` + `## What this covers`);
@@ -176,7 +184,7 @@ with `id`, `title`, `change_kind`, `surface`, `writes`, `disposition: open` and 
   `note`, its machine-readable half on a ROW field; an invented edge key refuses the whole plan
   at the mise-prep gate (`A-CLOSED-SCHEMA-TURNS-AN-INVENTED-KEY-INTO-A-LOST-ARTIFACT`).
 - `external_gate` is an ARRAY of objects (`owner_repo`, `condition`, plus `requires` when
-  uncleared), never a label.
+  uncleared), never a label. Route the exact external deliverable to that repository’s owner. Keep a local row for integration and end-to-end replay. Unassigned work within the repository belongs to this run and its EM.
 - `deliverable_id` is copied from the baton record exactly: it is the only edge `roadmap.plan_gate`
   resolves a plan through, and a fabricated id looks connected and links to nothing.
 - `status: draft` is correct; only the landing, on a ready verdict, advances it.
@@ -208,7 +216,7 @@ resolve or re-ask a second time.
 
 Touch nothing no finding names; write no attribution (reviewer names, finding numbers) into the plan.
 
-A reviewer major against a default-path outcome (what the default call yields, no non-default parameter or hand-built fixture) is settled by a fix row; a disclosure stands only under a cited G-EM scope ruling. Detail: `coordinator/docs/wiki/reviewer-pipeline/default-path-major-gets-fix-row.md`.
+A reviewer major against a default-path outcome (what the default call yields, no non-default parameter or hand-built fixture) is settled by a fix row; a departure from a mandatory PM outcome needs a cited, scope-matched PM decision; the G-EM can relay it. Detail: `coordinator/docs/wiki/reviewer-pipeline/default-path-major-gets-fix-row.md`.
 
 A plan row or brief you write names no hardcoded drive root for a data/cache/scratch/run-output root; it names a settings-home key, a missing key a typed refusal naming the key (`coordinator/docs/wiki/coordinator-tripwires/a-hardcoded-data-root-is-not-exempt-under-an-escape-token.md`).
 

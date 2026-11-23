@@ -4,9 +4,23 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.27] — 2026-11-23
+
+- **Research:** a NotebookLM question can reuse an existing notebook by id (`Source strategy: existing_notebook`); the scout makes no NotebookLM call for it and cleanup never deletes a reused notebook.
+- **Unimatrix:** Grok peers launched for headless resume get a `user_message_chunk` receipt; Agy peers take deliver-only sends; Codex sends that arrive mid-turn are held and coalesced instead of lost.
+- **Unimatrix:** the scripts share one stdlib `_unimatrix` core package and import inert.
+- **Doctrine:** the fleet-peer doctrine names where the full skill catalog lives.
+
 ## [4.6.26] — 2026-11-22
 
 - Hook launchers now load sibling Python modules when started outside the hook directory.
+
+## [4.6.25] — 2026-11-21
+
+- **Freshness:** stale-docs and distill reminders are a passive status, no longer an imperative directive or a consumed prompt.
+- **Planning:** a pre-planning stage slot an installed plugin can fill through `pre-planning-stage.json`, ahead of the plan author.
+- **Windows:** the Stop-hook freshness child no longer starts console-less, so it opens no stray terminal window.
+- **Doctrine:** a PM ask is delivered in full; the EM translates it and asks the PM first when it is unclear.
 
 ## [4.6.24] — 2026-11-20
 

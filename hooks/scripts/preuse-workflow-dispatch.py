@@ -29,15 +29,20 @@ Folds, in this order: `block-workflow-foreign-emission.py`,
 `allow-emitted-workflow-fire.py`. REGISTRY order is the prior hooks.json order.
 
 HOSTING ONLY, NEVER A POLICY CHANGE: each guard keeps its own deny text,
-override hatches, sentinels and fail-open contract.
+override hatches, sentinels and fail-open contract. The one hosting act beyond
+running legs is threading `block-workflow-unmodeled-agent.py`'s rewrite (below).
 
 WORKFLOW-FAN-IN-PRECEDENCE (the aggregation contract):
-  - Every leg sees the same payload: the stdin payload, as rewritten by the
-    pre-stages (the submission stage, then the args-inline stage). No rewrite
-    threading between legs. Two `updatedInput` emitters exist and merge field-wise
-    in the final envelope: the args-inline stage (field `args`, applied first, so
-    every leg judges the inlined payload) and `strip-worktree-isolation.py` (field
-    `script`); a later emitter's fields win.
+  - Every leg sees the stdin payload as rewritten by the pre-stages (the
+    submission stage, then the args-inline stage). Three `updatedInput` emitters
+    exist and merge field-wise in the final envelope: the args-inline stage (field
+    `args`, applied first, so every leg judges the inlined payload),
+    `block-workflow-unmodeled-agent.py` (field `script`, the sonnet pin) and
+    `strip-worktree-isolation.py` (field `script`); a later emitter's fields win.
+    The unmodeled-agent guard's rewrite is threaded: its `updatedInput` is merged
+    into the payload every later leg sees, so the worktree strip is computed from
+    the pinned script and the final `script` carries both. No other leg's rewrite
+    is threaded.
   - Deny: the FIRST deny in REGISTRY order wins, is emitted verbatim, and later
     legs are neither imported nor run. Context from earlier non-deny legs is
     dropped. Intended delta from separate registrations: a later leg's side
@@ -62,7 +67,7 @@ the envelope is built by subscript, else
 `test_at_most_one_updated_input_emitter_per_matcher` counts it as a second
 Workflow emitter.
 
-Negative spec: do not reorder REGISTRY; do not thread rewrites between legs; do
+Negative spec: do not reorder REGISTRY; do not thread any leg's rewrite but the unmodeled-agent guard's; do
 not collapse first-deny-wins into concatenate-all; do not widen
 `preuse-agent-dispatch.py` to this matcher; do not move the submission stage into
 REGISTRY (a leg sees the original payload, and the receipt legs must see the fired one).
@@ -158,6 +163,10 @@ REGISTRY: Tuple[WorkflowGuard, ...] = (
     WorkflowGuard("nudge_workflow_authoring_trampoline", "nudge-workflow-authoring-trampoline.py"),
     WorkflowGuard("allow_emitted_workflow_fire", "allow-emitted-workflow-fire.py"),
 )
+
+
+#: The one leg whose rewrite is threaded into the payload later legs see.
+_THREADED_REWRITE_LEG = "block_workflow_unmodeled_agent"
 
 
 def _import_leg(guard: WorkflowGuard) -> Any:
@@ -568,6 +577,8 @@ def _dispatch(raw: str) -> int:
                 raw = json.dumps(payload)
             envs.append(inlined)
 
+    threaded: Optional[dict] = None
+    later_rewrite = False
     for guard in REGISTRY:
         try:
             mod = _import_leg(guard)
@@ -592,10 +603,28 @@ def _dispatch(raw: str) -> int:
                 _write_bytes(sys.stdout, out)
                 return 0
             continue
+        rewritten = _hso(env).get("updatedInput")
+        if guard.module_key == _THREADED_REWRITE_LEG and isinstance(rewritten, dict):
+            # Held out of the fold: a later leg's whole-input rewrite is derived from the
+            # threaded payload and supersedes it; field-wise merging would resurrect a
+            # field that leg removed.
+            threaded = rewritten
+            if isinstance(payload, dict):
+                payload["tool_input"] = rewritten
+                raw = json.dumps(payload)
+            hso = dict(_hso(env))
+            hso.pop("updatedInput")
+            env = {**env, "hookSpecificOutput": hso}
+        elif isinstance(rewritten, dict):
+            later_rewrite = True
         envs.append(env)
 
     _flush_stderr()
     composed = _compose(envs)
+    if threaded is not None and not later_rewrite:
+        composed = composed or {"hookSpecificOutput": {"hookEventName": "PreToolUse"}}
+        out_hso = composed["hookSpecificOutput"]
+        out_hso["updatedInput"] = {**(out_hso.get("updatedInput") or {}), **threaded}
     if composed:
         _write_bytes(sys.stdout, json.dumps(composed) + "\n")
     return 0

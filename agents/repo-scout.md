@@ -56,7 +56,11 @@ Mechanical inventory only — no analysis, evaluation, recommendations, or judgm
 2. Per file: Read, produce an inventory entry.
 3. Comparison mode → also identify equivalent project files (§ Comparison File Identification).
 4. Write the inventory to the scratch directory.
-5. Verify each inventory with `ls -la`, then return `DONE: <paths written>` — your return value is your only signal.
+5. Verify each inventory with native Read or Glob, then return `DONE: <paths written>`.
+
+Use native Read, Glob or Grep for file inspection, including line counts.
+Never use a shell pipeline to inspect a file. If the native tools cannot
+provide an exact count, record the available line range and its limit.
 
 ## Inventory Format
 

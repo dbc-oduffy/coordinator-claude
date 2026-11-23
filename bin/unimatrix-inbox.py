@@ -254,6 +254,16 @@ def _run(a):
     far_err.start()
     log.write(f"inbox {a.name} up, ssh pid {p.pid}\n")
 
+    def beat():
+        while p.poll() is None:
+            time.sleep(HEARTBEAT_SECONDS)
+            try:
+                p.stdin.write(PING_LINE)
+                p.stdin.flush()
+            except (OSError, ValueError):
+                return
+    threading.Thread(target=beat, daemon=True).start()
+
     auth = b""
     for line in p.stdout:
         if not line.strip():
@@ -266,7 +276,8 @@ def _run(a):
         if frame.get("type") == "auth":
             auth = line  # belongs to the frame on the next line
             continue
-        auth = deliver_frame(frame, line, auth, a.deliver_endpoint, str(a.remote).rpartition("@")[2])
+        auth = deliver_frame(frame, line, auth, a.deliver_endpoint, str(a.remote).rpartition("@")[2],
+                             on_fail=lambda _e: p.kill())
     rc = p.wait()
     far_err.join(timeout=2)
     log.write(f"inbox ended rc={rc}\n")
@@ -274,8 +285,11 @@ def _run(a):
         sys.exit(rc)
 
 
-def deliver_frame(frame, line, auth, deliver_endpoint, box):
-    """Hand one far frame (with its preceding `auth` line) to the local session; return the next `auth`."""
+def deliver_frame(frame, line, auth, deliver_endpoint, box, on_fail=None):
+    """Hand one far frame (with its preceding `auth` line) to the local session; return the next `auth`.
+
+    `on_fail` is called with the exception when the session cannot be reached, so the caller can stop
+    advertising a mirror nobody reads."""
     if deliver_endpoint:
         line = localize(frame, line, box)
         log.write(f"<< {deliver_endpoint} {line!r}\n")
@@ -283,6 +297,8 @@ def deliver_frame(frame, line, auth, deliver_endpoint, box):
             write_local(deliver_endpoint, auth + line)
         except Exception as e:
             log.write(f"deliver failed: {e}\n")
+            if on_fail:
+                on_fail(e)
         return b""
     port = inject_port(frame, box)
     log.write(f"<< :{port} {line!r}\n")
@@ -291,11 +307,15 @@ def deliver_frame(frame, line, auth, deliver_endpoint, box):
             s.sendall(auth + line)
     except OSError as e:
         log.write(f"handoff failed: {e}\n")
+        if on_fail:
+            on_fail(e)
     return b""
 
 
 MUX_UNSUPPORTED_RC = 4  # unimatrix-mirror-all.py matches this exit code: the far relay lacks inbox-mux
 MUX_POLL_SECONDS = 2
+HEARTBEAT_SECONDS = 20  # the far relay leases a mirror out after 90s without stdin traffic
+PING_LINE = b'{"op":"ping"}\n'
 MUX_PARK_SECONDS = 600  # a name the far box refused is retried this much later
 MUX_UNREADABLE_RETRY_SECONDS = 30  # a name whose entry or key cannot be read or carried is retried this much later
 
@@ -333,12 +353,25 @@ def mux_add_frame(name, pid, endpoint):
     return {"op": "add", "name": name, "entry": json.loads(entry), "key": key}
 
 
+def session_alive(pid, proc_start):
+    """True while `pid` is the process that registered with `proc_start`; a recycled pid is not it."""
+    try:
+        roster = _roster()
+        if not roster.pid_alive(pid):
+            return False
+        return proc_start is None or roster.proc_start(pid) == proc_start
+    except (OSError, subprocess.SubprocessError):
+        return True  # an unreadable stamp never drops a live mirror
+
+
 class MuxFeed:
     """The mux stream's stdin side: reconciles the names file into add/drop frames, one at a time."""
 
-    def __init__(self, stdin, names_file, clock=None):
+    def __init__(self, stdin, names_file, clock=None, alive=None):
         self.stdin, self.names_file = stdin, names_file
         self.clock = clock or time.monotonic
+        self.alive = alive or session_alive
+        self.stamps = {}  # name -> procStart the session registered with
         self.sent = {}    # name -> (pid, endpoint) last added
         self.parked = {}  # name -> clock time the far refusal ends
         self.lock = threading.Lock()
@@ -346,6 +379,28 @@ class MuxFeed:
     def _send(self, frame):
         self.stdin.write(json.dumps(frame).encode() + b"\n")
         self.stdin.flush()
+
+    def heartbeat(self):
+        """Keep the far relay's lease; False when the pipe is gone."""
+        try:
+            with self.lock:
+                self.stdin.write(PING_LINE)
+                self.stdin.flush()
+        except (OSError, ValueError):
+            return False
+        return True
+
+    def fail(self, name):
+        """The local session behind `name` is unreachable: drop its far mirror so a sender gets a refusal,
+        and hold off re-adding it until the park lapses."""
+        try:
+            with self.lock:
+                if name in self.sent:
+                    self._send({"op": "drop", "name": name})
+                    del self.sent[name]
+                self.parked[name] = self.clock() + MUX_UNREADABLE_RETRY_SECONDS
+        except (OSError, ValueError):
+            pass
 
     def refuse(self, name, error):
         """The far box refused `name`: forget it and retry after MUX_PARK_SECONDS."""
@@ -368,6 +423,13 @@ class MuxFeed:
                 for name in [n for n in self.sent if n not in want]:
                     self._send({"op": "drop", "name": name})
                     del self.sent[name]
+                # A session whose process exited is dropped now, within one poll, not when the supervisor's
+                # slower roster refresh notices: the far socket must be gone before the next send reaches it.
+                for name, (pid, _ep) in list(self.sent.items()):
+                    if not self.alive(pid, self.stamps.get(name)):
+                        self._send({"op": "drop", "name": name})
+                        del self.sent[name]
+                        self.parked[name] = now + MUX_UNREADABLE_RETRY_SECONDS
                 for name, v in want.items():
                     if not isinstance(v, dict) or self.parked.get(name, 0) > now:
                         continue
@@ -378,6 +440,7 @@ class MuxFeed:
                     if frame:
                         self._send(frame)
                         self.sent[name] = ident
+                        self.stamps[name] = frame["entry"].get("procStart")
                     else:
                         self.parked[name] = now + MUX_UNREADABLE_RETRY_SECONDS
         except (OSError, ValueError):
@@ -415,7 +478,13 @@ def _mux_run(a):
     feed, stop = MuxFeed(p.stdin, a.names_file), threading.Event()
 
     def pump():
+        beat = 0.0
         while not stop.is_set() and feed.reconcile():
+            beat += MUX_POLL_SECONDS
+            if beat >= HEARTBEAT_SECONDS:
+                beat = 0.0
+                if not feed.heartbeat():
+                    return
             stop.wait(MUX_POLL_SECONDS)
 
     threading.Thread(target=pump, daemon=True).start()
@@ -445,7 +514,8 @@ def _mux_run(a):
         endpoint = (feed.sent.get(name) or (None, None))[1]
         if endpoint is None:
             continue  # dropped while the frame was in flight
-        auths[name] = deliver_frame(frame, text, auths.get(name, b""), endpoint, box)
+        auths[name] = deliver_frame(frame, text, auths.get(name, b""), endpoint, box,
+                                    on_fail=lambda _e, n=name: feed.fail(n))
     rc = p.wait()
     stop.set()
     far_err.join(timeout=2)

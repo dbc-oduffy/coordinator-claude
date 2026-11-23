@@ -1,20 +1,22 @@
-"""stop-freshness-autofire.py -- Stop producer: fire drift repair and distill at the engine thresholds.
+"""stop-freshness-autofire.py -- Stop producer: observe doc-freshness state at the engine thresholds.
 
 A PRODUCER folded into `stop-dispatch.py` (no hooks.json entry of its own), the idle leg of
-A-FRESHNESS-THE-OPERATOR-MUST-REMEMBER-IS-NOT-MAINTAINED. It always exits 0 with empty stdout: a
-leg without a `protected_acts` entry can carry no directive, so the directive rides the EM's next
-UserPromptSubmit (`runtime-tripwire-em-check.py::_check_freshness_due`), which reads the per-session
-marker this leg writes and consumes it.
+A-FRESHNESS-THE-OPERATOR-MUST-REMEMBER-IS-NOT-MAINTAINED. It always exits 0 with empty stdout and
+never tells the EM to act: it records what the probes found, and the state is reported passively
+(boot orientation) from the repo-level record `_freshness_pending` keeps beside the session
+directories.
 
 On a Stop in an EM session (`em-role-asserted` present) of a repo that carries
 `state/distillation-log.md` or the dev sentinel, with the throttle window elapsed or HEAD moved
 since the last check, `main()` stamps the check and spawns this script detached with `--child`. The
-child runs `update-docs-probes fresh-scaffold-probe` and `update-docs-probes distill-threshold`
-(exit 1 = due; the probe owns the thresholds, never restated here) and writes
-`<hub>/<session_id>/freshness-due.json`. A directive fires at most once per throttle window, and
-drift only when HEAD moved since the last directive. Every decision after the precondition appends
-one row to `.coordinator-local/freshness-autofire/fired.jsonl`. The leg never runs a skill or an
-index command, and fails open on every path.
+child reserves a generation, then runs `update-docs-probes fresh-scaffold-probe` and
+`update-docs-probes distill-threshold` (exit 0 = clean, 1 = due, anything else or HEAD-suppressed
+drift = unknown; the probe owns the thresholds, never restated here), publishes the per-signal
+results through `_freshness_pending.write_pending`, and still writes the legacy
+`<hub>/<session_id>/freshness-due.json`. A due result stamps the throttle once per window, and drift
+only when HEAD moved since the last stamp. Every decision after the precondition appends one row to
+`.coordinator-local/freshness-autofire/fired.jsonl`. The leg never runs a skill or an index
+command, and fails open on every path.
 """
 from __future__ import annotations
 
@@ -28,6 +30,7 @@ from pathlib import Path
 _HERE = Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
+import _freshness_pending  # noqa: E402
 from _win_portability import no_console_spawn_kwargs  # noqa: E402
 
 STATE_SUBDIR = os.path.join(".coordinator-local", "freshness-autofire")
@@ -135,7 +138,10 @@ def _spawn_child(root: str, session_id: str, due_dir: str) -> None:
     }
     if sys.platform == "win32":
         hidden = no_console_spawn_kwargs()
-        hidden["creationflags"] = hidden.get("creationflags", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+        # Trap: never DETACHED_PROCESS. It overrides CREATE_NO_WINDOW, leaving the child no console,
+        # so each console grandchild (git, python) allocates a visible window.
+        hidden["creationflags"] = (hidden.get("creationflags", 0)
+                                   | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
         kwargs.update(hidden)
     else:
         kwargs["start_new_session"] = True
@@ -193,8 +199,13 @@ def _run_probe(bin_path: str, verb: str, root: str) -> int:
         return -1
 
 
+def _probe_result(rc: int) -> str:
+    """Exit 0 is clean, exit 1 is due, any other exit or an error is unknown."""
+    return {0: "clean", 1: "due"}.get(rc, "unknown")
+
+
 def child_main(argv: list[str]) -> int:
-    """Run both probes and write the due-marker; every outcome leaves an evidence row."""
+    """Reserve a generation, run both probes, publish pending state and the legacy due-marker."""
     rest = [a for a in argv[1:] if a != "--child"]
     args = dict(zip(rest[0::2], rest[1::2]))
     root, session_id, due_dir = args.get("--repo", ""), args.get("--session-id", ""), args.get("--due-dir", "")
@@ -205,19 +216,33 @@ def child_main(argv: list[str]) -> int:
             return 0
         stamp = read_stamp(root)
         head = head_sha(root)
+        reservation = _freshness_pending.reserve_generation(root)
+        if not reservation.available:
+            record(root, session_id, "skip", "pending-generation-unavailable", detail=reservation.reason)
         drift_rc = _run_probe(bin_path, DRIFT_VERB, root)
         distill_rc = _run_probe(bin_path, DISTILL_VERB, root)
+        drift_suppressed = drift_rc == 1 and head == stamp.get("fired_head")
+        results = {
+            "update-docs": "unknown" if drift_suppressed else _probe_result(drift_rc),
+            "distill": _probe_result(distill_rc),
+        }
+        now = time.time()
+        if reservation.available:
+            outcome = _freshness_pending.write_pending(
+                root, _freshness_pending.make_observation(root, reservation.generation, results, head, now))
+            if not outcome.ok:
+                record(root, session_id, "skip", "pending-write-failed", detail=outcome.reason)
         due = []
-        if drift_rc == 1 and head != stamp.get("fired_head"):
+        if results["update-docs"] == "due":
             due.append("update-docs")
-        if distill_rc == 1:
+        if results["distill"] == "due":
             due.append("distill")
         if not due:
             reason = "probes-clean" if {drift_rc, distill_rc} <= {0, 1} else "probe-error"
             record(root, session_id, "skip", reason, drift_rc=drift_rc, distill_rc=distill_rc)
             return 0
-        _atomic_write(Path(due_dir, MARKER_NAME), {"due": due, "ts": time.time(), "head": head})
-        write_stamp(root, {**read_stamp(root), "fired_ts": time.time(), "fired_head": head})
+        _atomic_write(Path(due_dir, MARKER_NAME), {"due": due, "ts": now, "head": head})
+        write_stamp(root, {**read_stamp(root), "fired_ts": now, "fired_head": head})
         record(root, session_id, "fire", "due-marker-written", due=due)
     except BaseException:  # noqa: BLE001
         record(root, session_id, "skip", "child-raised")

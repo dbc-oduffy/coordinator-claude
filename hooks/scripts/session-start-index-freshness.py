@@ -180,10 +180,13 @@ def _spawn_detached(argv: list, cwd: str) -> None:
 
     Trap: the async legs run serially under one 45 s registration timeout and sweep_boot runs last
     on its own 30 s, so a pull awaited here would starve sweep_boot. The leg never waits on it.
+
+    Trap: never DETACHED_PROCESS. It overrides CREATE_NO_WINDOW, so the child has no console at all;
+    the pip launcher exe then starts python.exe, which allocates a fresh visible console (a stray
+    Windows Terminal tab). A hidden console is inherited by every grandchild instead.
     """
     hidden = no_console_spawn_kwargs()
-    flags = (hidden.pop("creationflags", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
-             | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+    flags = hidden.pop("creationflags", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     try:
         subprocess.Popen(
             argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,

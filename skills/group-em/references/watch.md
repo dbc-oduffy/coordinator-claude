@@ -27,6 +27,12 @@ Mechanics: remit § Arming the watch. `notify_when_idle` is main-conversation on
 resource-usage proxies (CPU, memory, I/O) are banned (remit § Liveness). A PM-reported dead
 watcher is confirmed by `last_tick_at` age, never the session list.
 
+**A fresh `last_tick_at` proves that *a* watch is alive, never that *the* watch you ask about is.** The record carries one
+`holder_session_id` and cannot tell two watches apart, so any second watch armed in the window (an attempted
+re-arm included) makes it read healthy for a dead first. Where more than one may have existed, pair age with a
+per-subprocess stream check (is that task's captured output still growing?); a frozen stream beside an advancing
+record means the one you asked about is dead. Never countermand a death escalation on freshness alone.
+
 **You arm nothing for the wake's producer:** `state/group-em-watch-spool.jsonl` gets one record
 per park, appended by every session's own `Stop`
 (`coordinator/hooks/scripts/group-em-park-spool.py`), retained at least 30 minutes.

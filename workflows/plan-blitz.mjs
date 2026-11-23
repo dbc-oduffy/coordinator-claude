@@ -9,6 +9,8 @@
  *
  * args contract:
  *   repoRoot: string          ABSOLUTE, REQUIRED; every brief anchors repo-relative paths here.
+ *   ragRepo: string | null   OPTIONAL project-rag repository identifier. Omit to try the repoRoot
+ *                            basename. Pass null for an unindexed checkout to go straight to full review.
  *   waveIndex: number         0 is the ungated wave.
  *   trailDir: string          ABSOLUTE; every agent writes its sidecar here.
  *   provisionSidecarCli: string  REQUIRED; resolved absolute `provision-sidecar` invocation.
@@ -163,6 +165,7 @@ const WAVE_DISPATCH_SCHEMA = {
   type: 'object',
   required: ['decisions'],
   properties: {
+    sidecarPath: { type: 'string' },
     decisions: {
       type: 'array',
       items: {
@@ -198,6 +201,7 @@ const PLAN_SCHEMA = {
   type: 'object',
   required: ['batonId', 'planPath', 'status'],
   properties: {
+    sidecarPath: { type: 'string' },
     batonId: { type: 'string' },
     planPath: { type: 'string' },
     status: { type: 'string', enum: ['drafted', 'blocked'] },
@@ -321,6 +325,7 @@ const PLAN_PREP_GATE_SCHEMA = {
     availablePlugins: { type: 'array', items: { type: 'string' } },
     signals: { type: 'array', items: { type: 'object' } },
     attached: { type: 'array', items: { type: 'string' } },
+    sidecarPath: { type: 'string' },
     tldr: RETURN_TLDR_SCHEMA,
   },
 }
@@ -331,6 +336,7 @@ const PREP_GATE_REVISE_SCHEMA = {
   type: 'object',
   required: ['batonId', 'before', 'after'],
   properties: {
+    sidecarPath: { type: 'string' },
     batonId: { type: 'string' },
     before: { type: 'string', enum: ['PREPPED', 'NOT-PREPPED', 'REFUSED', 'ENGINE-ERROR'] },
     after: { type: 'string', enum: ['PREPPED', 'NOT-PREPPED', 'REFUSED', 'ENGINE-ERROR'] },
@@ -353,6 +359,7 @@ const JUDGMENT_RESOLVE_SCHEMA = {
   type: 'object',
   required: ['batonId', 'resolved', 'unresolved', 'touched'],
   properties: {
+    sidecarPath: { type: 'string' },
     batonId: { type: 'string' },
     resolved: { type: 'array', items: { type: 'string' } },
     unresolved: { type: 'array', items: { type: 'string' } },
@@ -374,6 +381,7 @@ const PREMISE_RECHECK_SCHEMA = {
   type: 'object',
   required: ['batonId', 'rows', 'retired'],
   properties: {
+    sidecarPath: { type: 'string' },
     batonId: { type: 'string' },
     rows: PREMISE_SCHEMA.properties.rows,
     retired: { type: 'array', items: { type: 'string' } },
@@ -730,9 +738,8 @@ reviewed artifact — the findings ledger in your own sidecar is the attribution
 
   // Single-plan pre-flights: `withRole` attaches no agentType without plugin agents, so the role's
   // brief must name its agent file by path.
-  'prior-art-checker': `You are the prior-art-checker pre-flight for single-plan mode. Read
-\`agents/prior-art-checker.md\` in full and follow its protocol exactly — this line names your
-role, it does not restate the protocol. You are a recall agent, not a reviewer: cross-reference the
+  'prior-art-checker': `You are the prior-art-checker pre-flight for single-plan mode. Follow the supplied
+prior-art-checker role definition and its verification protocol. You are a recall agent, not a reviewer: cross-reference the
 sizing intent's claims against wikis, decisions and lessons, and report Conflict /
 Compatible-but-relevant / Silent per its § Verification Protocol. You never edit the plan, never
 refuse it, and never judge architecture — report, and let the planner and reviewers act on it.`,
@@ -1012,15 +1019,17 @@ plugin root) § Plan-blitz wave briefs / Revising in place in full and follow it
   const sizingBase = String(decision.sizingObject || '').split(/[\\/]/).pop()
   const idDate = idLower.match(/^(\d{4}-\d{2}-\d{2})-/) || sizingBase.match(/^(\d{4}-\d{2}-\d{2})-/)
   const planFileSlug = idLower.replace(/^(\d{4}-\d{2}-\d{2}-)+/, '') || 'plan'
-  const newPlanPath = `docs/plans/${idDate ? idDate[1] : '<today>'}-${planFileSlug}.md`
+  const planMonth = idDate ? idDate[1].slice(0, 7) : '<month>'
+  const newPlanPath = `docs/plans/${planMonth}/${idDate ? idDate[1] : '<today>'}-${planFileSlug}.md`
+  const dateInstruction = idDate ? '' : ' (replace <today> with today’s YYYY-MM-DD and <month> with the same date’s YYYY-MM)'
 
   const authoringBrief = existingPlanPath ? `You are revising, so the generator has no part in this. Bring the plan up to the mise-prep
 bar (the FOUR DECLARATIONS below and the task spine), not only the prose you were sent for.` : PLUGIN_AGENTS ? `Invoke the coordinator:plan skill and follow it; your charter owns the scaffold rule.
-The plan path is fixed by the workflow: pass \`--out ${newPlanPath}\` to the scaffold, exactly${idDate ? '' : ' (replace the one `<today>` with today\'s date, nothing else)'}; do not derive another filename.
+The plan path is fixed by the workflow: pass \`--out ${newPlanPath}\` to the scaffold, exactly${dateInstruction}; do not derive another filename.
 Sizing-object that routed you here, cited with the scaffold's sizing flag, used EXACTLY:
 \`${decision.sizingObject || '(none emitted)'}\`. If none was emitted, write \`sizing_object: null\` and
 say so in your summary; never invent a path.${sizingAbsenceNote}` : `The coordinator plan tooling is NOT installed on this machine, so hand-author the plan file at
-${REPO_ROOT || '<repoRoot>'}/${newPlanPath} (the workflow fixed this filename; do not derive another), with \`sizing_object: ${sizingFm}\`. Read
+${REPO_ROOT || '<repoRoot>'}/${newPlanPath}${dateInstruction} (the workflow fixed this filename; do not derive another), with \`sizing_object: ${sizingFm}\`. Read
 \`agents/plan-author.md\` (under the coordinator plugin root) § Plan-blitz wave briefs / Hand-authoring
 without the scaffold in full and follow it: its exact frontmatter keys and its task spine.
 
@@ -1095,10 +1104,8 @@ const PREVET_SCHEMA = {
 
 const PREVET_PHASES = { premise: 'Premise check', 'prior-art': 'Plan' }
 
-const RAG_REPO =
-  typeof parsedArgs.ragRepo === 'string' && parsedArgs.ragRepo.trim()
-    ? parsedArgs.ragRepo.trim()
-    : (REPO_ROOT ? REPO_ROOT.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || null : null)
+const defaultRagRepo = REPO_ROOT ? REPO_ROOT.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || null : null
+const RAG_REPO = parsedArgs.ragRepo === null ? null : (typeof parsedArgs.ragRepo === 'string' && parsedArgs.ragRepo.trim()) || defaultRagRepo
 
 // Returns the reason the sonnet leg must run, or null when the pre-vet cleared the baton.
 function prevetEscalation(result, kind) {
@@ -1125,7 +1132,8 @@ ${task}
 
 Every project-rag call (\`project_semantic_search\`, \`project_symbol\`, \`project_file\`; load each with
 ToolSearch \`select:mcp__project-rag__<name>\` first) MUST pass \`repo="${RAG_REPO}"\`. A call without it
-fails with \`missing_index\` or \`source_unspecified\`.
+fails with \`missing_index\` or \`source_unspecified\`. If the service rejects that repository as unknown,
+stop the lookups for this baton and return \`ragOk: false\`, \`escalate: true\` with the reported reason.
 
 Return:
 - \`ragOk\`: true only if every rag call you made returned ok. A \`missing_index\`, \`source_unspecified\`,
@@ -1394,6 +1402,9 @@ Exit criterion: ${baton.exitCriterion || '(none stated on the baton)'}`)
     `phase: prior-art-preflight
 
 ${ROLE_CONTRACTS['prior-art-checker']}
+${PLUGIN_ROOT ? `If the role definition or Sidecar-Emission Contract is missing from this brief, read the missing text from
+\`${PLUGIN_ROOT}/agents/prior-art-checker.md\` or \`${PLUGIN_ROOT}/snippets/sidecar-emission-contract.md\`, respectively.`
+  : 'Resolve missing role or contract text under the installed coordinator plugin root. Report any unavailable source as degraded coverage.'}
 
 Single-plan mode, wave ${waveIndex}. Cross-reference this baton's sizing intent and exit criterion
 against prior art BEFORE the planner writes anything, so a conflict is visible in the planner's own
@@ -2854,7 +2865,9 @@ ${CLI_RESOLUTION_RULE}
 3. If the CLI fails to run, return verdict \`ENGINE-ERROR\` with the one-line failure in \`message\`
    and empty \`findings\`. Never retry, repair, or run the gate any other way.${attachStep}
 ${REPO_ROOT_RULE}
-${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'plan-prep-gate'))}`,
+${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'plan-prep-gate'))}
+Return \`sidecarPath\` only at the top level. If you include a \`tldr\` object, use \`tldr.sidecar\` for its path.
+Keep \`sidecarPath\` out of \`tldr\`.`,
     { model: 'haiku', label: `plan-prep-gate:${baton.id}`, phase: 'Plan', schema: PLAN_PREP_GATE_SCHEMA },
   ))
   if (reply) PLAN_HOST_REPLIES.set(plan.planPath, reply)

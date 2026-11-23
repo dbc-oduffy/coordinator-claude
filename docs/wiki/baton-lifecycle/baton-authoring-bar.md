@@ -1,5 +1,5 @@
 ---
-last-updated: 2026-07-23
+last-updated: 2026-11-20
 ---
 
 # Baton-Authoring Bar
@@ -171,6 +171,21 @@ hidden behind a stale pointer does not.
 verifying it. State it as a claim to check, not as context. The reviewer that caught this incident
 had been handed the false claim as background and verified it anyway.
 
+
+## A hand-typed frontmatter timestamp can silently disarm a window-based gate
+
+A baton's `claimed_at` (and any sibling frontmatter timestamp) is data that gates do interval
+arithmetic on, not a placeholder. workstream-complete's review-receipt gate takes `claimed_at` as
+the window start and skips every receipt stamped before it. An author who types the value by hand
+without reading the clock can put it in the future; the gate then discards every real receipt and
+reports "no counting review receipt" after reviewers demonstrably ran. The incident: two batons
+claimed with hand-typed stamps about two hours ahead of session time discarded all four reviewer
+receipts.
+
+- **Anchor each timestamp to real evidence** -- read the clock, or use session start or a commit's
+  `%cI` -- or let the tooling mint it. Never type one from memory or estimate.
+- **A gate that blocks against strong contrary evidence is a reason to read the gate's source,**
+  not to reach for an override. Here the gate was right and the data was wrong.
 
 ## Cross-links
 

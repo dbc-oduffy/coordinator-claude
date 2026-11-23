@@ -86,7 +86,7 @@ WHEN processing review agent output:
      Dispositions — every finding gets exactly one:
        - Applied: implemented the fix (state what changed)
        - Captured: deferred to backlog/debt tracker (state where and why not now)
-       - Dismissed: genuinely disagree or requires PM input (state reasoning)
+       - Dismissed: contrary evidence resolves the finding on the requested caller. If the PM must decide, retain the unresolved requirement and the competing evidence in its register row for closeout. Record an authorized exception with its decision source and applicable conditions.
      "Captured" is NOT a parking lot — it means a concrete entry exists somewhere.
 
   3. Do NOT "note for later" — there is no later

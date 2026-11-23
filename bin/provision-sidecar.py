@@ -84,17 +84,12 @@ def _err(msg: str) -> None:
 
 
 def _resolve_session_id(explicit: Optional[str]) -> str:
-    """`--session-id` wins; otherwise the same precedence chain
-    `fan-out-dispatch.py`'s `_provision_sidecars` uses: coordinator-set >
-    harness-legacy > harness-current."""
+    """An explicit ID wins; otherwise use the live caller's native identity."""
     if explicit:
         return explicit
-    return (
-        os.environ.get("COORDINATOR_SESSION_ID")
-        or os.environ.get("CLAUDE_SESSION_ID")
-        or os.environ.get("CLAUDE_CODE_SESSION_ID")
-        or ""
-    )
+    from coordinator_core.session.core import resolve_session_id
+
+    return resolve_session_id()
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -206,7 +201,7 @@ def main(argv: list) -> int:
     if not session_id:
         _err(
             "provision-sidecar.py: ERROR — no session id resolved. Pass --session-id or "
-            "set one of COORDINATOR_SESSION_ID, CLAUDE_SESSION_ID, CLAUDE_CODE_SESSION_ID."
+            "run from an identified coordinator, Codex, Agy or Claude session."
         )
         return 2
 

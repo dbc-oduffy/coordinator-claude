@@ -148,7 +148,38 @@ def cmd_step9_dispatch(args: argparse.Namespace) -> int:
     os.environ.setdefault("RC_PLUGIN_SUITE", "n/a")
 
     step9 = _load_step9_module()
-    return step9.main(forward)
+    rc = step9.main(forward)
+    if rc == 0 and not (args.no_push or args.dry_run or args.for_date or args.commit_span):
+        _retire_day_branch()
+    return rc
+
+
+def _retire_day_branch() -> None:
+    """Delete today's day branch from the remote when another fetched remote ref contains it.
+    Report-only: no outcome or exception here changes the step's exit code."""
+    try:
+        from coordinator_core.daily_branch import read_configured_day_branch
+        from coordinator_core.ops.ceremony.day_branch_retire import retire_contained_day_branch
+
+        from repo_identity import resolve_checked_repo_root
+
+        root_text = os.environ.get("COORDINATOR_ROOT") or resolve_checked_repo_root(explicit_root=None)[0]
+        if not root_text:
+            return
+        root = Path(root_text)
+        branch = read_configured_day_branch(root)
+        if not branch:
+            return
+        out = retire_contained_day_branch(root, branch)
+        if out.deleted:
+            msg = f"deleted remote day branch {branch} (contained in {out.containing_ref})"
+        elif out.refused:
+            msg = f"kept remote day branch {branch}: refused {out.refused}"
+        else:
+            msg = f"kept remote day branch {branch}: error {out.error}"
+        print(f"[workday-complete] day-branch retire: {msg}", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 -- retire is advisory; the ceremony outcome is step 9's
+        print(f"[workday-complete] day-branch retire: skipped ({exc!r})", file=sys.stderr)
 
 
 def cmd_ceremony_hook(args: argparse.Namespace) -> int:

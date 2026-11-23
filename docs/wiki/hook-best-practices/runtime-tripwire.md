@@ -62,7 +62,7 @@ Per-model defaults and env-var overrides:
 Unknown model defaults to 25 (Opus default), matching the existing compaction-advisory's bias-toward-Opus failure direction.
 
 <!-- PROVENANCE: run 2026-11-13-20h30, derived from batch-1-057, batch-1-063 -->
-The EM is the authority and the agent's own judgment is a signal, so the thresholds count Agent-dispatch calls and nudge rather than kill; see [DR-1689](../../../../docs/decisions/DR-1689-runtime-tripwire-em-is-authority-agent.md). The values live in `lib/runtime-thresholds.sh`. Only the Sonnet value has a recorded basis (the 3-minute margin above); the Opus 25 and Haiku 10 values have no stated basis beyond being model-differentiated, so treat them as uncalibrated and tune them from the §6 calibration evidence.
+The EM is the authority and the agent's own judgment is a signal, so the thresholds count Agent-dispatch calls and nudge rather than kill. The values live in `lib/runtime-thresholds.sh`. Only the Sonnet value has a recorded basis (the 3-minute margin above); the Opus 25 and Haiku 10 values have no stated basis beyond being model-differentiated, so treat them as uncalibrated and tune them from the §6 calibration evidence.
 
 ## §3 — Wrap shape — the canonical prescription
 

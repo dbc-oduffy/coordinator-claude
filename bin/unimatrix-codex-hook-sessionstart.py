@@ -35,6 +35,7 @@ except ImportError:
 
 HERE = Path(__file__).resolve().parent
 VENDOR = "codex"
+HOOK = "unimatrix-codex-hook-sessionstart"
 NAME_RE = re.compile(r"[^A-Za-z0-9_-]+")
 
 
@@ -293,7 +294,7 @@ def _register(payload, peers_file=None, registry_dir=None):
         pass
     address = load_sibling('unimatrix-peer-contract').read_codex_address(registry_dir, thread, socket.gethostname())
     if not address:
-        return {"systemMessage": f"unimatrix: Codex thread {thread} is unbound: no engine address"}
+        return {"systemMessage": f"{HOOK}: degraded: Unbound: Codex thread {thread} is unbound: no engine address"}
     chosen = []
 
     def pick(rows):
@@ -309,11 +310,16 @@ def main() -> int:
         payload = json.load(sys.stdin)
         argv = sys.argv[1:]
         root = argv[argv.index("--engine-root") + 1] if "--engine-root" in argv[:-1] else None
-        out = run(payload, engine_root=root) if isinstance(payload, dict) else None
+        if not isinstance(payload, dict):
+            raise ValueError("hook payload must be an object")
+        out = run(payload, engine_root=root)
         if out:
             print(json.dumps(out))
-    except Exception as exc:  # a hook must never break the session
-        print(json.dumps({"systemMessage": f"unimatrix: peer registration failed: {exc}"}))
+    except BaseException as exc:  # a hook must never break the session
+        try:
+            print(json.dumps({"systemMessage": f"{HOOK}: degraded: {type(exc).__name__}: {exc}"}))
+        except BaseException:
+            pass
     return 0
 
 

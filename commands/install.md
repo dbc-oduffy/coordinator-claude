@@ -11,7 +11,12 @@ Guided install: agent runs mechanism, operator decides shape. Re-run anytime.
 
 ## The install: orientation, declared choices, one block
 
-The install is a script with declared choices: `python3 "${CLAUDE_PLUGIN_ROOT}/lib/install/coordinator_install.py" ...`, run bare. The phases below are the reference for what each step wraps.
+The install is a script with declared choices: `python3 "<engine-root>/lib/install/coordinator_install.py" ...`, run bare after resolving the engine root below. `CLAUDE_PLUGIN_ROOT` identifies the separate plugin source. The phases below are the reference for what each step wraps.
+
+Start from any neutral directory, outside a repository, using absolute resolved paths. Do not
+onboard that directory or interpret an install-session banner as a project selection. The tour
+uses the registered `repos.general_work` target or a repository the operator explicitly picks;
+show the actual `repo_home` and `repos.general_work` targets from the installer before acting.
 
 1. **Track.** `--plan` reports `environment.track`: `fresh`, `update` or `repair`; never pick one by hand. All three continue through steps 2-7: `fresh` runs `plugin_install`; `update` runs `plugin_update`, `engine_setup`, `engine_check` (`track_reason: already current` drops `plugin_update`); `repair` runs `engine_setup`, `engine_check`. On `repair`, surface `track_reason`. Never route `update` to `/coordinator:coordinator-update` or a hand-run `claude plugin update`. A model may run this command when the PM's turn states install intent; `plugin_update` stays gated: a model-invoked run answers it SKIPPED and tells the operator to type `/coordinator:install`.
 2. **Orientation first.** Order: machine wiring, the tour inline in this session, then opt-in repo onboarding (Phase 8). Read the plan's `orientation` text to the operator before asking anything.
@@ -38,7 +43,7 @@ Resolve `<engine-root>` once with `python3 "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/
 - uv (Pipeline D), scc (optional), Windows Terminal (default-on, not a blocker).
 - Windows: PowerShell 7 is a prerequisite (see the pwsh 7 check below).
 - Engine repo cloned (hard, not auto-discovered).
-- **Sequence, exactly:** (1) install the coordinator plugin; (2) clone the engine repo — a clone, **not** an install; (3) load the plugin into a session (`needs-restart.py` says `/reload-plugins` or restart); (4) run this coordinator install; (5) only then run the engine repo's own installer, from a shell started after (4) so the `machine-local` resolver is on PATH. Matches `INSTALL.md` § Step 1e / Step 2 / Step 3 / Step 4; on disagreement `INSTALL.md` is the source of truth.
+- **Sequence:** follow `INSTALL.md` and your generated `install/<agent>.md` for acquisition, substrate provisioning, engine installation and activation. `/coordinator:setup` verifies the installed engine; it does not install it. Pre-activation script execution remains a runtime verification gate: source inspection alone does not prove a cold Linux install works without a loaded plugin. If a command requires activation, report the exact command and missing prerequisite and keep that gate open; do not invent an ordering exception.
 
 ## Structural fork
 

@@ -77,8 +77,9 @@ def _mirror_name(name):
     """The live mirror entry's own name when `name` is that name or its far name, else ''.
 
     The bridge keys its deliveries.jsonl row on the mirror's own name, never the bare far name."""
+    contract = _sibling("unimatrix-peer-contract.py", "unimatrix_peer_contract_send")
     return next((e["name"] for e in _session_entries()
-                 if any(e.get(f) for f in _MIRROR_FIELDS) and name in (e.get("name"), e.get("unimatrixFarName"))), "")
+                 if any(e.get(f) for f in _MIRROR_FIELDS) and name in contract.mirror_addresses(e)), "")
 
 
 def _is_mirror(name) -> bool:
@@ -108,6 +109,20 @@ def relay_outcome(name, since, wait=RELAY_SETTLE_SECONDS, sleep=time.sleep, now=
         sleep(0.25)
 
 
+def enqueue_state(outcome) -> str:
+    """`enqueued`, `not enqueued` or `unknown` for whether the receiver took the message, from the bridge's row.
+
+    No row, or a failed row flagged unconfirmed (the ssh leg broke after the write may have happened), is
+    `unknown`; any other failed row is a refusal or a pre-write failure, so `not enqueued`."""
+    if outcome is None:
+        return "unknown"
+    if outcome.get("ok"):
+        return "enqueued"
+    if outcome.get("unconfirmed") or "unconfirmed" in str(outcome.get("error", "")):
+        return "unknown"
+    return "not enqueued"
+
+
 def _route_note(outcome) -> str:
     """` [box <box>, transport <leg>]` from the bridge's recorded row; `[box unknown]` when an older bridge's row lacks them."""
     box = outcome.get("box")
@@ -126,10 +141,24 @@ def _reached_note(resp):
     return f" (reached {reached} on {box})" if isinstance(box, str) and box else f" (reached {reached})"
 
 
+def _age(seconds) -> str:
+    """`45s`, `3m05s` or `1h02m` for a non-negative age in seconds."""
+    s = int(max(seconds, 0))
+    return f"{s}s" if s < 60 else f"{s // 60}m{s % 60:02d}s" if s < 3600 else f"{s // 3600}h{s % 3600 // 60:02d}m"
+
+
+def _pending_cell(pending) -> str:
+    """`N, oldest <age>` from a router `codex_pending` entry; `-` when the peer is not Codex or the router sent none."""
+    if not isinstance(pending, dict) or not isinstance(pending.get("pending"), int):
+        return "-"
+    n = pending["pending"]
+    return f"{n}, oldest {_age(pending.get('oldest_age_s') or 0)}" if n else "0"
+
+
 def _print_rows(rows) -> None:
-    print("NAME\tBOX\tTHIS-BOX\tVENDOR\tSTATE")
-    for name, box, this_box, vendor, state in rows:
-        print(f"{name}\t{box}\t{this_box}\t{vendor}\t{state}")
+    print("NAME\tBOX\tTHIS-BOX\tVENDOR\tSTATE\tPENDING")
+    for name, box, this_box, vendor, state, pending in rows:
+        print(f"{name}\t{box}\t{this_box}\t{vendor}\t{state}\t{pending}")
 
 
 def _yes_no(flag):
@@ -167,7 +196,7 @@ def _list_from_sessions() -> None:
         for r in rows:
             if c.is_ip_literal(r["box"]):
                 r["box"] = c.box_id(r["box"], ip_hosts)
-    _print_rows([(r["name"], r["box"], _yes_no(r["box"] == box), r["vendor"], "via SendMessage") for r in rows])
+    _print_rows([(r["name"], r["box"], _yes_no(r["box"] == box), r["vendor"], "via SendMessage", "-") for r in rows])
     print("Message any of these with SendMessage; ListAgents lists them too.")
 
 
@@ -238,22 +267,30 @@ def main(argv=None) -> int:
             return 1
         agents = {row.get("name"): row for row in resp.get("agents", []) if isinstance(row, dict)}
         peers = set(resp.get("peers", []))
+        pend = resp.get("codex_pending") if isinstance(resp.get("codex_pending"), dict) else {}
         _print_rows([(name, agents.get(name, {}).get("box", "-"), _yes_no(agents.get(name, {}).get("this_box")),
                       agents.get(name, {}).get("vendor", "-"),
                       "stale" if agents.get(name, {}).get("stale") is True
-                      else "ready" if name in peers else "session") for name in reachable])
+                      else "ready" if name in peers else "session",
+                      _pending_cell(pend.get(name))) for name in reachable])
         print("Message any of these with SendMessage; ListAgents lists them too.")
+    elif resp.get("held") is True:
+        print(f"held for {a.to}: {resp.get('pending', 0)} pending, oldest {_age(resp.get('oldest_age_s') or 0)}")
     elif resp.get("reply"):
         print(resp["reply"])
     elif resp.get("written") is True or resp.get("msg_id"):
         outcome = relay_outcome(to_mirror_name or a.to, started) if to_mirror else {"ok": True}
         if outcome is None:
-            print(f"undelivered: {a.to}: no far ingest ack within {RELAY_SETTLE_SECONDS}s; the outcome is "
-                  "unknown (a cold leg can outlast this wait), check the far inbox before resending", file=sys.stderr)
+            print(f"undelivered: {a.to}: no far ingest ack within {RELAY_SETTLE_SECONDS}s; receiver enqueue: "
+                  "unknown (a cold leg can outlast this wait). Ask the receiving box's relay: "
+                  f"`receipts {a.to.partition('.')[0]} {started - 60:.0f}` lists a row per message it enqueued "
+                  "(name, session id, ref or pid all work); a row there means enqueued, none means resend",
+                  file=sys.stderr)
             return 1
         elif not outcome.get("ok"):
             print(f"undelivered: {a.to}: {outcome.get('error', 'far relay refused')}"
-                  + (_route_note(outcome) if to_mirror else ""), file=sys.stderr)
+                  + (_route_note(outcome) if to_mirror else "") + f"; receiver enqueue: {enqueue_state(outcome)}",
+                  file=sys.stderr)
             return 1
         else:
             print(f"sent to {a.to}" + _reached_note(resp) + (_route_note(outcome) if to_mirror else ""))

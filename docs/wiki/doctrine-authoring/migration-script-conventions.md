@@ -208,3 +208,17 @@ no-op**: the version changes but nothing downstream re-derives against it, and n
 the gap. Any plan touching `CONTRACT_VERSION` must name the EM's close-out as its own explicit
 step, and treat an `--ack-major` flag as a review gate to walk through deliberately, never a
 keystroke to clear on the way past.
+
+## 21. A targeted-field migration mutates only the fields it owns
+
+A pass that adds or renames specific fields must not rebuild the record from a template that
+defaults the other fields. One manifest migration added `verified_against` and renamed
+`dive_id`/`ran_at`, but also wrote `source_refs: []` on every manifest it touched — discarding
+recorded source URLs, including on stems that gained new claims with new `source_url` values in the
+same commit. 33 manifests across two plans' corpora lost the field silently; a reviewer caught it
+only by diffing on disk.
+
+**Mutate only the named field(s) on the existing object**, or explicitly re-derive every other field
+you touch from its own current source. Never reconstruct the object from a defaults template, and
+diff the migrated corpus against its pre-image for any field outside the migration's declared set
+before committing (an unrelated field changing is the signal).

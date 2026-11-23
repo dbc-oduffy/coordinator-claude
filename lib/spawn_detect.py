@@ -783,6 +783,7 @@ DEFAULT_EXCLUDE: tuple[str, ...] = (
     "build",
     ".git",
     "__pycache__",
+    ".coordinator-local",
 )
 """Directory names never walked by default.
 
@@ -793,6 +794,8 @@ Two distinct reasons, both meaning "not claude-klabauter's source":
 - `.venv`/`venv`/`node_modules`/`build` are vendored or generated third-party
   trees. Their spawn sites are real but are not ours to convert or to sanction, and
   a register entry naming one would be re-blessed on every dependency bump.
+- `.coordinator-local` is machine-local state; its percolate memo blobs are
+  transformed (sometimes truncated) copies of shebang scripts and fail to parse.
 
 `dist` is deliberately NOT in this list. In this repo `dist/` holds claude-klabauter's
 own git-tracked percolate publish-mirror output (`dist/mirror-native/...`) —
@@ -991,8 +994,13 @@ def discover_source_files(
     root: pathlib.Path,
     *,
     exclude: tuple[str, ...] = DEFAULT_EXCLUDE,
-) -> tuple[list[tuple[str, pathlib.Path]], ExcludedReport]:
+    count_excluded: bool = True,
+) -> tuple[list[tuple[str, pathlib.Path]], ExcludedReport | None]:
     """Discovery half of the walk: which files are Python, and what was excluded.
+
+    Trap: ``count_excluded=True`` descends every excluded tree (`scratch/`, `.git`) to
+    count its files, which on a shared tree is minutes of stat calls. A caller that
+    discards the report passes False and gets None for it; the walk then prunes unread.
 
     Split out from `walk_repo` so a parallelising consumer (`coordinator/bin/
     spawn-census`) can reuse the traversal instead of mirroring it. That mirror
@@ -1006,8 +1014,8 @@ def discover_source_files(
     pins byte-identical output between its serial and parallel paths.
     """
     root = pathlib.Path(root)
-    candidates, report = walk_candidate_files(root, exclude=exclude, count_excluded=True)
-    assert report is not None
+    candidates, report = walk_candidate_files(root, exclude=exclude, count_excluded=count_excluded)
+    assert (report is not None) == count_excluded
     discovered = [
         (c.rel_posix, c.path)
         for c in candidates

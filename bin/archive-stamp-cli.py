@@ -200,7 +200,7 @@ _SUBCOMMAND_USAGE = {
         "archive-stamp-cli ship-handoff <handoff_path> [<SHA>] "
         "[--sha <SHA>] [--no-archive] [--force]"
     ),
-    "claim-handoff": "archive-stamp-cli claim-handoff <handoff_path>",
+    "claim-handoff": "archive-stamp-cli claim-handoff <handoff_path> [--reopen <note>]",
     # Deprecated alias — retained-for-compat, not advertised in _SUBCOMMANDS.
     "consume-handoff": "archive-stamp-cli consume-handoff <handoff_path>",
     "claim-memo-stamp": "archive-stamp-cli claim-memo-stamp <memo_path>",
@@ -825,7 +825,15 @@ def main(argv: list[str]) -> int:
         if not rest:
             return _usage(f"archive-stamp-cli {subcmd} <handoff_path>")
         handoff_path = rest[0]
-        result = mod.cs_claim_handoff(handoff_path, return_result=True)
+        reopen_reason = None
+        if len(rest) == 3 and rest[1] == "--reopen":
+            reopen_reason = rest[2]
+        elif len(rest) != 1:
+            return _usage(f"archive-stamp-cli {subcmd} <handoff_path> [--reopen <note>]")
+        if reopen_reason is None:
+            result = mod.cs_claim_handoff(handoff_path, return_result=True)
+        else:
+            result = mod.cs_claim_handoff(handoff_path, return_result=True, reopen_reason=reopen_reason)
         rc = int(result.get("exit_code", 1))
         if rc == 0:
             sid = mod.resolve_current_session_id()

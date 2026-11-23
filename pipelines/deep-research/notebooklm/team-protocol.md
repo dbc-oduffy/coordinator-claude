@@ -220,7 +220,7 @@ The sole statement of how `{letter}-claims.json` worker fields map to `research-
 - **research_start failure (worker):** Retry once. If persistent, note failure in summary.md and attempt alternative sources if scout provided any.
 - **Rate limiting (worker):** Write partial claims immediately. Return with a rate limit note. Do not retry — the sweep will note the gap.
 - **Query failure (worker):** Retry once. Log and continue with remaining questions.
-- **Scout finds no accessible source for a scout-provided notebook (or sources.md is absent):** the source gate halts the run with a remedy naming the notebook. A notebook whose strategy section lists PM-supplied URLs, and a `research_start` notebook, pass the gate without scout sources.
+- **Scout finds no accessible source for a scout-provided notebook (or sources.md is absent):** the source gate halts the run with a remedy naming the notebook. A notebook whose strategy section lists PM-supplied URLs, a `research_start` notebook, and an `existing_notebook` notebook carrying a `Notebook ID:` line pass the gate without scout sources.
 - **Scout times out (partial sources.md):** the source gate passes each scout-provided notebook that has at least one accessible source; workers use what is available and note which notebooks have incomplete source lists.
 - **Fan-out differs from `worker_count`, or a worker ran outside the strategy:** the claims gate halts the run before the sweep, naming the counts; a worker with no `## Notebook {letter}` section writes `in_strategy: false` and returns `SKIPPED`.
 - **All workers fail (zero claims):** the claims gate halts the run before the sweep; the EM reports the remedy to the PM.

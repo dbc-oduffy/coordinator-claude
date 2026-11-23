@@ -1,10 +1,10 @@
 {
   "x-effective-delivery": {
     "version": 1,
-    "generated_from_sha": "3e44304456313bb9b0e021b63d2df597410b9add",
-    "generated_at": "2026-11-02T19:38:51Z",
-    "generated_from_dirty_tree": true,
-    "engine_source_sha": "7e88e3e431bab9285603d99bce06b015add3cf03",
+    "generated_from_sha": "8f6fc5ad89d9f249e060e50cb5e7f6d98b2f207c",
+    "generated_at": "2026-11-21T02:56:28Z",
+    "generated_from_dirty_tree": false,
+    "engine_source_sha": "09153979aa169ea52a2c3eb8e90ac03e6ab9faf0",
     "engine_source_dirty_tree": false,
     "engine_source_resolution": "resolved-engine/published-target",
     "carriers": {
@@ -849,6 +849,14 @@
             ]
           },
           {
+            "id": "stale-temp-index-base",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
             "id": "runaway-find",
             "script": "bash_guards/dispatch_checks.py",
             "tool_names": [
@@ -952,6 +960,22 @@
             ]
           },
           {
+            "id": "block-empty-source-push",
+            "script": "bash_guards/block_empty_source_push.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-held-push",
+            "script": "bash_guards/block_held_push.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
             "id": "deploy-dirty-tree",
             "script": "bash_guards/guard_deploy_dirty_tree.py",
             "tool_names": [
@@ -968,8 +992,24 @@
             ]
           },
           {
+            "id": "deny-kill-by-port-or-tree",
+            "script": "bash_guards/block_kill_by_port_or_tree.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
             "id": "block-whole-filesystem-scan",
             "script": "bash_guards/block_whole_filesystem_scan.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "guard-uncapped-pytest-plugin",
+            "script": "bash_guards/guard_uncapped_pytest_plugin.py",
             "tool_names": [
               "Bash",
               "PowerShell"
@@ -1419,6 +1459,11 @@
             "tool_names": []
           },
           {
+            "id": "session_start_pm_rulings_context",
+            "script": "scripts/session-start-pm-rulings-context.py",
+            "tool_names": []
+          },
+          {
             "id": "engine_guards_importable",
             "script": "scripts/session-start-engine-guards-importable.py",
             "tool_names": []
@@ -1480,6 +1525,11 @@
             "tool_names": []
           },
           {
+            "id": "session_start_index_freshness",
+            "script": "scripts/session-start-index-freshness.py",
+            "tool_names": []
+          },
+          {
             "id": "sweep_boot",
             "script": "scripts/sweep-boot.py",
             "tool_names": []
@@ -1538,6 +1588,11 @@
           {
             "id": "stop_disk_budget_sweep",
             "script": "scripts/stop-disk-budget-sweep.py",
+            "tool_names": []
+          },
+          {
+            "id": "stop_freshness_autofire",
+            "script": "scripts/stop-freshness-autofire.py",
             "tool_names": []
           }
         ]
@@ -1667,14 +1722,69 @@
         ]
       },
       {
+        "id": "claude_external_registry.py",
+        "script": "scripts/claude_external_registry.py",
+        "tool_names": [
+          "clear",
+          "compact",
+          "fork",
+          "resume",
+          "startup"
+        ]
+      },
+      {
         "id": "context-pressure-precompact.py",
         "script": "scripts/context-pressure-precompact.py",
         "tool_names": []
       },
       {
+        "id": "door_launch.py",
+        "script": "scripts/door_launch.py",
+        "tool_names": [
+          "Agent",
+          "AskUserQuestion",
+          "Bash",
+          "Edit",
+          "ExitPlanMode",
+          "Glob",
+          "Grep",
+          "ListAgents",
+          "MultiEdit",
+          "NotebookEdit",
+          "PowerShell",
+          "Read",
+          "ReadNotifications",
+          "SendMessage",
+          "Skill",
+          "TaskGet",
+          "TaskList",
+          "TaskOutput",
+          "TaskStop",
+          "Workflow",
+          "Write",
+          "mcp__.*example-game-repo.*"
+        ]
+      },
+      {
         "id": "guard-config-change-hookstack-selfdefence.py",
         "script": "scripts/guard-config-change-hookstack-selfdefence.py",
         "tool_names": []
+      },
+      {
+        "id": "guard-family-stage-prompt-preamble.py",
+        "script": "scripts/guard-family-stage-prompt-preamble.py",
+        "tool_names": [
+          "Bash",
+          "PowerShell"
+        ]
+      },
+      {
+        "id": "guard-git-merge-dirty-tree.py",
+        "script": "scripts/guard-git-merge-dirty-tree.py",
+        "tool_names": [
+          "Bash",
+          "PowerShell"
+        ]
       },
       {
         "id": "guard-msys-ps-wait.py",
@@ -1759,6 +1869,14 @@
         ]
       },
       {
+        "id": "preuse-search-rag-hint.py",
+        "script": "scripts/preuse-search-rag-hint.py",
+        "tool_names": [
+          "Glob",
+          "Grep"
+        ]
+      },
+      {
         "id": "preuse-sendmessage-dispatch.py",
         "script": "scripts/preuse-sendmessage-dispatch.py",
         "tool_names": [
@@ -1780,6 +1898,13 @@
           "compact",
           "resume",
           "startup"
+        ]
+      },
+      {
+        "id": "project_rag_abort_banner.py",
+        "script": "scripts/project_rag_abort_banner.py",
+        "tool_names": [
+          "mcp__project-rag__.*"
         ]
       },
       {

@@ -12,7 +12,17 @@ from pathlib import Path
 
 _SCRIPTS = Path(__file__).resolve().parent
 _SEED_MARKER = "BEGIN unimatrix-peer-doctrine"
-_EDIT_TOOLS = ("edit_file", "write_file")
+_EDIT_TOOLS = (
+    "edit_file",
+    "write_file",
+    "write_to_file",
+    "replace_file_content",
+    "multi_replace_file_content",
+    "sed_file",
+    "notebook_edit",
+)
+_PATH_KEYS = ("path", "targetfile", "absolutepath", "filepath", "file_path")
+_TEXT_KEYS = ("replacement", "replacementcontent", "content")
 _XS_CHANGED_LINES = 30
 _NON_CODE_SUFFIXES = {".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".csv"}
 _ROUTE_LINE = (
@@ -56,10 +66,33 @@ def render_context(payload, role, ue_route=None) -> str:
     return f"Coordinator audience: {role}. Use live-peers for exact live identities and route/ACK evidence."
 
 
+def _extract_path(args) -> str:
+    lowered = {str(k).lower(): v for k, v in args.items()}
+    for key in _PATH_KEYS:
+        val = lowered.get(key)
+        if isinstance(val, str) and val:
+            return val
+    return ""
+
+
 def _changed_lines(args) -> int:
-    # edit_file carries Replacement, write_file carries Content.
-    text = args.get("Replacement") if isinstance(args.get("Replacement"), str) else args.get("Content")
-    return text.count("\n") + 1 if isinstance(text, str) and text else 0
+    # edit_file carries Replacement, write_file/write_to_file carry Content,
+    # replace_file_content carries ReplacementContent, multi_replace carries ReplacementChunks.
+    lowered = {str(k).lower(): v for k, v in args.items()}
+    chunks = lowered.get("replacementchunks")
+    if isinstance(chunks, list):
+        total = 0
+        for chunk in chunks:
+            if isinstance(chunk, dict):
+                txt = chunk.get("ReplacementContent") or chunk.get("replacementContent")
+                if isinstance(txt, str) and txt:
+                    total += txt.count("\n") + 1
+        return total
+    for key in _TEXT_KEYS:
+        text = lowered.get(key)
+        if isinstance(text, str) and text:
+            return text.count("\n") + 1
+    return 0
 
 
 def _is_product_code(path) -> bool:
@@ -80,6 +113,6 @@ def event_advisory(payload, role) -> str:
     if not isinstance(call, dict) or call.get("name") not in _EDIT_TOOLS:
         return ""
     args = call.get("args")
-    if not isinstance(args, dict) or not _is_product_code(args.get("Path")):
+    if not isinstance(args, dict) or not _is_product_code(_extract_path(args)):
         return ""
     return _ROUTE_LINE if _changed_lines(args) > _XS_CHANGED_LINES else ""

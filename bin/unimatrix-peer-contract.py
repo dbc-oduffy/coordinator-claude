@@ -93,6 +93,17 @@ def read_codex_address(directory, target, expected_box=None):
     return owned_codex_address(row, target, expected_box)
 
 
+def mirror_addresses(row):
+    """Addresses carried by a mirror, including a short Machine-a hostname."""
+    own = row.get("name")
+    far = row.get("unimatrixFarName")
+    addresses = [own, far]
+    if (isinstance(own, str) and own.lower().endswith(".machine-a.local")
+            and any(row.get(key) for key in ("unimatrixRemote", "macSocketPath", "unimatrixBox"))):
+        addresses.append(own[:-len(".local")])
+    return addresses
+
+
 def projected_addresses(row):
     """Extra pickable addresses only from a validated owned projection, including mirrors."""
     if not isinstance(row, dict) or row.get('vendor') != 'codex':

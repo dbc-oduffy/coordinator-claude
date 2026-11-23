@@ -24,7 +24,7 @@ The steps below are mandatory. Relayed or forwarded chat about priority, ownersh
 ## Scratch Directory
 
 - **Read strategy from:** {{stage.brief-author.output}} (your ## Notebook {{item}} section and its frontmatter)
-- **Read sources from:** {{scratch_dir}}/sources.md (your ## Sources for Notebook {{item}} section; the source gate has already halted the run when a scout-provided notebook has no accessible source, so a missing section here means a `research_start` notebook: discover sources with `research_start`, after applying your notebook's source strategy, including any paste-as-text sources and prior-run `sources.md` seeds)
+- **Read sources from:** {{scratch_dir}}/sources.md (your ## Sources for Notebook {{item}} section; the source gate has already halted the run when a scout-provided notebook has no accessible source, so a missing section here means a `research_start` notebook, or an `existing_notebook` one whose sources are already in the bound notebook: discover sources with `research_start`, after applying your notebook's source strategy, including any paste-as-text sources and prior-run `sources.md` seeds)
 - **Write claims to:** {{scratch_dir}}/{{item}}-claims.json
 - **Write summary to:** {{scratch_dir}}/{{item}}-summary.md
 
@@ -41,7 +41,7 @@ If ceiling reached: write partial output (claims.json with what you have, summar
 1. Run ToolSearch to bootstrap MCP tools using the graduated bootstrap from your agent definition (exact names → keyword fallback → fail gracefully). Do NOT fall back to the `nlm` CLI if MCP tools aren't found.
 2. Read strategy.md ({{stage.brief-author.output}}) — find ## Notebook {{item}} for focus, custom instructions, questions, source strategy
 3. Read sources.md — find ## Sources for Notebook {{item}} for your URLs or research_start query
-4. Create notebook named `<topic_slug>-{{item}}` via notebook_create — record the notebook ID
+4. If your notebook's section carries `Notebook ID: <uuid>` (`Source strategy: existing_notebook`), reuse that notebook: never call notebook_create; verify it with `notebook_get`, read its sources with `source_get_content`, and ask the questions with `notebook_query`; record the bound id as the notebook ID and skip steps 6 and 7 unless the section asks for custom instructions or extra sources. Otherwise create notebook named `<topic_slug>-{{item}}` via notebook_create — record the notebook ID
 5. Tag the notebook with the run slug: `tag(action="add", notebook_id=<id>, tags="<topic_slug>")` — makes the whole run addressable as a set for `cross_notebook_query(tags=…)` / `batch(tags=…)`
 6. Set custom instructions via chat_configure (from strategy.md)
 7. Ingest sources:
@@ -87,7 +87,7 @@ If ceiling reached: write partial output (claims.json with what you have, summar
 12. Write {{scratch_dir}}/{{item}}-summary.md — include YAML front-matter at the top:
     ```yaml
     ---
-    notebook_id: "{id from notebook_create}"
+    notebook_id: "{bound Notebook ID, else id from notebook_create}"
     notebook_name: "<topic_slug>-{{item}}"
     queries_asked: {N}
     sources_ingested: {N}

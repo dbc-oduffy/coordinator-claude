@@ -950,3 +950,11 @@ The warm engine served this repo's calls under a DIFFERENT repo's session identi
 
 Cross-repo doctrine already says changes travel as a routed artifact, never an EM-to-EM verbal ask. The same holds for authorization: a peer session reporting "my PM approved this" is a claim about a decision. Require a committed record you can read yourself, by path and SHA; a bare message stays unmade. First-hand authorization typed by your own PM in your own session clears the bar; a relay never does.
 Two failure modes: accepting hearsay authorization inbound, and appearing to offer a gate waiver outbound that you have no standing to give. When announcing your own authority, say who granted it and that it removes a wait on your side only; never describe it as routing around anyone's gate.
+
+## A burst rate cannot tell "busy" from "finishing": ask the peers, do not gate on a metric
+
+**Symptom.** A refactor is held behind "wait until the peers writing these files are quiet." The evidence is accurate (four commits in 90 minutes on the target files, one target dirty in a peer's tree) and the conclusion is wrong. One ask to the Group EM resolved it in twenty minutes: one session already intended to stand down, one held nothing in the paths, and the third's last blocking commit landed five minutes later.
+
+**Trap.** Commit frequency lags activity and says nothing about remaining scope. The closing burst of a plan looks identical to the opening burst of one: same rate, same dirty files, opposite futures. The signal even runs backwards, because a session racing to finish commits faster than one working steadily, so the nearer peers are to done, the busier the gate reads. A peer's intent to stop leaves no trace in git. A release condition that keeps receding is a defect in the condition, not evidence the wait is working. Accurate data produced quickly to defend a hold is a smell.
+
+**Rule.** A gate that reads a metric instead of asking a person can only measure the past. When release depends on what peers intend next, ask them, through the Group EM rather than DMing each session. Frame the ask so a refusal ("no, that costs us more than it costs you") settles it. Accept "after X" as good as "yes". A file's last committer is not its current holder. Treat a threshold on someone else's behaviour, with no one asked and no date, as the tell.

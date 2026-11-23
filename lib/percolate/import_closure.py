@@ -498,12 +498,16 @@ def _package_init_attribute_names(tree_root: Path, cache=None) -> set[str]:
     init_file = tree_root / "__init__.py"
     if not init_file.is_file():
         return set()
-    raw = init_file.read_bytes()
-    key = cache.key("", raw, _INIT_ATTRS_DIGEST) if cache is not None else None
-    if key is not None:
+    raw: bytes | None = None
+    key = None
+    if cache is not None:
+        digest, raw = cache.digest_for_path("__init__.py", init_file)
+        key = cache.key_for_digest("", digest, _INIT_ATTRS_DIGEST)
         hit = cache.get(key)
         if isinstance(hit, list):
             return set(hit)
+    if raw is None:
+        raw = init_file.read_bytes()
     names = _init_attribute_names(raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n"))
     if key is not None:
         cache.put(key, sorted(names))
@@ -608,6 +612,20 @@ def _file_facts(raw: bytes, rel: str, cache) -> dict:
     stored otherwise. Never reads the filesystem, so a verdict built from it
     still resolves every entry against the live tree."""
     key = cache.key("", raw, _FACTS_DIGEST) if cache is not None else None
+    return _facts_for(key, lambda: raw, rel, cache)
+
+
+def _path_facts(path: Path, rel: str, cache) -> dict:
+    """`_file_facts` for a file on disk, opening it only when its (size, mtime, rel)
+    and its content-keyed facts are not both already recorded."""
+    if cache is None:
+        return _file_facts(path.read_bytes(), rel, None)
+    digest, held = cache.digest_for_path(rel, path)
+    key = cache.key_for_digest("", digest, _FACTS_DIGEST)
+    return _facts_for(key, lambda: held if held is not None else path.read_bytes(), rel, cache)
+
+
+def _facts_for(key: "str | None", read_raw: "Callable[[], bytes]", rel: str, cache) -> dict:
     if key is not None:
         hit = cache.get(key)
         if isinstance(hit, dict) and (
@@ -615,7 +633,7 @@ def _file_facts(raw: bytes, rel: str, cache) -> dict:
         ):
             return hit
     # read_text's universal-newline translation, so a cold parse matches the pre-cache path.
-    source = raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    source = read_raw().decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
     try:
         tree = ast.parse(source, filename=rel)
     except SyntaxError:
@@ -696,7 +714,7 @@ def find_import_closure_violations(
         if progress is not None:
             progress(done, len(py_files))
         rel = py_file.relative_to(tree_root).as_posix()
-        facts = _file_facts(py_file.read_bytes(), rel, cache)
+        facts = _path_facts(py_file, rel, cache)
         if facts.get("syntax_error"):
             continue
         examined += 1

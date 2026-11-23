@@ -16,7 +16,7 @@ starting context small.
 
 ## Identity
 
-`coordinator-invoke` is an installed command-line program. In Codex, use the shell execution tool
+`coordinator-invoke` is an installed command-line program. In a non-Claude model family (Codex, say), use the shell execution tool
 for the supplied command. Under PowerShell, use the supplied `--params-file` form when present.
 
 Run the one `coordinator-invoke <op> ...` command your dispatch gives you, exactly as given. Never

@@ -22,6 +22,7 @@ DOCTRINE_END = "<!-- END coordinator-doctrine -->"
 CODEX_CAP_BYTES = 32768
 AGY_CAP_BYTES = 24000
 MANAGED_SUFFIX = ".coordinator-managed"
+CORE_SKILLS_LIST = "codex-core-skills.txt"
 PROJECT_STEER = "<!-- PROJECT-RAG-STEER: wording owned by project-rag; placeholder until its surface supplies it -->"
 PER_PROJECT_STEER = "Project-specific rules belong in that repo's own AGENTS.md, never in this global file."
 DOCTRINE_SOURCES = ("global-doctrine/CLAUDE.md", "global-doctrine/rules/rules.md")
@@ -215,11 +216,45 @@ def unseed_agy_skills(skills_json, skills_root) -> str:
     return "removed"
 
 
-def _skill_dirs(skills_root):
+def _core_skill_names(skills_root) -> "list[str] | None":
+    """Names listed in skills_root/CORE_SKILLS_LIST (one per line; blanks and `#` comments skipped); None when the list is absent."""
+    path = Path(skills_root) / CORE_SKILLS_LIST
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise ValueError(f"required core skills list unreadable: {path}: {exc}") from exc
+    names = [n for n in (ln.split("#", 1)[0].strip() for ln in text.splitlines()) if n]
+    bad = [n for n in names if n in (".", "..") or "/" in n or "\\" in n]
+    if bad:
+        raise ValueError(f"core skills list names must be bare skill dir names: {', '.join(bad)}")
+    return names
+
+
+def _skill_dirs(skills_root, names=None) -> list[Path]:
     root = Path(skills_root)
     if not root.is_dir():
-        return []
-    return sorted(d for d in root.iterdir() if d.is_dir() and (d / "SKILL.md").is_file())
+        raise ValueError(f"required skills source is not a directory: {root}")
+    if names is None:
+        sources = sorted(d for d in root.iterdir() if d.is_dir() and os.path.lexists(d / "SKILL.md"))
+    else:
+        sources = sorted({root / n for n in names if os.path.lexists(root / n)})
+        for d in sources:
+            if not (d.is_dir() and os.path.lexists(d / "SKILL.md")):
+                raise ValueError(f"required skill source has no readable SKILL.md: {d}")
+    if not sources:
+        raise ValueError(f"required skills inventory is empty: {root}")
+    for source in sources:
+        (source / "SKILL.md").read_bytes()
+
+        def unreadable(exc):
+            raise exc
+
+        for parent, _dirs, files in os.walk(source, onerror=unreadable):
+            for name in files:
+                (Path(parent) / name).read_bytes()
+    return sources
 
 
 def _marker(dest):
@@ -233,25 +268,44 @@ def _remove_entry(dest) -> None:
         shutil.rmtree(dest)
 
 
-def seed_codex_skills(agents_skills_dir, skills_root):
-    """Expose each depth-2 SKILL.md dir of skills_root under agents_skills_dir; return the names seeded.
+def seed_codex_skills(agents_skills_dir, skills_root) -> list[str]:
+    """Expose each skills_root SKILL.md dir under agents_skills_dir; return the names seeded.
 
-    An entry without our marker is foreign and left alone. A marker-carrying entry whose
-    source skill is gone is pruned.
+    skills_root/CORE_SKILLS_LIST, when present, restricts the set to its names (a listed name with
+    no skill dir is ignored; a listed dir without a readable SKILL.md raises); absent, every skill
+    seeds. Validate sources and foreign collisions before mutation; a valid inventory prunes
+    obsolete managed entries, which removes a previously seeded non-core one.
     """
     dest_root = Path(agents_skills_dir)
+    core = _core_skill_names(skills_root)
+    sources = _skill_dirs(skills_root, core)
+    live = {src.name for src in sources}
+    if core is None:
+        for marker in dest_root.glob("*" + MANAGED_SUFFIX):
+            name = marker.name[: -len(MANAGED_SUFFIX)]
+            if name not in live and os.path.lexists(Path(skills_root) / name):
+                raise ValueError(f"required skill source has no readable SKILL.md: {Path(skills_root) / name}")
+    conflicts = [src.name for src in sources
+                 if os.path.lexists(dest_root / src.name) and not _marker(dest_root / src.name).is_file()]
+    if conflicts:
+        raise ValueError(f"required Codex skills unresolved (foreign destinations): {', '.join(conflicts)}")
+    marker_text = "managed by unimatrix-install\n"
     seeded = []
-    live = {src.name for src in _skill_dirs(skills_root)}
     if dest_root.is_dir():
         for marker in sorted(dest_root.glob("*" + MANAGED_SUFFIX)):
             name = marker.name[: -len(MANAGED_SUFFIX)]
             if name not in live:
                 _remove_entry(dest_root / name)
                 marker.unlink()
-    for src in _skill_dirs(skills_root):
+    for src in sources:
         dest = dest_root / src.name
         marker = _marker(dest)
         if (dest.exists() or dest.is_symlink()) and not marker.exists():
+            raise ValueError(f"retryable drift: foreign skill destination appeared: {dest}")
+        if (dest.is_symlink() and dest.is_dir() and dest.samefile(src)
+                and marker.is_file() and marker.read_bytes() in
+                (marker_text.encode(), marker_text.replace("\n", "\r\n").encode())):
+            seeded.append(src.name)
             continue
         dest_root.mkdir(parents=True, exist_ok=True)
         if dest.exists() or dest.is_symlink():
@@ -260,7 +314,7 @@ def seed_codex_skills(agents_skills_dir, skills_root):
             os.symlink(src, dest, target_is_directory=True)
         except OSError:
             shutil.copytree(src, dest)
-        marker.write_text("managed by unimatrix-install\n", encoding="utf-8")
+        marker.write_text(marker_text, encoding="utf-8")
         seeded.append(src.name)
     return seeded
 

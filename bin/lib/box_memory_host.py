@@ -14,6 +14,7 @@ from __future__ import annotations
 import contextlib
 import importlib
 import importlib.util
+import re
 import struct
 import sys
 import types
@@ -180,14 +181,18 @@ class MemoryStatus:
 
 
 def _host_sampler(repo_root: Path | None = None) -> types.ModuleType:
-    """Import `coordinator_core.telemetry.host_sampler`, falling back to this checkout's root.
+    """Import `coordinator_core.telemetry.host_sampler` (see `_engine_module`)."""
+    return _engine_module("coordinator_core.telemetry.host_sampler", repo_root)
+
+
+def _engine_module(name: str, repo_root: Path | None = None) -> types.ModuleType:
+    """Import the engine module ``name``, falling back to this checkout's root.
 
     A bare system interpreter has no installed coordinator_core; the checkout root (resolved from
-    this file) is tried before giving up. An ambient coordinator_core lacking `telemetry` stays
+    this file) is tried before giving up. An ambient coordinator_core lacking the module stays
     cached in `sys.modules` after the first miss and shadows the checkout, so the miss evicts it
     before the retry (restored if the retry fails too). Raises OSError naming the missing module.
     """
-    name = "coordinator_core.telemetry.host_sampler"
     try:
         return importlib.import_module(name)
     except ModuleNotFoundError:
@@ -240,10 +245,75 @@ def memory_status_darwin(avail_mb_fn=None, vm_fn=None, swap_fn=None) -> MemorySt
     )
 
 
+def parse_meminfo(text: str) -> dict[str, int]:
+    """/proc/meminfo as {field: bytes}; every field is kB there, a line without a numeric value is skipped."""
+    out: dict[str, int] = {}
+    for line in text.splitlines():
+        key, _, rest = line.partition(":")
+        parts = rest.split()
+        if parts and parts[0].isdigit():
+            out[key.strip()] = int(parts[0]) * 1024
+    return out
+
+
+def _read_text(path: str) -> str:
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def memory_status_linux(meminfo_text: str | None = None) -> MemoryStatus:
+    """Linux memory status from /proc/meminfo; raises OSError when MemTotal or MemAvailable is unreadable.
+
+    Same shape as `memory_status_darwin`: available is the kernel's MemAvailable (capped at MemTotal),
+    commit_limit is physical + swap capacity, commit_used is (physical - available) + swap in use.
+    """
+    info = parse_meminfo(_read_text("/proc/meminfo") if meminfo_text is None else meminfo_text)
+    if "MemTotal" not in info or "MemAvailable" not in info:
+        raise OSError("MemTotal or MemAvailable missing from /proc/meminfo")
+    total = info["MemTotal"]
+    avail = min(info["MemAvailable"], total)
+    swap_total = info.get("SwapTotal", 0)
+    swap_used = max(0, swap_total - info.get("SwapFree", 0))
+    return MemoryStatus(
+        avail_phys=avail,
+        total_phys=total,
+        commit_used=(total - avail) + swap_used,
+        commit_limit=total + swap_total,
+    )
+
+
+def linux_cached_bytes(meminfo_text: str | None = None) -> int | None:
+    """`Cached` of /proc/meminfo in bytes; None when absent."""
+    return parse_meminfo(_read_text("/proc/meminfo") if meminfo_text is None else meminfo_text).get("Cached")
+
+
+def read_psi_memory(psi_text: str | None = None) -> dict[str, float] | None:
+    """Memory pressure from /proc/pressure/memory: {"some_avg10": .., "full_avg10": ..}; None when unreadable.
+
+    Linux has no macOS `memory_pressure`; PSI is its pressure signal."""
+    try:
+        text = _read_text("/proc/pressure/memory") if psi_text is None else psi_text
+    except OSError:
+        return None
+    out: dict[str, float] = {}
+    for line in text.splitlines():
+        kind, _, rest = line.partition(" ")
+        for field in rest.split():
+            name, _, value = field.partition("=")
+            if kind in ("some", "full") and name == "avg10":
+                try:
+                    out[f"{kind}_avg10"] = float(value)
+                except ValueError:
+                    pass
+    return out or None
+
+
 def read_memory_status() -> MemoryStatus:
-    """Read GlobalMemoryStatusEx (Windows) or the macOS equivalent; raises OSError on failure."""
+    """Read GlobalMemoryStatusEx (Windows), /proc/meminfo (Linux) or the macOS equivalent; raises OSError on failure."""
     if sys.platform == "darwin":
         return memory_status_darwin()
+    if sys.platform.startswith("linux"):
+        return memory_status_linux()
     import ctypes
 
     class _MEMORYSTATUSEX(ctypes.Structure):
@@ -636,6 +706,13 @@ def _line_cores(line: dict) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 1 else 1
 
 
+def _agent_identity(key) -> str | None:
+    """The ``<backend>-workflow-<16 hex>`` run of a workflow agent's supervisor or child row, else None."""
+    run = key[1] if isinstance(key, tuple) and len(key) == 2 else None
+    match = re.fullmatch(r"([a-z]+-workflow-[0-9a-f]{16})(?::\d+)?", run) if isinstance(run, str) else None
+    return match.group(1) if match else None
+
+
 def physical_cores() -> int:
     """Physical core count (psutil), falling back to the logical count, then 1."""
     try:
@@ -666,28 +743,49 @@ def default_cpu_budget() -> int:
 
 def reserved_cores(
     path, alive_fn=pid_alive, create_time_fn=pid_create_time, image_fn=pid_image, now_fn=None,
-    *, exclude_key=None,
+    *, exclude_key=None, exclude_pid=None,
 ) -> int:
     """Sum of declared cores (absent = 1) over START rows with no END that still hold a pid.
 
     A row counts on the same terms as ``reserved_bytes`` (positive ``declared_peak_mb``, a holding
-    pid); one row counts once however many pids it names. ``exclude_key`` is a (session_id, run) to
-    leave out, for a caller re-checking its own row. Slot grants name no cores and count 0.
+    pid); one row counts once however many pids it names. One workflow leg is one reservation, so
+    two rows never charge it twice: a driver shadow row (``box-memory-snapshot`` / ``<run>:<pid>``)
+    is dropped once the leg's own row (``<run>``) is live, and rows held by the same pid set count
+    once at their widest. ``exclude_key`` is a (session_id, run) to leave out, for a caller
+    re-checking its own row; ``exclude_pid`` leaves out every row held by that pid, for a stage
+    admitting under its driver's reservation. Slot grants name no cores and count 0.
+
+    A workflow agent holds two rows, the supervisor's ``<run>:<pid>`` and the child's ``<run>``
+    (``_agent_identity``); together they count the larger of their declared cores once.
     """
     import time
 
     now_fn = now_fn or time.time
     starts, _ = _ledger_starts(path)
-    total = 0
+    skip = _agent_identity(exclude_key) if exclude_key else None
+    live: dict = {}
     for key, line in starts.items():
-        if key == exclude_key:
+        unit = _agent_identity(key) or key
+        if key == exclude_key or (skip is not None and unit == skip):
             continue
         peak = line.get("declared_peak_mb")
         if isinstance(peak, bool) or not isinstance(peak, (int, float)) or peak <= 0:
             continue
-        if any(_safe_holds(line, pid, alive_fn, create_time_fn, image_fn, now_fn) for pid in line.get("pids") or []):
-            total += _line_cores(line)
-    return total
+        held = frozenset(pid for pid in line.get("pids") or [] if _safe_holds(line, pid, alive_fn, create_time_fn, image_fn, now_fn))
+        if held and not (exclude_pid is not None and exclude_pid in held):
+            live[key] = (held, _line_cores(line), unit)
+    runs = {run for _, run in live}
+    by_unit: dict = {}
+    for (session, run), (held, cores, unit) in live.items():
+        base, sep, _tail = str(run).rpartition(":")
+        if session == "box-memory-snapshot" and sep and base in runs and unit == (session, run):  # a workflow agent folds by unit instead
+            continue
+        prev = by_unit.get(unit)
+        by_unit[unit] = (held | prev[0] if prev else held, max(prev[1] if prev else 0, cores))
+    by_pids: dict = {}
+    for held, cores in by_unit.values():
+        by_pids[held] = max(by_pids.get(held, 0), cores)
+    return sum(by_pids.values())
 
 
 def top_holders(
@@ -828,8 +926,85 @@ def register_command(
     _append_admission(admission_path, line)
 
 
-def release_command(admission_path, key: str, pid: int, *, reservation_session_id=None, reservation_run=None) -> None:
-    """Append the END line that frees a registered command's reservation (under ``admission_lock``, so a concurrent compaction cannot drop it)."""
+def _proc_peak_mb(proc, platform: str) -> float | None:
+    """One process's peak resident MiB: ``peak_wset`` on Windows, ``VmHWM`` on Linux, rss elsewhere."""
+    try:
+        if platform == "win32":
+            info = proc.memory_info()
+            return (getattr(info, "peak_wset", None) or info.rss) / (1024 * 1024)
+        if platform.startswith("linux"):
+            with open(f"/proc/{proc.pid}/status", encoding="ascii", errors="replace") as fh:
+                for line in fh:
+                    if line.startswith("VmHWM:"):
+                        return int(line.split()[1]) / 1024
+        return proc.memory_info().rss / (1024 * 1024)
+    except Exception:
+        return None
+
+
+def tree_peak_mb(pid: int, platform: str | None = None) -> float | None:
+    """Peak RAM in MiB summed over ``pid`` and its live descendants; None when ``pid`` is unreadable."""
+    try:
+        import psutil
+
+        root = psutil.Process(pid)
+        procs = [root, *root.children(recursive=True)]
+    except Exception:
+        return None
+    plat = sys.platform if platform is None else platform
+    peaks = [p for p in (_proc_peak_mb(proc, plat) for proc in procs) if p is not None]
+    return sum(peaks) if peaks else None
+
+
+def _stamped_run_peaks(run: str, home) -> tuple[float | None, float | None]:
+    """(peak_ram_mb, peak_vram_mib) the local capacity stamp holds for ``run``; None per axis when absent."""
+    record = _engine_module("coordinator_core.group_em.capacity_record").read({"root": home})
+    if record.get("stale"):
+        return None, None
+    for job in record.get("jobs") or []:
+        if isinstance(job, dict) and job.get("run") == run:
+            return job.get("peak_ram_mb"), job.get("peak_vram_mib")
+    return None, None
+
+
+def record_measured_peak(job_type: str, pid: int, run: str, home=None) -> bool:
+    """Fold the run's measured peaks into ``job-peaks.json[job_type]``; False when nothing was measured or recorded.
+
+    RAM is the highest the watch ticks stamped for the run, folded with the live process tree's peak
+    when ``pid`` is still readable (release usually follows exit, so the stamp is the common source;
+    the only one on Darwin, where the releaser holds no peak counter). VRAM is the
+    per-process figure the capacity stamp assigned to the run. Never raises.
+    """
+    try:
+        if home is None:
+            home = _engine_module("coordinator_core._settings_home").settings_home()
+        ram = tree_peak_mb(pid)
+        stamped_ram, stamped_vram = _stamped_run_peaks(run, home)
+        ram_parts = [v for v in (ram, stamped_ram) if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        measured = {}
+        if ram_parts:
+            measured["ram_mb"] = max(ram_parts)
+        if isinstance(stamped_vram, (int, float)) and not isinstance(stamped_vram, bool):
+            measured["vram_mib"] = stamped_vram
+        if not measured:
+            return False
+        return bool(_engine_module("coordinator_core.group_em.job_peaks").record(job_type, measured, home))
+    except Exception:
+        return False
+
+
+def release_command(
+    admission_path, key: str, pid: int, *, reservation_session_id=None, reservation_run=None,
+    job_type=None, peaks_home=None,
+) -> None:
+    """Append the END line that frees a registered command's reservation (under ``admission_lock``, so a concurrent compaction cannot drop it).
+
+    Before the END line, the run's measured peaks go to ``job_peaks`` under ``job_type`` (default
+    ``key``); ``peaks_home`` overrides the settings home. The declared peak stays only the
+    reservation. A failed peak record never fails the release.
+    """
+    run = reservation_run if reservation_run is not None else f"{key}:{pid}"
+    record_measured_peak(job_type or key, pid, run, peaks_home)
     with admission_lock(admission_path):
         _append_admission(admission_path, {
             "phase": "END", "session_id": reservation_session_id if reservation_session_id is not None else "box-memory-snapshot",
@@ -959,7 +1134,7 @@ def admit_and_register(
             commit_used=status.commit_used + reserved,
         )
         verdict = admit(int(peak_gib * GIB), adjusted, cushion_pct=cushion_pct, commit_limit=commit_limit)
-        verdict = _with_cpu_axis(verdict, cores, reserved_cores(admission_path, **liveness), cpu_budget)
+        verdict = _with_cpu_axis(verdict, cores, reserved_cores(admission_path, exclude_pid=pid, **liveness), cpu_budget)
         if verdict.admit:
             register_command(admission_path, key, pid, peak_gib, cores=cores,
                              **{k: v for k, v in liveness.items() if k == "create_time_fn"})

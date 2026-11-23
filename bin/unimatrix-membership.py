@@ -201,6 +201,9 @@ def _run_fed(cmd, run, payload, tmp, **kw) -> subprocess.CompletedProcess:
         return _run(cmd, run, stdin=fh, **kw)
 
 
+_WINDOWS_PROCESS_ENV = ("PROGRAMDATA", "SystemRoot") if os.name == "nt" else ()
+
+
 def _scratch_dir(prefix) -> str:
     import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import ensure_engine_on_path
@@ -228,6 +231,9 @@ class _KeygenSigner(Signer):
     def sign(self, payload) -> bytes:
         refuse_service_token(self.environ)
         env = dict(os.environ if self.environ is None else self.environ)
+        # Trap: Windows OpenSSH 9.5 `ssh-keygen -Y sign` exits 255 with empty stderr when PROGRAMDATA
+        # is absent, so a restricted env refuses every sign; these carry no agent or service token.
+        env.update({k: os.environ[k] for k in _WINDOWS_PROCESS_ENV if k in os.environ and k not in env})
         env.update(self.extra_env)
         tmp = _scratch_dir("unimatrix-sign-")
         try:

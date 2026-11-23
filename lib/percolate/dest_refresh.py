@@ -71,7 +71,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import List, Optional, Sequence, TextIO
 
-from coordinator_core.git.run import GitResult, run_git
+from coordinator_core.git.run import GitResult, LOCAL_PLUMBING_BUDGET_SECS, run_git
 from percolate.interrupted_op import (
     inspect_in_progress,
     is_own_peer_merge,
@@ -262,8 +262,12 @@ def _recover_interrupted_op(
     return None
 
 
+def _probe_commit(repo_root: Path, ref: str) -> GitResult:
+    return _git(repo_root, ["rev-parse", "--verify", "--quiet", ref + "^{commit}"])
+
+
 def _resolve_commit(repo_root: Path, ref: str) -> Optional[str]:
-    proc = _git(repo_root, ["rev-parse", "--verify", "--quiet", ref + "^{commit}"])
+    proc = _probe_commit(repo_root, ref)
     sha = proc.stdout.strip() if proc.returncode == 0 else ""
     return sha or None
 
@@ -533,18 +537,25 @@ def fetch_dest_upstream(
         )
 
     tip_ref = upstream if (behind and not ahead) else "HEAD"
-    refresh_head = _resolve_commit(repo_root, "HEAD")
-    landing_tip = _resolve_commit(repo_root, tip_ref)
-    if landing_tip is None or refresh_head is None:
-        return RefreshResult(
-            repo_root,
-            ok=False,
-            reason="could not resolve {0}'s landing tip {1}".format(repo_root, tip_ref),
-            branch=branch,
-            upstream=upstream,
-            ahead=ahead,
-            behind=behind,
-        )
+    commits = {}
+    for ref in dict.fromkeys(("HEAD", tip_ref)):
+        probe = _probe_commit(repo_root, ref)
+        if probe.timed_out:
+            probe = _probe_commit(repo_root, ref)
+        sha = probe.stdout.strip() if probe.returncode == 0 else ""
+        if not sha:
+            subject = f"{repo_root}'s " + (f"landing tip {ref}" if ref == tip_ref else "checkout HEAD")
+            reason = (
+                f"resolving {subject} timed out after two attempts "
+                f"(local Git budget {LOCAL_PLUMBING_BUDGET_SECS:g}s per attempt)"
+                if probe.timed_out
+                else f"could not resolve {subject}"
+            )
+            return RefreshResult(
+                repo_root, ok=False, reason=reason, branch=branch, upstream=upstream,
+                ahead=ahead, behind=behind,
+            )
+        commits[ref] = sha
 
     return RefreshResult(
         repo_root,
@@ -553,10 +564,10 @@ def fetch_dest_upstream(
         upstream=upstream,
         ahead=ahead,
         behind=behind,
-        landing_tip=landing_tip,
+        landing_tip=commits[tip_ref],
         pending_abort=pending_abort,
         subsumed=tuple(subsumed or ()),
-        refresh_head=refresh_head,
+        refresh_head=commits["HEAD"],
     )
 
 

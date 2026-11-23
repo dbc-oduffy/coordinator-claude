@@ -69,8 +69,21 @@ when a box changes band under a per-band private address; the `.local` name foll
 
 ## Parts
 
-All six ship in `coordinator/bin/` and are installed together by `unimatrix-install.py` into
-`<settings home>/unimatrix`.
+The CLI entrypoints (`unimatrix-*.py`) and their shared stdlib-only core package (`_unimatrix/`)
+ship in `coordinator/bin/` and are installed together by `unimatrix-install.py` into
+`<settings home>/unimatrix/` (with `_unimatrix/**/*.py` vendored beside the wrappers):
+
+- **Shared core (`_unimatrix/`)**: stdlib-only, import-inert modules shared by all Unimatrix scripts
+  so platform, process, transport, and host-adapter logic live in one place rather than per-script
+  copies: `paths.py` (settings home, sessions/state dirs, `box_id`/`local_box`), `proc.py`
+  (spawn-free `pid_alive`, `proc_start`, and `parent_pid` via macOS `libproc` / Linux `/proc` /
+  Windows Toolhelp), `transport.py` (Unix socket and Windows named-pipe JSON-line transport +
+  `live_owned_endpoints`), `protocol.py` (cross-session framing, provenance, `peers.json` contract),
+  `install_toml.py` (TOML status-line editor), and `adapters/` (`base.py`, `claude.py`, `codex.py`,
+  `agy.py`, `grok.py` — one uniform `HostAdapter` interface). The flat `unimatrix-liveness.py`,
+  `unimatrix-local-transport.py`, `unimatrix-peer-contract.py`, `unimatrix-peer-agy.py`, and
+  `unimatrix-peer-grok.py` entrypoints remain thin, import-inert CLI/compatibility facades over
+  `_unimatrix/`.
 
 - **Bridge** (`unimatrix-bridge.py`): binds a local endpoint (a Windows named pipe, a unix socket
   elsewhere) that stands for a remote session. A `SendMessage` to it is forwarded through the
@@ -119,25 +132,32 @@ All six ship in `coordinator/bin/` and are installed together by `unimatrix-inst
 restart; agy registers a pending leg at session start and goes live at the first tool call (below). Each hook prints a `systemMessage`
 so the registration shows in the UI.
 
-- **agy**: `unimatrix-agy-hook-pretool.py` is the only PreToolUse group the installer owns. It
-  asks the engine's host guard first and returns a guard `deny` as-is; otherwise the
-  peer-bootstrap decision applies, and a guard `ask` with a reason plus a bootstrap `overwrite`
-  yields one `ask` carrying both. The fallback is `ask`, never `allow`, never `force_ask`.
-  SessionStart (`unimatrix-agy-hook-sessionstart.py`) starts a pending leg: agy's SessionStart env
+- **agy**: `unimatrix-agy-hook-pretool.py` runs the host guard first (`deny` returned as-is;
+  `AgyAdapter.render()` returns `allow` for non-deny verdicts and stashes advisories for
+  `PreInvocation` `injectSteps`; unloadable-guard fallback is fail-open `allow` with `"guard did not run"`,
+  never `force_ask`). `PreInvocation` (`unimatrix-agy-hook-pretool.py --event PreInvocation`) is
+  wired by `unimatrix-install.py` in `~/.gemini/config/hooks.json` to drain stashed advisories.
+  `SessionStart` (`unimatrix-agy-hook-sessionstart.py`) starts a `pending` leg: agy's SessionStart env
   carries only the conversation id, so the leg has no token. It binds its endpoint, records the
-  language-server address found from the agy pid's loopback listeners (`lsof`; none on Windows),
-  and queues each peer message, acking `queued` (spool at `$AGY_LEG_SPOOL` else `<conv>.queue.jsonl` beside the leg log; capped at 1 MiB, past which the sender gets `ok:false`). The first `run_command` through the PreToolUse
+  language-server address found from the agy pid's loopback listeners (`lsof` on POSIX; `iphlpapi` on Windows)
+  and ancestor PID (`libproc` on macOS, `/proc` on Linux, snapshot on Windows),
+  and queues each peer message, acking `queued` (spool at `$AGY_LEG_SPOOL` else `<conv>.queue.jsonl` beside the leg log; capped at 1 MiB, past which the sender gets `ok:false`). The first `run_command` (including `unimatrix-send.py` peer replies) through the PreToolUse
   rewrite relaunches the leg live (a pending leg is never current), and the live leg drains the
-  queue into agy. The token is never persisted. The install path is the "Codex and agy hosts" section of the install guide.
+  queue into agy. `unimatrix-roster.py` (`reap_stale_sockets`) preserves live `agy-legs/*.json` endpoints
+  and the live router control socket. The token is never persisted. The install path is the "Codex and agy hosts" section of the install guide.
 - **Codex**: a plain `codex` TUI, started without `--remote`, is reachable; the router finds its
   thread by the thread-writer-lock. `unimatrix-codex-launch.py` (daemon, then `codex --remote`) is
   optional. Every thread start, resume, clear and fork fires
   `unimatrix-codex-hook-sessionstart.py`, which rebinds the stable peer name (`$UNIMATRIX_PEER_NAME`,
   else `codex-<cwd basename>`) to the current thread id in `peers.json`; the router rescans it.
-- **Grok**: no hooks. The router discovers live sessions from `<grok home>/active_sessions.json`
-  (`$GROK_HOME`, else Grok's default home directory) through `unimatrix-peer-grok.py`, and delivers each message as one
-  cwd-pinned headless resume (`grok -p <text> -r <session> --cwd <cwd>`) whose reply returns to the
-  sender. Install path: the install guide's "Grok host" section.
+- **Grok**: no hooks required for peer messaging. The router discovers live sessions from `<grok home>/active_sessions.json`
+  (`$GROK_HOME`, else Grok's default home directory) through `_unimatrix/adapters/grok.py` (facade
+  `unimatrix-peer-grok.py`, using spawn-free `_unimatrix/proc.py` `parent_pid` — `libproc` on macOS,
+  zero `ps` spawns), and delivers each message as one
+  cwd-pinned headless resume (`grok -p <text> -r <session> --cwd <cwd> --permission-mode dontAsk`) whose reply returns to the
+  sender. Grok `external_registry`/`agent_role` parity and the macOS headless/SSH `osascript` guard in
+  `unimatrix-membership.py` landed in `claude-klabauter` (`b3d7a0afa7`, branch `oduffy/machine-b/2026-11-23-unimatrix-refactor`).
+  Install path: the install guide's "Grok host" section.
 
 **Restart.** `unimatrix-autolink.py restart` stops the box router and its faces, then starts the
 installed one; use it, never a hand kill. `unimatrix-install.py` does it itself when the installed
@@ -164,7 +184,7 @@ that exact line; a refusal, a nonzero ssh exit, or a missing or mismatched diges
 (`unconfirmed: no far receipt for this line`) is a failure, and the bridge writes a
 delivery-failure notice (target and error) into the sender's inbox through the return leg's `write_local`, and records the send in
 `<settings home>/unimatrix/deliveries.jsonl` (last 100), each row carrying the line's sha256
-`digest`. `unimatrix-bridge.py status` prints recent sends as `delivered` or `FAILED`.
+`digest`. `unimatrix-bridge.py status` prints recent sends as `delivered` or `FAILED` (tolerating `relay-in` rows in `deliveries.jsonl` that carry `at` without `ts`).
 `unimatrix-send.py` to a mirror reports the bridge's recorded outcome, or `unconfirmed` when none
 lands in time; check before resending. The mirror stays on the roster; there is no probe, retry or
 queue.
@@ -215,6 +235,9 @@ blocks idle notices.
 
 <!-- PROVENANCE: run 2026-11-13-11h40, derived from batch-48-013, batch-50-025, batch-50-026 -->
 Onboarding rules live here and in the box-onboarding SKILL, not a separate page.
+Required onboarding item, every box and OS: `crossSessionInbound=accept` in the box's `settings.json`,
+seeded by `seed-cross-session-inbound.py` (`commands/install.md`; box-onboarding step 4 verifies it).
+Without it an arriving peer frame stops at an approval prompt.
 Key roles; each private half is passphrase-encrypted, the passphrase in the vault. One key per box pair, named `<role>: <from> → <to>`:
 
 - **Unimatrix-01**: the full shell, break-glass. Carries nothing routine. A full mesh: any box can

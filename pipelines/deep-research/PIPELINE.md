@@ -55,7 +55,7 @@ With LLM-assisted implementation, the cost of doing the work is lower than the c
 
 ## Peer lens (opt-in)
 
-A live Codex or agy peer is an adviser colleague in research: the EM may consult one on a framing, a synthesis or a claim set, as an extra angle from a different training base. The contract is [Peer lens in pipelines](../../docs/wiki/cross-repo-communication/live-peer-consult.md#peer-lens-in-pipelines): opt-in per run, non-gating, report-only, silent when no peer is live. No stage here dispatches, waits on or consumes the consult, and the Opus synthesis stands without it.
+A live peer of another model family (Codex, say) is an adviser colleague in research: the EM may consult one on a framing, a synthesis or a claim set, as an extra angle from a different training base. The contract is [Peer lens in pipelines](../../docs/wiki/cross-repo-communication/live-peer-consult.md#peer-lens-in-pipelines): opt-in per run, non-gating, report-only, silent when no peer is live. No stage here dispatches, waits on or consumes the consult, and the Opus synthesis stands without it.
 
 ## Family binding (opt-in)
 

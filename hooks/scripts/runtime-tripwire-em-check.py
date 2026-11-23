@@ -1951,51 +1951,6 @@ def _fd_matches_lstat(fd: int, path: str) -> bool:
     return (link_stat.st_dev, link_stat.st_ino) == (fd_stat.st_dev, fd_stat.st_ino)
 
 
-_FRESHNESS_DUE_MARKER = "freshness-due.json"
-_FRESHNESS_EVIDENCE = os.path.join(".coordinator-local", "freshness-autofire", "fired.jsonl")
-_FRESHNESS_SKILLS = {
-    "update-docs": "Skill(coordinator:update-docs)",
-    "distill": "Skill(coordinator:distill)",
-}
-
-
-def _check_freshness_due(git_root: str, session_id: str, sessions_dir: str, hook_event: str) -> tuple[str | None, Any]:
-    """Returns `(text, advance_fn)` for the due-marker `stop-freshness-autofire.py` wrote for
-    this session, else `(None, None)`. UserPromptSubmit only. `advance_fn` consumes the marker and
-    appends the injected evidence row, and runs only after a successful emit, so the directive
-    fires once and a failed emit leaves the marker for the next prompt."""
-    if hook_event != "UserPromptSubmit" or not sessions_dir or not session_id:
-        return None, None
-    marker = os.path.join(sessions_dir, session_id, _FRESHNESS_DUE_MARKER)
-    try:
-        if os.path.islink(marker) or not os.path.isfile(marker):
-            return None, None
-        with open(marker, "r", encoding="utf-8") as fh:
-            due = json.load(fh).get("due")
-    except Exception:
-        return None, None
-    skills = [_FRESHNESS_SKILLS[d] for d in (due if isinstance(due, list) else []) if d in _FRESHNESS_SKILLS]
-    if not skills:
-        return None, None
-    text = (
-        "FRESHNESS DUE (A-FRESHNESS-THE-OPERATOR-MUST-REMEMBER-IS-NOT-MAINTAINED): the idle "
-        "probes report doc drift or the distill threshold met. Invoke "
-        + " then ".join(skills)
-        + " as its own step once the PM's current ask is handled; do not wait to be asked."
-    )
-
-    def _consume() -> None:
-        os.unlink(marker)
-        evidence = os.path.join(git_root, _FRESHNESS_EVIDENCE)
-        os.makedirs(os.path.dirname(evidence), exist_ok=True)
-        with open(evidence, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps({"ts": time.time(), "session_id": session_id,
-                                 "event": "injected", "reason": "directive-emitted",
-                                 "due": due}) + "\n")
-
-    return text, _consume
-
-
 def _emit_advisory(
     parts,
     event="PostToolUse",
@@ -2282,12 +2237,6 @@ def main() -> int:
                 (git_root, session_id, zero_tool_use_sessions_dir, hook_event),
                 (None, None),
             ),
-            (
-                "freshness_due",
-                _check_freshness_due,
-                (git_root, session_id, sessions_dir, hook_event),
-                (None, None),
-            ),
         ],
         deadline,
     )
@@ -2308,14 +2257,7 @@ def main() -> int:
         "zero_tool_use", (None, None)
     )
 
-    freshness_msg, _freshness_advance = advisories.get("freshness_due", (None, None))
-
     def _on_success() -> None:
-        if _freshness_advance is not None:
-            try:
-                _freshness_advance()
-            except Exception:
-                pass
         if _push_failure_advance is not None:
             try:
                 _push_failure_advance()
@@ -2340,7 +2282,6 @@ def main() -> int:
                 push_failure_msg,
                 hooks_json_stale_msg,
                 zero_tool_use_msg,
-                freshness_msg,
                 cutoff_notice,
             ],
             hook_event,

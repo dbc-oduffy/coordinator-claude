@@ -124,8 +124,56 @@ def _fetch_result() -> dict:
     return result if isinstance(result, dict) else {}
 
 
+def _door_sidecar_drift_line() -> str:
+    """One line when the box door sidecar names a root other than `repos.claude_klabauter`.
+
+    File reads only (three small files, no spawn, no coordinator_core import) because this runs
+    on the session-start path. Mirrors coordinator_core/warm/door/sidecar_guard.py::sidecar_drift;
+    this trampoline cannot import the engine before an engine root resolves. Silent on any
+    absence or read failure."""
+    import time
+    import tomllib
+
+    home = os.environ.get("COORDINATOR_SETTINGS_HOME") or os.path.join(
+        os.path.expanduser("~"), ".coordinator-claude-settings"
+    )
+    sidecar = os.path.join(home, "bin", "door.engine-root.txt")
+    try:
+        with open(sidecar, encoding="utf-8") as fh:
+            named = fh.read().strip()
+        mtime = os.stat(sidecar).st_mtime
+    except OSError:
+        return ""
+    registered = ""
+    for name in ("registry.local.toml", "registry.toml"):
+        try:
+            with open(os.path.join(home, "machine-local", name), "rb") as fh:
+                data = tomllib.load(fh)
+        except (OSError, ValueError):
+            continue
+        repos = data.get("repos")
+        value = data.get("repos.claude_klabauter") or (repos.get("claude_klabauter") if isinstance(repos, dict) else "")
+        if isinstance(value, str) and value.strip():
+            registered = value.strip()
+            break
+
+    def norm(p: str) -> str:
+        return os.path.normcase(os.path.realpath(os.path.abspath(p)))
+
+    if not named or not registered or norm(named) == norm(registered):
+        return ""
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(mtime))
+    return (
+        f"[health] door-sidecar: {sidecar} (mtime {stamp}) names {named}, not the registered "
+        f"engine {registered}; every door-routed op runs the former. Repoint it at the registered engine."
+    )
+
+
 def main(argv: "list[str] | None" = None) -> int:
     del argv
+    drift_line = _door_sidecar_drift_line()
+    if drift_line:
+        print(drift_line)
     result = _fetch_result()
     state = result.get("state", "")
 

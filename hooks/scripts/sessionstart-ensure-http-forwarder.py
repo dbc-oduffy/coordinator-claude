@@ -190,8 +190,18 @@ def _pid_is_a_forwarder(pid: int) -> Optional[bool]:
             "-Command",
             '(Get-CimInstance Win32_Process -Filter "ProcessId={0}").CommandLine'.format(int(pid)),
         ]
+    elif sys.platform.startswith("linux") and Path("/proc/{0}/cmdline".format(int(pid))).exists():
+        # /proc is untruncated; `ps` can clip a long cmdline to the terminal width.
+        try:
+            raw = Path("/proc/{0}/cmdline".format(int(pid))).read_bytes()
+        except Exception:
+            return None
+        text = raw.replace(b"\0", b" ").decode("utf-8", "replace").strip()
+        if not text:
+            return None
+        return bool(_FORWARDER_ARGV_RE.search(text))
     else:
-        argv = ["ps", "-p", str(int(pid)), "-o", "args="]
+        argv = ["ps", "-ww", "-p", str(int(pid)), "-o", "args="]
     try:
         completed = subprocess.run(
             argv,

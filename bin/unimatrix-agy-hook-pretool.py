@@ -2,9 +2,9 @@
 """agy PreToolUse hook: the Klabauter guard first, then keep a live agy leg for this conversation.
 
 Order: unimatrix-host-guard.py (loaded as a sibling; `--engine-root <path>` selects the engine) answers
-first. A guard answer other than "ask" (a deny, an allow) is returned unchanged with no rewrite. A
-guard-authored "ask" falls through to the leg bootstrap below; a guard reason and the bootstrap rewrite
-then share one "ask". A peer reply (a run_command that is exactly this interpreter and the installed
+first. A guard "deny" is returned unchanged with no rewrite. Guard-authored "allow" and "ask"
+answers fall through to the leg bootstrap below; any guard reason and the bootstrap rewrite share the
+decision. A peer reply (a run_command that is exactly this interpreter and the installed
 unimatrix-send.py beside this hook, plain arguments, no shell operator or expansion; mirrors the Codex
 unimatrix.rules send rule) answers "allow". A no-verdict answer (guard unrunnable, bad payload, worker
 exception, expired wall) is an allow whose reason keeps "guard did not run": an "ask" has no approver in
@@ -104,10 +104,29 @@ def _nt_process_table():
 
 
 def _proc_reader():
-    """pid -> (parent pid, lowercase name) or None; Windows snapshot, else /proc. None reader: no process table here."""
+    """pid -> (parent pid, lowercase name) or None; Windows snapshot, macOS libproc, else /proc. None reader: no process table here."""
     if os.name == "nt":
         table = _nt_process_table()
         return table.get if table else None
+    if sys.platform == "darwin":
+        import ctypes
+        import ctypes.util
+        import struct
+        try:
+            lib = ctypes.CDLL(ctypes.util.find_library("proc") or "/usr/lib/libproc.dylib", use_errno=True)
+        except OSError:
+            return None
+
+        def read(pid):
+            buf = ctypes.create_string_buffer(136)
+            if lib.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(3), ctypes.c_uint64(0), buf, ctypes.c_int(136)) != 136:
+                return None
+            ppid = struct.unpack_from("<I", buf.raw, 16)[0]
+            nbuf = ctypes.create_string_buffer(256)
+            nlen = lib.proc_name(ctypes.c_int(pid), nbuf, ctypes.c_uint32(256))
+            name = nbuf.raw[:nlen].decode("utf-8", "replace").lower() if nlen > 0 else ""
+            return (ppid, name) if name else None
+        return read
     if not Path("/proc/self/stat").exists():
         return None
 
@@ -213,7 +232,7 @@ def process_cmdline(pid):
     try:
         out = subprocess.run(["ps", "-o", "args=", "-p", str(pid)], capture_output=True, text=True, timeout=2)
         return out.stdout.strip() or None
-    except (OSError, subprocess.SubprocessError):
+    except Exception:
         return None
 
 
@@ -222,16 +241,16 @@ PRINT_FLAG_RE = re.compile(r"\s(?:-p|--print)(?:[=\s]|$)")
 
 def child_pids(pid) -> list:
     """Direct children of `pid` from one process-table read (Windows snapshot, Linux /proc, macOS one `ps`); [] on failure."""
-    if sys.platform == "win32":
+    if os.name == "nt":
         return [p for p, (ppid, _n) in _nt_process_table().items() if ppid == pid]
     out = []
     if sys.platform == "darwin":
         try:
             table = subprocess.run(["ps", "-axo", "pid=,ppid="], capture_output=True, text=True, timeout=2,
                                    stdin=subprocess.DEVNULL).stdout
-        except (OSError, subprocess.SubprocessError):
+        except Exception:
             return []
-        for row in table.splitlines():
+        for row in (table or "").splitlines():
             cols = row.split()
             if len(cols) == 2 and cols[0].isdigit() and cols[1].isdigit() and int(cols[1]) == pid:
                 out.append(int(cols[0]))
@@ -465,15 +484,20 @@ def decide(payload, agy_pid, engine_root=None, raw=None):
     if not isinstance(payload, dict):
         return dict(PASS)
     guard = run_guard(json.dumps(payload) if raw is None else raw, engine_root)
-    if guard.get("decision") != "ask":
+    decision = guard.get("decision")
+    if decision == "deny":
         return guard
-    if is_peer_reply(payload):
-        return {**guard, "decision": "allow"}
-    rewrite = bootstrap_rewrite(payload, agy_pid)
-    if rewrite is None:
-        return guard
-    reasons = [r for r in (guard.get("reason"), rewrite["reason"]) if isinstance(r, str) and r]
-    return {**guard, "decision": "ask", "reason": " | ".join(reasons), "overwrite": rewrite["overwrite"]}
+    if decision == "ask" and is_peer_reply(payload):
+        decision = "allow"
+        guard = {**guard, "decision": "allow"}
+    reason = guard.get("reason") if isinstance(guard.get("reason"), str) else ""
+    fail_open = decision == "allow" and "guard did not run" in reason
+    if decision in ("allow", "ask") and not fail_open:
+        rewrite = bootstrap_rewrite(payload, agy_pid)
+        if rewrite is not None:
+            reasons = [r for r in (reason, rewrite["reason"]) if r]
+            return {**guard, "decision": decision, "reason": " | ".join(reasons), "overwrite": rewrite["overwrite"]}
+    return guard
 
 
 def engine_root_arg(argv):

@@ -44,7 +44,7 @@ def payload_cwd(payload):
     return first if isinstance(first, str) and first else None
 
 
-def register(payload, agy_pid):
+def register(payload, agy_pid, engine_root=None):
     """Start the leg for payload's conversation; True when a leg record for it exists afterwards."""
     if not isinstance(payload, dict):
         return False
@@ -56,8 +56,69 @@ def register(payload, agy_pid):
     launch.start({"conversationId": conv, "agyPid": agy_pid, "cwd": cwd}, roster, state)
     registered = isinstance(conv, str) and bool(launch.CONV_RE.match(conv)) and (state / f"{conv}.json").is_file()
     if registered:
-        bind_peer(conv, state / f"{conv}.json")
+        record_path = state / f"{conv}.json"
+        bind_peer(conv, record_path)
+        register_external_session(conv, cwd, record_path, engine_root=engine_root)
     return registered
+
+
+def _resolve_engine_root(engine_root=None):
+    """Return an absolute Path to the stamped engine root, or None when unavailable."""
+    if engine_root:
+        root = Path(engine_root)
+        return root if root.is_absolute() else None
+    env_root = os.environ.get("COORDINATOR_ENGINE_ROOT")
+    if env_root:
+        root = Path(env_root)
+        if root.is_absolute():
+            return root
+    try:
+        lib_dir = str(HERE / "lib")
+        if lib_dir not in sys.path:
+            sys.path.insert(0, lib_dir)
+        from cc_invoke import resolve_colocated_claude_klabauter_root
+        found = resolve_colocated_claude_klabauter_root(str(Path(__file__).resolve()))
+        if found:
+            root = Path(found)
+            if root.is_absolute():
+                return root
+    except Exception:
+        pass
+    return None
+
+
+def register_external_session(conv, cwd, record, engine_root=None) -> bool:
+    """Register this Agy session in the engine's external_registry so session.whoami_live,
+    session.peer_roster, and EM identity checks observe it. Never raises."""
+    try:
+        if not isinstance(cwd, str) or not Path(cwd).is_absolute():
+            return False
+        root = _resolve_engine_root(engine_root)
+        if root is None or not (root / "coordinator_core" / "_engine_stamp").read_bytes():
+            return False
+        name = None
+        try:
+            router = load_sibling("unimatrix-peer-router")
+            rec_cwd = json.loads(Path(record).read_text(encoding="utf-8")).get("cwd") or cwd
+            name = router.readable_peer_name(VENDOR, conv, rec_cwd)
+        except Exception:
+            name = None
+        if str(root) not in sys.path:
+            sys.path.insert(0, str(root))
+        from coordinator_core.session import external_registry
+        payload = {
+            "session_id": conv,
+            "cwd": cwd,
+            "provider": VENDOR,
+            "hook_event_name": "SessionStart",
+            "source": "startup",
+        }
+        if isinstance(name, str) and name:
+            payload["name"] = name
+        external_registry.register_current(payload)
+        return True
+    except Exception:
+        return False
 
 
 def bind_peer(conv, record):
@@ -76,26 +137,30 @@ def bind_peer(conv, record):
         return None
 
 
-def reply(registered, worker_pointer=None):
+def reply(registered, worker_pointer=None, failure=None) -> dict:
     # Trap: agy (observed 2026-11-04) panics "cannot convert string to message" on a SessionStart
     # systemMessage carrying metadata.user_markdown, despite its own docs; notes go as plain text.
-    notes = ([NOTE] if registered else []) + ([worker_pointer] if worker_pointer else [])
+    notes = ([NOTE] if registered else []) + [n for n in (worker_pointer, failure) if n]
     return {"injectSteps": [{"systemMessage": {"systemMessage": n}} for n in notes]} if notes else {}
 
 
-def main():
+def main(argv=None) -> int:
     out = {}
     try:
+        args = list(sys.argv[1:] if argv is None else argv)
+        root = args[args.index("--engine-root") + 1] if "--engine-root" in args[:-1] else None
         payload = json.load(sys.stdin)
         try:
             pointer = load_sibling("unimatrix-codex-hook-sessionstart").worker_pointer()
         except Exception:
             pointer = None
+        failure = None
         try:
-            registered = register(payload, load_sibling("unimatrix-agy-hook-pretool").agy_ancestor_pid())
-        except Exception:
-            registered = False
-        out = reply(registered, pointer)
+            agy_pid = load_sibling("unimatrix-agy-hook-pretool").agy_ancestor_pid()
+            registered = register(payload, agy_pid, root) if root is not None else register(payload, agy_pid)
+        except Exception as exc:  # the session still starts; the cause rides as a note, as the Codex hook does
+            registered, failure = False, f"unimatrix: peer registration failed: {exc}"
+        out = reply(registered, pointer, failure)
     except Exception:
         out = {}
     print(json.dumps(out))

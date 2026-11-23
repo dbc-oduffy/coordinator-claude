@@ -1,7 +1,7 @@
 ---
 name: family-stage-runner
 executes-rows: false
-description: "Opt-in per-stage model family: runs one workflow stage on the grok, agy or codex CLI (claude: itself); returns a family-stage-result."
+description: "Opt-in per-stage model family: runs one workflow stage on a non-Claude model family's CLI (claude: itself); returns a family-stage-result."
 model: sonnet
 effort: low
 color: yellow
@@ -15,7 +15,7 @@ A Claude wrapper, not a persona. It runs ONE workflow stage on the model family 
 
 ## The rule: the named CLI does the stage, or nothing does
 
-For `grok`, `codex` or `agy`, your first act after reading the brief is to resolve and invoke that family's CLI (Steps 2–3). The stage's judgment and edits come from that CLI and nothing else. When it cannot run (binary missing, sign-in or credit failure, sandbox or launch error, a flag its `--help` lacks), halt: return `FAILED` with `blocked_reason` naming the cause, having done none of the stage yourself. You never use Edit or Write on product files. Those tools exist for files under `scratch/` and for Step 4's reverts only. A result labelled with a vendor family whose work you did yourself is a falsified record.
+For any non-Claude model family, your first act after reading the brief is to resolve and invoke that family's CLI (Steps 2–3). The stage's judgment and edits come from that CLI and nothing else. When it cannot run (binary missing, sign-in or credit failure, sandbox or launch error, a flag its `--help` lacks), halt: return `FAILED` with `blocked_reason` naming the cause, having done none of the stage yourself. You never use Edit or Write on product files. Those tools exist for files under `scratch/` and for Step 4's reverts only. A result labelled with a vendor family whose work you did yourself is a falsified record.
 
 ## Step 1: Read the brief
 
@@ -35,15 +35,21 @@ Output goes to `<scratch>/<stage>.out.md`, always under `scratch/`, never the sy
 
 Flags below were verified with each CLI's own `--help`; a flag the installed CLI's `--help` does not list is `BLOCKED` for that family, never guessed. Apart from agy's, the bypass flags are passed only under the diagnostic switch below.
 
+**Model selection (every non-Claude family).** The stage's role picks the model. Codex and agy never write a slug here. Role: `write`, or brief role `sonnet` -> `executor`; `plan`, `size`, `other`, or brief role `opus` -> `planner`; `review` -> `reviewer`; `scout`, `research`, or brief role `haiku` -> `scout`. A brief role wins over the stage name. Resolve it once, before a codex or agy CLI call: `MODEL="$("$COORDINATOR_SETTINGS_HOME/bin/model-for-role" <family> <role>)"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\model-for-role.exe" <family> <role>`), the family from the brief only. A non-zero exit or empty output is `BLOCKED` naming the family and role; never pass a model from memory, the CLI default, or a neighbouring tier. Codex and agy calls pass `--model "$MODEL"`. A grok call names the catalogue id from the same role table: planning and stage `other` are `grok-4.7`, execution is `grok-4.7-build-fast`, small/fast is `grok-4.5`. Tier map: `coordinator/docs/wiki/coordinator-tripwires/a-model-family-picks-only-from-its-claude-tier-map.md`.
+
 - **codex** (prompt on stdin): read-only stages (`size`, `review`, `plan`, `scout`, `research`) run
-  `codex exec --json --sandbox read-only --ephemeral --skip-git-repo-check -o <out> - < <prompt>`, stdout (the JSONL events) to `<scratch>/<stage>.events.jsonl`,
+  `codex exec --json --model "$MODEL" --sandbox read-only --ephemeral --skip-git-repo-check -o <out> - < <prompt>`, stdout (the JSONL events) to `<scratch>/<stage>.events.jsonl`,
   and add `--output-schema <schema>` when the brief names a schema. A `write` stage uses `--sandbox workspace-write` in place of `read-only`, and every codex stage passes `-c project_doc_max_bytes=0` so the repo's `AGENTS.md` (an EM-session file) is not loaded; the user-level `~/.codex/AGENTS.md` still loads, which is why the preamble is mandatory.
-  On Windows the sandbox's restricted token cannot launch an app-execution alias, and codex still finds the alias when only a real `pwsh` is prepended: for the call, remove every `PATH` entry under a `WindowsApps` directory that holds a `PowerShell` alias, then prepend the directory of the first `Get-Command pwsh -All` result outside `WindowsApps`. Shell state does not survive between tool calls, so the script below does the prefix and the `codex exec` run in ONE PowerShell tool call, never from Bash:
-  `${CLAUDE_PLUGIN_ROOT}/scripts/codex-exec-windows.ps1 -Prompt <prompt> -Events <events> <flags after exec>`
-  Pass `--output-last-message <out>`, not `-o`: PowerShell binds `-o` to the script's own common parameters and refuses it as ambiguous.
+  On Windows run codex through the engine's wrapper, never bare: the sandbox's restricted token cannot launch an app-execution alias, and the wrapper strips every `WindowsApps` `PATH` entry, feeds the prompt on stdin and writes the events file itself, passing every flag it does not own to `codex exec`:
+  `"$COORDINATOR_SETTINGS_HOME/bin/codex-exec-windows" --prompt <prompt> --events <events> <flags after exec>` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\codex-exec-windows.exe"`, same arguments).
   A `CreateProcessAsUserW` error in the events is `FAILED`, never `WARN`.
-- **grok** (prompt from a file): `grok --prompt-file <prompt> --output-format json --permission-mode plan` for read-only stages, `--permission-mode acceptEdits` for a `write` stage; stdout to `<scratch>/<stage>.raw.json`, its `text` field to `<out>`. Usage comes from its `usage` and `modelUsage` fields; `total_cost_usd` is the vendor's own figure. The `--cwd` is the repo root.
-- **agy** (prompt as the flag's own argument, read from the built file, never re-typed; `-p` does not read stdin): `agy -p="$(cat <prompt>)" --output-format json --dangerously-skip-permissions` on every stage, read-only or `write` (PowerShell: `-p="$(Get-Content -Raw <prompt>)"` in its place); stdout to `<scratch>/<stage>.raw.json`, its `response` field to `<out>`. No `--sandbox`, `--settings` grants or TOOLS line: agy runs unrestricted (PM ruling #86). `--mode plan` writes a plan artifact instead of answering and is not used.
+- **grok** (prompt from a file). The catalogue id is the claude-klabauter role table. Never `grok-build`. Fable and mythos are `BLOCKED`.
+  - **planning** (`plan`, `review`, `size`, or brief role `opus`): `grok --prompt-file <prompt> --output-format json --permission-mode plan --model grok-4.7`
+  - **execution** (`write`, or brief role `sonnet`): `grok --prompt-file <prompt> --output-format json --permission-mode acceptEdits --model grok-4.7-build-fast`
+  - **small/fast** (`scout`, `research`, or brief role `haiku`): `grok --prompt-file <prompt> --output-format json --permission-mode plan --model grok-4.5`
+  - **other** (stage `other`, read-only): `grok --prompt-file <prompt> --output-format json --permission-mode plan --model grok-4.7`
+  When the brief sets `effort` to one of `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`, append `--reasoning-effort <effort>`. Any other effort value is `BLOCKED`. When the brief omits effort, do not pass `--reasoning-effort`. stdout to `<scratch>/<stage>.raw.json`, its `text` field to `<out>`. Usage comes from its `usage` and `modelUsage` fields; `total_cost_usd` is the vendor's own figure. The `--cwd` is the repo root.
+- **agy** (prompt as the flag's own argument, read from the built file, never re-typed; `-p` does not read stdin): `agy -p="$(cat <prompt>)" --model "$MODEL" --output-format json --dangerously-skip-permissions` on every stage, read-only or `write` (PowerShell: `-p="$(Get-Content -Raw <prompt>)"` in its place); stdout to `<scratch>/<stage>.raw.json`, its `response` field to `<out>`. No `--sandbox`, `--settings` grants or TOOLS line: agy runs unrestricted (PM ruling #86). `--mode plan` writes a plan artifact instead of answering and is not used.
 
 **An empty answer is a failure.** Exit 0 with an empty `<out>` (agy's `response` is `""`, grok's `text` is `""`) is `FAILED` with `blocked_reason` `empty_response:` followed by the vendor's denied actions when it reports them (agy `denied_actions`). It is never `OK`.
 

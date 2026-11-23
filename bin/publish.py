@@ -406,6 +406,9 @@ class StagedRowResult:
     synced: int
     deleted: int
     removed_dest_rels: "frozenset[str]" = frozenset()
+    #: staged rel -> [size, mtime_ns, mode guess, blob sha] taken after the sweep; the entries whose
+    #: file still stats the same need no read at the report and the surviving-writes compare.
+    seed_manifest: "Optional[dict[str, list]]" = None
 
 
 class PublishSwapPartial(OSError):
@@ -961,6 +964,7 @@ def dispatch_percolate_post_rsync(
     sync_changed_paths: "Optional[set[str]]" = None,
     scope: str = "full",
     liveness_root: "Optional[Path]" = None,
+    known_inputs: "Optional[Mapping[str, str]]" = None,
 ) -> "tuple[Optional[list[dict]], Optional[frozenset[str]]]":
     """post_rsync phase — MUST run AFTER the driver's own sync dispatch (rsync
     equivalent) has completed: restore leg -> full content-transform sweep ->
@@ -1035,6 +1039,7 @@ def dispatch_percolate_post_rsync(
             sync_changed_paths=sync_changed_paths,
             **({"scope": scope} if scope != "full" else {}),
             **({"liveness_root": str(liveness_root)} if liveness_root is not None else {}),
+            **({"known_inputs": dict(known_inputs)} if known_inputs else {}),
         )
     except Exception as exc:  # noqa: BLE001 - AC15 phase-raise fail-closed path
         raise EngineUnavailableError(f"{target.name}: post_rsync phase raised: {exc}") from exc
@@ -3570,10 +3575,13 @@ def _gate_cache_for(target, gate_module, gate_id) -> "Optional[object]":
     return GateResultCache(git_dir / "claude-klabauter-gate-result", gate_id, version)
 
 
-def _import_closure_gate(target, restricted_tmp_src):
+def _import_closure_gate(target, restricted_tmp_src, tests_only=False) -> "tuple[int, list]":
     """`(examined, violations)` of the import-closure gate over the restricted tree, its
     per-file import facts cached in the destination repo and a `[progress]` line every
-    30s. A cache that cannot load or flush degrades to an uncached run."""
+    30s. A cache that cannot load or flush degrades to an uncached run. `tests_only`
+    grades just the mirrored test files, for a row that is not the package."""
+    if tests_only and "tests_only" not in inspect.signature(find_import_closure_violations).parameters:
+        return 0, []  # a pinned lib older than the mirrored-test mode cannot grade it
     lib = sys.modules[find_import_closure_violations.__module__]
     try:
         cache = _gate_cache_for(target, lib, "import-closure")
@@ -3584,6 +3592,7 @@ def _import_closure_gate(target, restricted_tmp_src):
         source_root=target.source_dir,
         cache=cache,
         progress=_gate_heartbeat(f"{target.name} import closure"),
+        **({"tests_only": True} if tests_only else {}),
     )
     if cache is not None:
         cache.flush()
@@ -5299,8 +5308,20 @@ def _seed_published_engine_pin(
         print("  Published-engine pin: no admitted row reads the engine toplevel; not seeded.", file=out)
         return None
 
-    keys = _engine_declaring_mirror_keys(_REPO_ROOT / "setup")
+    # Trap: a commit clone (_fleet/claude-klabauter-commit-clone/<sha>/) carries no setup/, so reading the
+    # topology off _REPO_ROOT alone found no engine mirror, fell open to the live working HEAD, and
+    # the provenance gate then judged the live tree's branch and dirt (4.6.25 round 3). The topology
+    # is tracked config: read it from the source repo when the clone lacks it.
+    setup_dir = _REPO_ROOT / "setup"
+    if not setup_dir.is_dir():
+        setup_dir = _source_repo() / "setup"
+    keys = _engine_declaring_mirror_keys(setup_dir)
     if not keys:
+        if _REPO_ROOT.resolve() != _source_repo().resolve():
+            raise PublishedEnginePinError(
+                f"publishing from commit clone {_REPO_ROOT} but no engine mirror is declared in "
+                f"{setup_dir}; refusing to pin the live working HEAD of {_source_repo()}."
+            )
         print("  Published-engine pin: no engine mirror declared; pinning working HEAD.", file=out)
         return None
     for row in rows:
@@ -6880,27 +6901,38 @@ def run_pre_sync_gates(
         # this to non-package rows needs a cross-row resolver that knows
         # which OTHER row carries `coordinator_core`, which this gate
         # deliberately does not have.
+        #
+        # Every OTHER row gets the tests-only form: a mirrored test importing a
+        # first-party module the source carries and the row's tree dropped (an
+        # orphan test) refuses the round; `coordinator_core` names stay ungraded.
+        closure_is_package = target.source_dir.name == _CLOSURE_PACKAGE_NAME
         closure_examined, closure_violations = (
-            _import_closure_gate(target, restricted_tmp_src)
-            if target.source_dir.name == _CLOSURE_PACKAGE_NAME and only_paths is None
+            _import_closure_gate(target, restricted_tmp_src, tests_only=not closure_is_package)
+            if only_paths is None
             else (0, [])
         )
-        if target.source_dir.name == _CLOSURE_PACKAGE_NAME and only_paths is None:
+        if only_paths is None and (closure_is_package or closure_examined):
             # Report the denominator, always, including on the clean path:
             # "0 violations over 0 files examined" and "0 over 2131" are the
             # same output without it, so a gate that silently examined
             # nothing reads exactly like a gate that passed.
             print(
-                f"  Import-closure gate: {len(closure_violations)} violation(s) "
+                f"  Import-closure gate{'' if closure_is_package else ' (mirrored tests)'}: "
+                f"{len(closure_violations)} violation(s) "
                 f"over {closure_examined} file(s) examined.",
                 file=out,
             )
         if closure_violations:
+            what = (
+                "a published module imports a coordinator_core top-level name the "
+                "restricted tree does not contain:"
+                if closure_is_package
+                else "a mirrored test imports a module the restricted tree does not "
+                "publish (orphan test):"
+            )
             print(
                 f"  Error: {len(closure_violations)} import-closure violation(s) in "
-                f"{target.name}'s restricted publish tree — a published module "
-                "imports a coordinator_core top-level name the restricted tree "
-                "does not contain:",
+                f"{target.name}'s restricted publish tree — {what}",
                 file=err,
             )
             for rel, entry in closure_violations:
@@ -9118,6 +9150,140 @@ def _extract_git_archive(toplevel: Path, sha: str) -> Path:
     return shadow_dir
 
 
+# Records which commit and pathspec a shadow holds, so the next round can seed from it. A shadow
+# carrying a withheld overlay is not the commit's bytes and records "withheld": never a seed.
+_SHADOW_SOURCE_NAME = ".source"
+_SHADOW_SEED_MAX_CHANGES = 500
+
+
+def _seed_shadow_from_store(store: Any, toplevel: Path, sha: str, pathspec: "Sequence[str]") -> Optional[Path]:
+    """A shadow of `sha` built from the newest stored shadow of the same toplevel and pathspec.
+
+    A full extraction writes every file of the pathspec (~12 min of the C14f publish under
+    on-access scanning); consecutive stamps differ by a handful. Hardlinks every file of the
+    stored shadow, unlinks each path `git diff` names, and extracts the added/modified ones from
+    a `git archive` of just those paths, with `_extract_git_archive`'s eol flags. Returns None,
+    leaving nothing behind, when no stored shadow qualifies or any step fails."""
+    from coordinator_core.percolate.shadow_store import COMPLETE_MARKER  # noqa: PLC0415
+    from coordinator_core.temp_layout import managed_tempdir  # noqa: PLC0415
+
+    try:
+        entries = sorted(
+            (e for e in store.root.iterdir() if (e / COMPLETE_MARKER).is_file() and (e / _SHADOW_SOURCE_NAME).is_file()),
+            key=lambda e: (e / COMPLETE_MARKER).stat().st_mtime, reverse=True,
+        )[:3]
+    except OSError:
+        return None
+    want = sorted(pathspec)
+    for prev in entries:
+        try:
+            source = json.loads((prev / _SHADOW_SOURCE_NAME).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if source.get("withheld") or source.get("sha") == sha or sorted(source.get("pathspec") or []) != want:
+            continue
+        git = ["git", "-C", str(toplevel), "-c", "core.autocrlf=false", "-c", "core.eol=lf"]
+        diff = subprocess.run(
+            [*git, "diff", "--name-status", "--no-renames", "-z", source["sha"], sha, "--", *pathspec],
+            capture_output=True, check=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        if diff.returncode != 0:
+            continue
+        fields = [f for f in diff.stdout.decode("utf-8", "surrogateescape").split("\0") if f]
+        changes = list(zip(fields[0::2], fields[1::2]))
+        if len(changes) > _SHADOW_SEED_MAX_CHANGES:
+            continue
+        start = time.perf_counter()
+        shadow_dir = Path(tempfile.mkdtemp(prefix=f"claude-klabauter-publish-materialize-{os.getpid()}-", dir=managed_tempdir()))
+        try:
+            for root, dirs, files in os.walk(prev):
+                out = shadow_dir / os.path.relpath(root, prev)
+                out.mkdir(parents=True, exist_ok=True)
+                for name in files:
+                    if root == str(prev) and (name == _SHADOW_SOURCE_NAME or name.startswith(COMPLETE_MARKER)):
+                        continue
+                    os.link(os.path.join(root, name), out / name)
+            wanted = []
+            for status, rel in changes:
+                (shadow_dir / rel).unlink(missing_ok=True)
+                if status != "D":
+                    wanted.append(rel)
+            # Batched: Windows caps a command line at 32k chars.
+            for i in range(0, len(wanted), 100):
+                arc = subprocess.run(
+                    [*git, "archive", "--format=tar", sha, "--", *wanted[i:i + 100]],
+                    capture_output=True, check=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+                if arc.returncode != 0:
+                    raise OSError(arc.stderr.decode("utf-8", "replace").strip())
+                with tarfile.open(fileobj=io.BytesIO(arc.stdout)) as tar:
+                    tar.extractall(path=shadow_dir, filter="tar")
+        except OSError as exc:
+            shutil.rmtree(shadow_dir, ignore_errors=True)
+            print(f"  [timing] _seed_shadow_from_store: seed from {prev.name} failed ({exc})", file=sys.stdout)
+            return None
+        print(
+            f"  [timing] _seed_shadow_from_store: seeded from {prev.name} ({source['sha'][:12]}), "
+            f"{len(changes)} change(s), {time.perf_counter() - start:.3f}s",
+            file=sys.stdout,
+        )
+        return shadow_dir
+    return None
+
+
+_PUBLISH_TEMP_RE = re.compile(r"^claude-klabauter-publish-(?:archive|materialize)-(?:(\d+)-)?")
+_LEGACY_PUBLISH_TEMP_MAX_AGE_S = 24 * 3600
+
+
+def _reap_dead_publish_temps() -> None:
+    """Remove `claude-klabauter-publish-archive-*` / `claude-klabauter-publish-materialize-*` temps no live publish owns;
+    one glob of the managed tempdir, no spawn, best effort, never raises.
+
+    A pid-stamped entry goes when its pid is dead; a legacy unstamped one only once older than a
+    day. A Windows leg kill leaves the `git archive` child holding its tar open: a
+    `PermissionError` skips the entry for the next run.
+    """
+    try:
+        try:
+            from coordinator_core.group_em.session_registry import pid_alive
+            from coordinator_core.temp_layout import managed_tempdir
+        except ImportError:
+            # Pre-bootstrap, `coordinator_core` is not on sys.path; a transient entry avoids the
+            # permanent mutation `_bootstrap_engine` defers.
+            sys.path.insert(0, str(_REPO_ROOT))
+            try:
+                from coordinator_core.group_em.session_registry import pid_alive
+                from coordinator_core.temp_layout import managed_tempdir
+            finally:
+                with contextlib.suppress(ValueError):
+                    sys.path.remove(str(_REPO_ROOT))
+        entries = list(managed_tempdir().glob("claude-klabauter-publish-*"))
+    except Exception as exc:
+        print(
+            f"  Advisory: publish temp reaper skipped ({type(exc).__name__}: {exc}); "
+            "dead-pid archive/materialize temps were not removed",
+            file=sys.stderr,
+        )
+        return
+    now = time.time()
+    for entry in entries:
+        try:
+            match = _PUBLISH_TEMP_RE.match(entry.name)
+            if match is None or entry.is_symlink():
+                continue
+            if match.group(1) is not None:
+                if pid_alive(int(match.group(1))):
+                    continue
+            elif now - entry.stat().st_mtime < _LEGACY_PUBLISH_TEMP_MAX_AGE_S:
+                continue
+            if entry.is_dir():
+                shutil.rmtree(entry, ignore_errors=True)
+            else:
+                entry.unlink(missing_ok=True)
+        except Exception:
+            continue
+
+
 #: Set by `_main`: the full sha of `--commit` (default: this repo's HEAD at start), resolved once.
 #: Claude-Klabauter's commit only; empty before `_main` runs. Read where a round pins or stamps its source.
 _source_ref_override = ""
@@ -9263,11 +9429,12 @@ def _export_engine_at_ref(repo_root: Path, ref: str) -> Path:
     base.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f"{sha[:12]}-", dir=base))
     try:
-        arc = _git("archive", "--format=tar", sha, "--", *_SOURCE_REF_IMPORTED_PATHS)
-        if arc.returncode != 0:
-            raise RuntimeError(f"git archive {sha} failed: {arc.stderr.decode(errors='replace').strip()}")
-        with tarfile.open(fileobj=io.BytesIO(arc.stdout)) as tar:
-            tar.extractall(path=staging, filter="tar")
+        if not _seed_export_from_cache(_git, base, sha, staging):
+            arc = _git("archive", "--format=tar", sha, "--", *_SOURCE_REF_IMPORTED_PATHS)
+            if arc.returncode != 0:
+                raise RuntimeError(f"git archive {sha} failed: {arc.stderr.decode(errors='replace').strip()}")
+            with tarfile.open(fileobj=io.BytesIO(arc.stdout)) as tar:
+                tar.extractall(path=staging, filter="tar")
         try:
             os.replace(staging, dest)
         except OSError:
@@ -9278,6 +9445,362 @@ def _export_engine_at_ref(repo_root: Path, ref: str) -> Path:
         shutil.rmtree(staging, ignore_errors=True)
         raise
     return dest
+
+
+# A full export writes ~11k files, ~30/s on a loaded Windows box with on-access scanning: about
+# 6 minutes of every publish (C14f, 2026-11-22). Consecutive stamps differ by a handful of files,
+# so a new export hardlinks the newest cached one and rewrites only the diff.
+_EXPORT_SEED_CANDIDATES = 3
+_EXPORT_SEED_MAX_CHANGES = 500
+
+
+def _seed_export_from_cache(git: Callable[..., "subprocess.CompletedProcess[bytes]"], base: Path, sha: str, staging: Path) -> bool:
+    """Fill empty `staging` with the export of `sha` from a cached export of a nearby commit.
+
+    Every file of the cached export is hardlinked (no content write, so no scan), then each path
+    the diff names is unlinked first -- writing through a hardlink would change the cached copy
+    -- and the added/modified ones are extracted from one `git archive` of just those paths.
+    Returns False, leaving `staging` empty, when no cached export is within
+    `_EXPORT_SEED_MAX_CHANGES` or a link fails; the caller then does the full export."""
+    try:
+        cached = sorted(
+            (d for d in base.iterdir() if len(d.name) == 40 and d.name != sha and (d / "coordinator_core").is_dir()),
+            key=lambda d: d.stat().st_mtime, reverse=True,
+        )[:_EXPORT_SEED_CANDIDATES]
+    except OSError:
+        return False
+    for prev in cached:
+        diff = git("diff", "--name-status", "--no-renames", "-z", prev.name, sha, "--", *_SOURCE_REF_IMPORTED_PATHS)
+        if diff.returncode != 0:
+            continue
+        fields = [f for f in diff.stdout.decode("utf-8", "surrogateescape").split("\0") if f]
+        changes = list(zip(fields[0::2], fields[1::2]))
+        if len(changes) > _EXPORT_SEED_MAX_CHANGES:
+            continue
+        try:
+            for root, dirs, files in os.walk(prev):
+                dirs[:] = [d for d in dirs if d != "__pycache__"]
+                out = staging / os.path.relpath(root, prev)
+                out.mkdir(parents=True, exist_ok=True)
+                for name in files:
+                    os.link(os.path.join(root, name), out / name)
+            wanted = []
+            for status, rel in changes:
+                target = staging / rel
+                if target.exists():
+                    target.unlink()
+                if status != "D":
+                    wanted.append(rel)
+            # Batched: Windows caps a command line at 32k chars.
+            for i in range(0, len(wanted), 100):
+                arc = git("archive", "--format=tar", sha, "--", *wanted[i:i + 100])
+                if arc.returncode != 0:
+                    raise OSError(arc.stderr.decode(errors="replace").strip())
+                with tarfile.open(fileobj=io.BytesIO(arc.stdout)) as tar:
+                    tar.extractall(path=staging, filter="tar")
+            return True
+        except OSError:
+            shutil.rmtree(staging, ignore_errors=True)
+            staging.mkdir(parents=True, exist_ok=True)
+            return False
+    return False
+
+
+# A cold row stages and sweeps ~11k files while consecutive stamps differ by tens. The row's staging
+# after the content-transform sweep and before inject is kept as a hardlink tree, keyed by the source
+# sha and the transform signature, and seeds the next round's staging so only the source delta is
+# copied. Every staged write replaces the file (never writes through a link): a file a later phase
+# rewrote in place fails the stat check at the next seed and is re-synced from source.
+_STAGING_SEED_KEEP = 2
+_STAGING_SEED_MAX_CHANGES = 500
+_STAGING_SEED_META = ".source"
+
+
+@dataclass
+class _RowSeed:
+    """`only_paths`: row-source-relative paths the sync revisits. `known_inputs`: staged rel (with the
+    sweep's dest_prefix) -> source blob sha, for seeded paths nothing touched. `manifest`: the seeded
+    entries (staged rel -> [size, mtime_ns, mode, blob sha, source blob sha]) carried to the snapshot."""
+
+    only_paths: "frozenset[str]"
+    known_inputs: "dict[str, str]"
+    manifest: "dict[str, list]"
+    base_sha: str
+
+
+def _staging_seed_row_dir(target: "ResolvedTarget", repo_root: Path) -> Path:
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", target.name)
+    return _publish_staging_parent(repo_root) / f".{repo_root.name}.publish-seed" / safe
+
+
+def _seed_row_prefix(target: "ResolvedTarget", toplevel: Path) -> "Optional[str]":
+    try:
+        rel = target.source_dir.resolve().relative_to(toplevel.resolve()).as_posix()
+    except ValueError:
+        return None
+    return "" if rel == "." else rel
+
+
+def _seed_eligible(
+    target: "ResolvedTarget", signature: "Optional[str]", publish_sync_module: object, repo_root: "Optional[Path]"
+) -> str:
+    """Empty when this row may seed and snapshot, else why it takes the full pass."""
+    if repo_root is None:
+        return "destination is not a git work tree"
+    if signature is None:
+        return "transform signature unavailable"
+    if target.mode not in mirror_like_wire_names():
+        return f"mode {target.mode} is not mirror-like"
+    if target.name == _PLUGIN_PAYLOAD_ROW:
+        return "plugin-payload row is graded over its whole assembled mirror"
+    if target.source_map or len(_contributing_roots(target)) != 1:
+        return "multi-source row"
+    if publish_sync_module is None or not _module_accepts_only_paths(publish_sync_module):
+        return "publish_sync declares no only_paths/removed_sink"
+    return ""
+
+
+def _empty_dir(path: Path) -> None:
+    """Remove everything under `path`, keeping `path` itself (an abandoned seed leaves staging empty)."""
+    for child in path.iterdir():
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child, ignore_errors=True)
+        else:
+            child.unlink(missing_ok=True)
+
+
+def _row_rename_pairs(engine_ctx: "PercolateEngineContext", target: "ResolvedTarget") -> "tuple[list[dict], list[dict]]":
+    """`(file_pairs, directory_pairs)` of the row's `basename_rename`."""
+    pairs = _import_percolate_store_resolve_target()(engine_ctx.store, target.name).get("basename_rename") or []
+    return _import_percolate_rewrite_basename_module()._partition_rename_pairs(list(pairs))
+
+
+def _seed_staging_from_cache(
+    target: "ResolvedTarget",
+    staging: Path,
+    *,
+    engine_ctx: "PercolateEngineContext",
+    signature: "Optional[str]",
+    round_pinned_shas: "dict[str, str]",
+    publish_sync_module: object,
+    dest_prefix: str,
+) -> "tuple[Optional[_RowSeed], str]":
+    """Fill empty `staging` from the cached post-sweep staging of the destination's recorded source
+    sha. Returns `(seed, "")`, or `(None, reason)` with `staging` still empty (the full pass)."""
+    from percolate import publish_delta  # type: ignore[import-not-found]  # noqa: PLC0415
+    from percolate import source_delta as source_delta_mod  # type: ignore[import-not-found]  # noqa: PLC0415
+
+    repo_root = _dest_repo_root(target.dest_dir)
+    why = _seed_eligible(target, signature, publish_sync_module, repo_root)
+    if why:
+        return None, why
+    assert repo_root is not None
+    top = _resolve_show_toplevel(str(target.source_dir))
+    if top is None:
+        return None, "source is not inside a git work tree"
+    toplevel = Path(top)
+    prefix = _seed_row_prefix(target, toplevel)
+    if prefix is None:
+        return None, "source dir is outside its toplevel"
+    pinned = _round_pin_source_sha(target.source_dir, round_pinned_shas, out=io.StringIO(), late=True)
+    delta = source_delta_mod.source_delta(repo_root, toplevel, pinned)
+    if isinstance(delta, publish_delta.ColdReason):
+        return None, f"{delta.code}: {delta.detail}"
+    paths = set(delta.changed) | set(delta.deleted)
+    if len(paths) > _STAGING_SEED_MAX_CHANGES:
+        return None, f"{len(paths)} changed source paths exceed {_STAGING_SEED_MAX_CHANGES}"
+    rule = next((p for p in sorted(paths) if publish_delta._is_rule_path(p)), None)
+    if rule is not None:
+        return None, f"rule-path-changed: {rule}"
+    entry = _staging_seed_row_dir(target, repo_root) / delta.base_sha
+    try:
+        meta = json.loads((entry / _STAGING_SEED_META).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None, f"no seed cached for source {delta.base_sha[:12]}"
+    if (
+        meta.get("schema") != 2
+        or meta.get("sha") != delta.base_sha
+        or meta.get("signature") != signature
+        or meta.get("prefix") != prefix
+        or not isinstance(meta.get("manifest"), dict)
+    ):
+        return None, "seed transform identity differs"
+    try:
+        file_pairs, dir_pairs = _row_rename_pairs(engine_ctx, target)
+    except (ImportError, OSError, ValueError, RuntimeError, KeyError, AttributeError, TypeError):
+        return None, "basename_rename unreadable"
+    if dir_pairs:
+        return None, "row renames directories"
+    renamed_dsts = {p["dst"] for p in file_pairs}
+    manifest: "dict[str, list]" = meta["manifest"]
+    tree = entry / "tree"
+    retained: "dict[str, list]" = {}
+    dropped: "list[str]" = []
+    try:
+        for rel, ent in manifest.items():
+            src = tree / rel
+            st = src.stat()
+            if st.st_size != ent[0] or st.st_mtime_ns != ent[1]:
+                dropped.append(rel)
+                continue
+            _link_or_copy(src, staging / rel)
+            retained[rel] = ent
+    except (OSError, IndexError, TypeError):
+        _empty_dir(staging)
+        return None, "seed tree unreadable"
+    only: "set[str]" = set()
+    for p in paths:
+        if not prefix:
+            only.add(p)
+        elif p.startswith(prefix + "/"):
+            only.add(p[len(prefix) + 1:])
+    from coordinator_core.git.git_dir import resolve_git_common_dir  # noqa: PLC0415
+    from coordinator_core.git.git_state import read_commit  # noqa: PLC0415
+
+    common = resolve_git_common_dir(toplevel)
+    info = read_commit(toplevel, pinned)
+    if info is None and dropped:
+        _empty_dir(staging)
+        return None, "pinned commit unreadable"
+    for rel in dropped:
+        if rel.rsplit("/", 1)[-1] in renamed_dsts:
+            _empty_dir(staging)
+            return None, f"seed file {rel} was rewritten and is a rename target"
+        found = None if info is None else publish_delta._lookup(common, info.tree, f"{prefix}/{rel}" if prefix else rel)
+        if found is not None and found[0] != _GIT_TREE_MODE:
+            only.add(rel)
+    if target.source_dir.name == _CLOSURE_PACKAGE_NAME:
+        only.update(_ROUND_DERIVED_BASENAMES)
+    touched: "set[str]" = set(only)
+    for rel in only:
+        touched.add(_resolve_renamed_dest_rel(rel, file_pairs))
+    for rel in touched:
+        (staging / rel).unlink(missing_ok=True)
+        retained.pop(rel, None)
+    known = {
+        (f"{dest_prefix}/{rel}" if dest_prefix else rel): ent[4]
+        for rel, ent in retained.items()
+        if len(ent) > 4 and ent[4]
+    }
+    return _RowSeed(frozenset(only), known, retained, delta.base_sha), ""
+
+
+def _snapshot_staging_seed(
+    target: "ResolvedTarget",
+    staging: Path,
+    *,
+    signature: "Optional[str]",
+    round_pinned_shas: "dict[str, str]",
+    carry: "Optional[dict[str, list]]",
+    renamed_dsts: "frozenset[str]",
+) -> "tuple[Optional[dict[str, list]], str]":
+    """Hardlink the row's post-sweep staging into the seed cache under the round's pinned source sha.
+    A staged file whose stat equals its carried manifest entry keeps that entry; any other is read
+    and hashed once. Returns `(manifest, "")`, or `(None, reason)` when nothing was cached."""
+    from percolate import publish_delta  # type: ignore[import-not-found]  # noqa: PLC0415
+
+    repo_root = _dest_repo_root(target.dest_dir)
+    top = _resolve_show_toplevel(str(target.source_dir))
+    if repo_root is None or top is None or signature is None:
+        return None, "no destination repo or signature"
+    toplevel = Path(top)
+    prefix = _seed_row_prefix(target, toplevel)
+    if prefix is None:
+        return None, "source dir is outside its toplevel"
+    pinned = _round_pin_source_sha(target.source_dir, round_pinned_shas, out=io.StringIO(), late=True)
+    from coordinator_core.git.git_dir import resolve_git_common_dir  # noqa: PLC0415
+    from coordinator_core.git.git_state import read_commit  # noqa: PLC0415
+
+    common = resolve_git_common_dir(toplevel)
+    info = read_commit(toplevel, pinned)
+    if info is None:
+        return None, "pinned commit unreadable"
+    carry = carry or {}
+    manifest: "dict[str, list]" = {}
+    for root, _dirs, names in os.walk(staging):
+        for name in names:
+            path = Path(root) / name
+            if path.is_symlink():
+                return None, "staging holds a symlink"
+            rel = path.relative_to(staging).as_posix()
+            st = path.stat()
+            prev = carry.get(rel)
+            if prev is not None and prev[0] == st.st_size and prev[1] == st.st_mtime_ns:
+                manifest[rel] = prev
+                continue
+            data = path.read_bytes()
+            src_blob = ""
+            mode = _GIT_EXEC_MODE if data.startswith(b"#!") else _GIT_FILE_MODE
+            if name not in renamed_dsts:
+                found = publish_delta._lookup(common, info.tree, f"{prefix}/{rel}" if prefix else rel)
+                if found is not None and found[0] != _GIT_TREE_MODE:
+                    src_blob = found[1]
+                    if found[0] in (_GIT_FILE_MODE, _GIT_EXEC_MODE):
+                        mode = found[0]
+            manifest[rel] = [
+                st.st_size,
+                st.st_mtime_ns,
+                mode,
+                _blob_sha1(data),
+                src_blob,
+            ]
+    row_dir = _staging_seed_row_dir(target, repo_root)
+    tmp = row_dir / f"{pinned}.tmp-{os.getpid()}"
+    try:
+        shutil.rmtree(tmp, ignore_errors=True)
+        for rel in manifest:
+            _link_or_copy(staging / rel, tmp / "tree" / rel)
+        (tmp / "tree").mkdir(parents=True, exist_ok=True)
+        meta = {"schema": 2, "sha": pinned, "signature": signature, "prefix": prefix, "row": target.name,
+                "manifest": manifest}
+        (tmp / _STAGING_SEED_META).write_text(json.dumps(meta), encoding="utf-8")
+        final = row_dir / pinned
+        shutil.rmtree(final, ignore_errors=True)
+        os.replace(tmp, final)
+        others = sorted(
+            (d for d in row_dir.iterdir() if d.is_dir() and d.name != pinned and ".tmp-" not in d.name),
+            key=lambda d: d.stat().st_mtime,
+            reverse=True,
+        )
+        for stale in others[_STAGING_SEED_KEEP - 1:]:
+            shutil.rmtree(stale, ignore_errors=True)
+        for orphan in (d for d in row_dir.iterdir() if d.is_dir() and ".tmp-" in d.name and d != tmp):
+            shutil.rmtree(orphan, ignore_errors=True)
+    except OSError as exc:
+        shutil.rmtree(tmp, ignore_errors=True)
+        return None, f"seed cache write failed: {exc}"
+    return manifest, ""
+
+
+def _dest_size_is(path: Path, size: int) -> bool:
+    """True when the destination worktree file exists at the HEAD-equal size, so an absent or locally
+    edited file never reads as unchanged."""
+    try:
+        return path.stat().st_size == size
+    except OSError:
+        return False
+
+
+def _worktree_differs_from_head(repo_root: Path, base: str) -> "Optional[frozenset[str]]":
+    """Repo-relative paths under `base` whose worktree file git does not see as equal to HEAD (one
+    `diff-index`, stat-cache backed, no untracked scan). `None` when the probe failed: nothing is
+    then trusted, so a locally edited destination file of any size still takes the byte compare."""
+    from coordinator_core.ops.ceremony import git_native  # noqa: PLC0415 - lazy, see module header
+
+    probe = git_native._git(
+        ["--no-optional-locks", "diff-index", "--name-only", "-z", "HEAD", "--", base or "."], cwd=repo_root
+    )
+    if not probe.ok:
+        return None
+    return frozenset(p for p in probe.stdout.split("\0") if p)
+
+
+def _seed_stat_matches(path: Path, ent: "Sequence[Any]") -> bool:
+    try:
+        st = path.stat()
+    except OSError:
+        return False
+    return st.st_size == ent[0] and st.st_mtime_ns == ent[1]
 
 
 def _committed_portable_targets_file(setup_dir: Path) -> Optional[Path]:
@@ -9551,6 +10074,8 @@ def _overlay_withheld(toplevel: Path, shadow_dir: Path, withheld: "Mapping[str, 
             target.unlink(missing_ok=True)
         if payload is not None:
             target.parent.mkdir(parents=True, exist_ok=True)
+            # A seeded shadow hardlinks a stored one: writing in place would change the stored copy.
+            target.unlink(missing_ok=True)
             target.write_bytes(payload)
 
 
@@ -9622,7 +10147,13 @@ def _git_materialize_ref(root: Path, ref: str = "HEAD", withheld: "Optional[Mapp
         # a single post-extraction line carries the same MISS signal as
         # the removed pre-extraction print, without reading as two separate events.
         _materialize_start = time.perf_counter()
-        shadow_toplevel = _extract_git_archive(toplevel, sha)
+        pathspec = _required_pathspec_for_toplevel(toplevel, sha)
+        shadow_toplevel = _seed_shadow_from_store(store, toplevel, sha, pathspec) or _extract_git_archive(toplevel, sha)
+        try:
+            (shadow_toplevel / _SHADOW_SOURCE_NAME).write_text(
+                json.dumps({"sha": sha, "pathspec": list(pathspec), "withheld": bool(withheld)}), encoding="utf-8")
+        except OSError:
+            pass
         if withheld:
             try:
                 _overlay_withheld(toplevel, shadow_toplevel, withheld)
@@ -9668,10 +10199,12 @@ def _cleanup_shadow_roots(shadow_roots: "tuple[Path, ...]") -> None:
     A shadow owned by the cross-process `ShadowStore` is evicted from the process dict only and
     handed to `retain()`; another process may be reading it. Any other shadow is removed.
     """
+    from coordinator_core.owner_safe_rmtree import fast_rmtree  # noqa: PLC0415
+
     for shadow_root in shadow_roots:
         owned = _STORE_SHADOWS.get(shadow_root)
         if owned is None:
-            shutil.rmtree(shadow_root, ignore_errors=True)
+            fast_rmtree(shadow_root)
         for cache_key, cached_path in list(_MATERIALIZED_REF_CACHE.items()):
             if cached_path == shadow_root:
                 del _MATERIALIZED_REF_CACHE[cache_key]
@@ -11744,12 +12277,12 @@ def _sweep_stale_publish_staging_dirs(
             if dry_run:
                 print(f"  [dry-run] would sweep stale publish-staging dir: {candidate}", file=out)
                 continue
-            try:
-                shutil.rmtree(candidate, onerror=_rmtree_clear_readonly_onerror)
-            except OSError as exc:
+            from coordinator_core.owner_safe_rmtree import fast_rmtree  # noqa: PLC0415
+
+            if not fast_rmtree(candidate):
                 warn(
                     totals,
-                    f"stale publish-staging sweep: failed to remove {candidate}: {exc}",
+                    f"stale publish-staging sweep: failed to remove {candidate}",
                     out=out,
                 )
     except OSError as exc:
@@ -12057,17 +12590,17 @@ def _assert_dest_subtree_clean(repo_root: Path, dest_dir: Path, *, context: str)
 
 def _discard_publish_staging_dir(staging_dir: Optional[Path]) -> None:
     """Reclaims a row's staging directory (§ `_create_publish_staging_dir`) on any abort path
-    or once the round has consumed it; the real destination is never touched. Goes through
-    `_rmtree_clear_readonly_onerror`: a Windows read-only attribute under a bare
-    `ignore_errors=True` leaves the directory only partially removed."""
+    or once the round has consumed it; the real destination is never touched. `fast_rmtree`
+    clears Windows read-only attributes and never raises, so a transient handle leaves the tree
+    partly removed; one retry covers it."""
     if staging_dir is None:
         return
-    # `_rmtree_clear_readonly_onerror` swallows a per-entry OSError, so a transient handle on
-    # Windows leaves the tree partly removed with no raise; one retry covers it.
+    from coordinator_core.owner_safe_rmtree import fast_rmtree  # noqa: PLC0415
+
     for _attempt in (1, 2):
         if not staging_dir.exists():
             break
-        shutil.rmtree(staging_dir, onerror=_rmtree_clear_readonly_onerror)
+        fast_rmtree(staging_dir)
     if not staging_dir.exists():
         _MINTED_STAGING_DIRS.discard(staging_dir.resolve())
 
@@ -12194,8 +12727,12 @@ def _report_staged_diff(
     *,
     out: IO[str] = sys.stdout,
     pre_round_digests: "Optional[dict[Path, Optional[str]]]" = None,
+    seed_manifest: "Optional[dict[str, list]]" = None,
 ) -> "tuple[frozenset[str], frozenset[str]]":
     """Prints the row's `NEW:`/`UPDATE:`/`REMOVE:` lines and folds the counts into `totals`.
+    A staged file whose stat still equals its `seed_manifest` entry (a seeded path nothing rewrote)
+    is compared by blob sha against the destination's HEAD blob: equal is unchanged, with no read of
+    either file; every other staged file takes the byte compare.
     The staged files are the whole candidate, so only they (and `removed_dest_rels`) are compared
     against `dest_dir` — no walk of the destination, so nothing the row never stages (`.git`, a
     fleet environment, the mirror's local state) can read as a removal. Returns
@@ -12210,8 +12747,26 @@ def _report_staged_diff(
         if not _is_structural_build_artifact(rel)
     )
     changed: "set[str]" = set()
+    head_blobs_by_rel: "dict[str, tuple[int, str]]" = {}
+    if seed_manifest:
+        repo_root = _dest_repo_root(dest_dir)
+        if repo_root is not None:
+            from coordinator_core.git.git_state import head_blobs  # noqa: PLC0415
+
+            base = "" if repo_root == dest_dir else dest_dir.relative_to(repo_root).as_posix() + "/"
+            dirty = _worktree_differs_from_head(repo_root, base)
+            if dirty is not None:
+                trusted = [
+                    r for r in staged
+                    if r in seed_manifest and base + r not in dirty and _seed_stat_matches(staging_dir / r, seed_manifest[r])
+                ]
+                head = head_blobs(repo_root, [base + r for r in trusted])
+                head_blobs_by_rel = {r: head[base + r] for r in trusted if base + r in head}
     for rel in staged:
         dest_path = dest_dir / rel
+        known = head_blobs_by_rel.get(rel)
+        if known is not None and known[1] == seed_manifest[rel][3] and _dest_size_is(dest_path, seed_manifest[rel][0]):  # type: ignore[index]
+            continue
         if not dest_path.is_file():
             print(f"  NEW:    {rel}", file=out)
             changed.add(rel)
@@ -12263,6 +12818,7 @@ def process_target(
     pre_round_digest_sink: "Optional[dict[Path, Optional[str]]]" = None,
     source_shadow: "Optional[Path | Mapping[Path, Path]]" = None,
     only_paths: "Optional[frozenset[str]]" = None,
+    round_signature: "Optional[str]" = None,
 ) -> "Optional[StagedRowResult]":
     # STAGE-ONLY: `process_target` never writes `target.dest_dir`. Every phase below (sync,
     # transform, guards, inject, pre_ci) dispatches against a fresh EMPTY `staging_dir` that holds
@@ -12463,6 +13019,40 @@ def process_target(
         # sync and every percolate-engine phase write there without touching their own bodies.
         assert staging_dir is not None, "dry_run=False sync below must target staging, never the real dest"
         sync_target = replace(target, dest_dir=staging_dir)
+
+        # Cold rows only (a warm row already stages just its delta): seed the staging dir from the
+        # cached post-sweep staging of the destination's recorded source sha, then sync only the delta.
+        row_seed: "Optional[_RowSeed]" = None
+        seed_eligible_row = False
+        if not staged_delta and round_signature is not None:
+            try:
+                seed_why = _seed_eligible(
+                    target, round_signature, publish_sync_module, _dest_repo_root(target.dest_dir)
+                )
+                if not seed_why:
+                    seed_eligible_row = True
+                    with _time_phase(timing_sink, target.name, "seed_staging_from_cache"):
+                        row_seed, seed_why = _seed_staging_from_cache(
+                            target,
+                            staging_dir,
+                            engine_ctx=engine_ctx,
+                            signature=round_signature,
+                            round_pinned_shas=round_pinned_shas,
+                            publish_sync_module=publish_sync_module,
+                            dest_prefix=_dest_prefix_for(sync_target.dest_dir),
+                        )
+            except (OSError, RuntimeError, ValueError, GitMaterializeError) as exc:
+                row_seed, seed_why = None, f"seed failed: {exc}"
+                _empty_dir(staging_dir)  # a half-seeded staging must not reach the full pass
+            if row_seed is not None:
+                print(
+                    f"  [seed] {target.name}: staging seeded from source {row_seed.base_sha[:12]} "
+                    f"({len(row_seed.manifest)} file(s) linked, {len(row_seed.only_paths)} delta path(s))",
+                    file=out,
+                )
+            else:
+                print(f"  [seed] {target.name}: full pass ({seed_why})", file=out)
+        sync_only_paths = only_paths if staged_delta else (row_seed.only_paths if row_seed is not None else None)
 
         # The sync dispatch compares raw source bytes, not the post-transform bytes that publish;
         # its counts and prints go to a throwaway sink. The real report comes from
@@ -12796,9 +13386,9 @@ def process_target(
                     renamed_file_names=effective_renamed_file_names,
                     foreign_dir_names=foreign_dir_names,
                     module_accepts_foreign_dir_names=module_accepts_foreign_dir_names,
-                    **({"only_paths": only_paths, "removed_sink": sync_removed} if staged_delta else {}),
+                    **({"only_paths": sync_only_paths, "removed_sink": sync_removed} if sync_only_paths is not None else {}),
                 )
-            if not staged_delta and _module_accepts_only_paths(publish_sync_module):
+            if sync_only_paths is None and _module_accepts_only_paths(publish_sync_module):
                 # Cold empty staging has nothing for the sync to sweep, so the
                 # orphan decisions come from a dry-run sync against the REAL
                 # destination: it reports what the sweep WOULD delete and acts on nothing.
@@ -12907,7 +13497,31 @@ def process_target(
                         sync_changed_paths=row_sync_changed,
                         **engine_scope_kwargs,
                         **({"liveness_root": target.dest_dir} if staged_delta else {}),
+                        **({"known_inputs": row_seed.known_inputs} if row_seed is not None and row_seed.known_inputs else {}),
                     )
+                # The seed snapshot is the staging after the sweep and before inject, which runs over
+                # the whole staged tree each round and must never see a prior round's injected bytes.
+                seed_manifest: "Optional[dict[str, list]]" = None
+                if seed_eligible_row and not dry_run:
+                    try:
+                        _file_pairs, _dir_pairs = _row_rename_pairs(engine_ctx, target)
+                        with _time_phase(timing_sink, target.name, "snapshot_staging_seed"):
+                            seed_manifest, snap_why = (
+                                (None, "row renames directories")
+                                if _dir_pairs
+                                else _snapshot_staging_seed(
+                                    target,
+                                    staging_dir,
+                                    signature=round_signature,
+                                    round_pinned_shas=round_pinned_shas,
+                                    carry=row_seed.manifest if row_seed is not None else None,
+                                    renamed_dsts=frozenset(p["dst"] for p in _file_pairs),
+                                )
+                            )
+                    except (ImportError, OSError, ValueError, RuntimeError, KeyError, AttributeError, TypeError, GitMaterializeError) as exc:
+                        seed_manifest, snap_why = None, str(exc)
+                    if seed_manifest is None:
+                        print(f"  [seed] {target.name}: staging not cached ({snap_why})", file=out)
                 # § docs/plans/2026-08-28-the-currency-signal-stops-one-hop-
                 # short-of-the-door.md chunk C2. The door-facing name map was
                 # wired into `coordinator_core/percolate/round.py::run_round`
@@ -12996,7 +13610,7 @@ def process_target(
                 effective_source_dir,
                 staging_dir,
                 source_shadow,
-                only_paths,
+                sync_only_paths,
                 sync_removed,
                 totals,
                 out=out,
@@ -13009,6 +13623,7 @@ def process_target(
                     report_totals,
                     out=report_buffer,
                     pre_round_digests=pre_round_digest_sink,
+                    seed_manifest=seed_manifest,
                 )
             _report_rename_manifest(rename_manifest, out=report_buffer)
             # A bootstrap-bearing row (`repo-cut`) stages no payload by design; an empty staging
@@ -13150,6 +13765,7 @@ def process_target(
                     synced=report_totals.synced,
                     deleted=report_totals.deleted,
                     removed_dest_rels=removed_dest_rels,
+                    seed_manifest=seed_manifest,
                 )
                 # Latch staging_dir out of the discard-on-exit path below —
                 # ownership of `staging_dir` now passes to the caller via
@@ -13862,12 +14478,15 @@ def _is_round_derived(rel: str) -> bool:
 
 
 def _source_declared_modes(
-    sources: "Mapping[str, tuple[ResolvedTarget, str]]", round_pinned_shas: "dict[str, str]"
+    sources: "Mapping[str, tuple[ResolvedTarget, str]]",
+    round_pinned_shas: "dict[str, str]",
+    only: "Optional[frozenset[str]]" = None,
 ) -> "dict[str, int]":
     """`{union rel: git mode}` the source tree records at the round-pinned sha, for the root that fed
     each entry (a `source_map` entry's own root, else the row's `source_dir`). Read in process from
     git objects, never a disk bit. An entry with no source blob (renamed, round-derived, unpinnable)
-    is absent from the result."""
+    is absent from the result. `only` limits the result to those union rels. The toplevel and the
+    root's path inside it are resolved once per root, never per entry."""
     from coordinator_core.git.git_dir import resolve_git_common_dir  # noqa: PLC0415
     from coordinator_core.git.git_state import read_commit  # noqa: PLC0415
     from percolate.publish_delta import _lookup  # type: ignore[import-not-found]  # noqa: PLC0415
@@ -13875,8 +14494,11 @@ def _source_declared_modes(
     _bootstrap_engine()
     maps: "dict[str, dict[str, Path]]" = {}
     trees: "dict[str, Optional[tuple[Path, str, Path]]]" = {}
+    root_tops: "dict[Path, Optional[tuple[str, str]]]" = {}
     out: "dict[str, int]" = {}
     for rel, (target, row_rel) in sources.items():
+        if only is not None and rel not in only:
+            continue
         routes = maps.get(target.name)
         if routes is None:
             routes = maps[target.name] = _parse_source_map(target.source_map)
@@ -13886,10 +14508,19 @@ def _source_declared_modes(
             e = entry.rstrip("/")
             if (row_rel == e or row_rel.startswith(e + "/")) and len(e) > best:
                 root, best = mapped, len(e)
-        source_path = root / row_rel
-        top = _resolve_show_toplevel(str(source_path.parent if source_path.parent.is_dir() else root))
-        if top is None:
+        if root not in root_tops:
+            top = _resolve_show_toplevel(str(root)) if root.is_dir() else None
+            try:
+                root_rel = (
+                    None if top is None else root.resolve().relative_to(Path(top).resolve()).as_posix()
+                )
+            except ValueError:
+                root_rel = None
+            root_tops[root] = None if top is None or root_rel is None else (top, "" if root_rel == "." else root_rel)
+        located = root_tops[root]
+        if located is None:
             continue
+        top, root_rel = located
         key = str(Path(top))
         if key not in trees:
             try:
@@ -13903,11 +14534,8 @@ def _source_declared_modes(
         resolved = trees[key]
         if resolved is None:
             continue
-        common, tree, toplevel = resolved
-        try:
-            source_rel = source_path.resolve().relative_to(toplevel).as_posix()
-        except ValueError:
-            continue
+        common, tree, _toplevel = resolved
+        source_rel = f"{root_rel}/{row_rel}" if root_rel else row_rel
         found = _lookup(common, tree, source_rel)
         if found is not None and found[0] in (_GIT_FILE_MODE, _GIT_EXEC_MODE):
             out[rel] = found[0]
@@ -13920,19 +14548,33 @@ def _surviving_writes(
     deletions: "Sequence[str]",
     declared_modes: "Optional[Mapping[str, int]]" = None,
     unchanged_out: "Optional[list[Any]]" = None,
+    trusted: "Optional[Mapping[str, tuple[int, str]]]" = None,
 ) -> "tuple[dict[str, Any], list[str]]":
     """The union entries whose (mode, blob sha) differ from HEAD, and the deletions HEAD holds.
     An entry's mode is its source tree's (`declared_modes`), else HEAD's, else the shebang guess.
-    Entries equal to HEAD are appended to `unchanged_out` so landing can converge their disk bit."""
+    Entries equal to HEAD are appended to `unchanged_out` so landing can converge their disk bit.
+    A `trusted` entry (rel -> (guessed mode, blob sha) from a seed manifest its file still matches)
+    is compared without a read; one that differs from HEAD is read like any other. The converge
+    list needs bytes, so off Windows (where converging is a no-op) trust applies only without it."""
     from coordinator_core.git.git_state import head_blobs  # noqa: PLC0415
     from percolate.diff_commit import DestWrite  # type: ignore[import-not-found]  # noqa: PLC0415
 
     declared = declared_modes or {}
     head = head_blobs(repo_root, sorted(entries) + sorted(deletions))
     survivors: "dict[str, Any]" = {}
+    use_trusted = bool(trusted) and (unchanged_out is None or os.name == "nt")
     for rel in sorted(entries):
-        data, mode = _read_staged_entry(entries[rel])
         prior = head.get(rel)
+        known = trusted.get(rel) if use_trusted and trusted is not None else None
+        if known is not None:
+            mode, sha = known
+            if rel in declared:
+                mode = declared[rel]
+            elif prior is not None and prior[0] in (_GIT_FILE_MODE, _GIT_EXEC_MODE):
+                mode = prior[0]
+            if prior == (mode, sha):
+                continue
+        data, mode = _read_staged_entry(entries[rel])
         if mode != _GIT_LINK_MODE:
             if rel in declared:
                 mode = declared[rel]
@@ -14333,7 +14975,7 @@ def _assemble_root_union(
     union_root = _create_publish_staging_dir(repo_root)
     warm = plan.cold is None
     shipped_then_deleted = None if warm else _source_deleted_paths(target for target, _staged in staged_rows)
-    winners: "dict[str, tuple[int, Path, ResolvedTarget, str]]" = {}
+    winners: "dict[str, tuple[int, Path, ResolvedTarget, str, Optional[dict[str, list]]]]" = {}
     deletions: "set[str]" = set()
     for target, staged in staged_rows:
         rel_prefix = target.dest_dir.relative_to(repo_root)
@@ -14347,7 +14989,7 @@ def _assemble_root_union(
             rel = (rel_prefix / row_rel).as_posix()
             current = winners.get(rel)
             if current is None or rank >= current[0]:
-                winners[rel] = (rank, staged_path, target, row_rel)
+                winners[rel] = (rank, staged_path, target, row_rel, staged.seed_manifest)
         removals = staged.row_removed_files
         if shipped_then_deleted is not None:
             removals = _removals_this_source_shipped(target, removals, shipped_then_deleted)
@@ -14361,9 +15003,6 @@ def _assemble_root_union(
         for row_rel in removals:
             deletions.add((rel_prefix / row_rel).as_posix())
     entries = {rel: win[1] for rel, win in winners.items()}
-    declared_modes = _source_declared_modes(
-        {rel: (win[2], win[3]) for rel, win in winners.items()}, round_pinned_shas
-    )
     head_paths: "Optional[dict[str, str]]" = None
     if not warm:
         head_paths = _head_tree_blob_shas(repo_root)
@@ -14380,6 +15019,24 @@ def _assemble_root_union(
             if reaped:
                 print(f"  {repo_root}: removing {len(reaped)} tracked install-output dir(s).")
                 deletions |= {p for p in head_paths if p.split("/", 1)[0] in reaped}
+    # A seeded entry its file still matches (a seed manifest stat) that HEAD already holds is
+    # compared by the manifest's blob sha with no read, and takes HEAD's mode, so the source tree
+    # is asked for the other entries' modes only.
+    trusted: "dict[str, tuple[int, str]]" = {}
+    seed_modes: "dict[str, int]" = {}
+    if head_paths:
+        for rel, win in winners.items():
+            ent = win[4].get(win[3]) if win[4] else None
+            if ent is not None and rel in head_paths and _seed_stat_matches(win[1], ent):
+                trusted[rel] = (ent[2], ent[3])
+                if len(ent) > 4 and ent[4]:
+                    seed_modes[rel] = ent[2]
+    declared_modes = _source_declared_modes(
+        {rel: (win[2], win[3]) for rel, win in winners.items()},
+        round_pinned_shas,
+        only=frozenset(set(winners) - set(trusted)) if trusted else None,
+    )
+    declared_modes.update(seed_modes)
     # DR-361: a removal named by the row's ignore file AND tracked by the source commit, never a
     # tree difference. Own derivation: it bypasses the shipped-then-deleted filter and the live-source
     # refusal, whose premise (a stale delta) does not hold for a file the source still tracks.
@@ -14393,7 +15050,7 @@ def _assemble_root_union(
         _link_or_copy(path, union_root / rel)
 
     unchanged: "list[Any]" = []
-    survivors, dels = _surviving_writes(repo_root, entries, sorted(deletions), declared_modes, unchanged)
+    survivors, dels = _surviving_writes(repo_root, entries, sorted(deletions), declared_modes, unchanged, trusted)
     meaningful = any(not _is_round_derived(r) for r in survivors) or bool(dels)
     nonempty = bool(entries) or bool(deletions)
     if not meaningful:
@@ -14430,8 +15087,8 @@ def _assemble_root_union(
             entries[rel] = dst
         deletions -= set(entries)
         unchanged = []
-        survivors, dels = _surviving_writes(repo_root, entries, sorted(deletions), declared_modes, unchanged)
-        unmapped = sum(1 for rel in entries if rel not in declared_modes)
+        survivors, dels = _surviving_writes(repo_root, entries, sorted(deletions), declared_modes, unchanged, trusted)
+        unmapped = sum(1 for rel in entries if rel not in declared_modes and rel not in trusted)
         if unmapped:
             print(
                 f"  {repo_root}: {unmapped} union entr(ies) have no source-tree mode "
@@ -14613,8 +15270,19 @@ def _swap_over_mid_stage(runs: "Sequence[Any]", held_s: float) -> bool:
     return True
 
 
+def _is_scratch_clone_root(root: Path) -> bool:
+    """True when `root` is the scratch dest clone of the running `--dest-root-override` round and
+    that clone is not the live root."""
+    override = _DEST_ROOT_OVERRIDE
+    if override is None:
+        return False
+    canonical = lambda path: os.path.normcase(os.path.realpath(str(path)))
+    clone = canonical(override.clone_root)
+    return canonical(root) == clone and clone != canonical(override.live_root)
+
+
 @contextlib.contextmanager
-def _quiesced_engine_roots(roots: "Sequence[Path]"):
+def _quiesced_engine_roots(roots: "Sequence[Path]") -> "contextlib.AbstractContextManager[None]":
     """Hold the handover-pending breadcrumb and publish.marker for each engine root across the
     body, leaving the old warm pair answering, then release every hold; a body that completes
     first starts the successor pair under the held markers, waits for it to answer, then stops
@@ -14688,6 +15356,10 @@ def _quiesced_engine_roots(roots: "Sequence[Path]"):
         # old pair untouched.
         for _lock_root in roots:
             _stamp_holds[Path(_lock_root)].stop()
+            if _is_scratch_clone_root(Path(_lock_root)):
+                # A throwaway clone has no clients to hand over to; a successor here is an orphan.
+                _pair_stop.stop_warm_pair(Path(_lock_root))
+                continue
             _start_pair(
                 Path(_lock_root),
                 old_stamp=_old_stamps.get(Path(_lock_root)),
@@ -14922,7 +15594,7 @@ def _run_round(
                     except KeyError:
                         pass  # unresolvable target already surfaces via process_target's own dispatch below
 
-                stage_kwargs: dict = {}
+                stage_kwargs: dict = {"round_signature": signature} if plan.warm is None and signature else {}
                 if plan.warm is not None:
                     only_paths = _row_only_paths(plan, target.name)
                     if not only_paths:

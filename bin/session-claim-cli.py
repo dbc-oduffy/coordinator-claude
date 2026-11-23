@@ -287,6 +287,27 @@ def _import_claim_index_module():
     return _dispatch_import("coordinator_core.session.claim_index")
 
 
+#: Kind column for a live peer run's declared write: the source safe-commit
+#: enforces beside touch claims (`scope.contested_by_live_peers`).
+_RUN_DECLARATION_KIND = "run-declaration"
+
+
+def _live_run_holders(path: str, cwd: str | None) -> list | None:
+    """`[(minted_at, run_id, session_id)]` of live peer runs declaring ``path``
+    (oldest first), or None when contest is unknown. Same reader and filters as
+    safe-commit's `live_run_write_claims`, with no session excluded. Seam
+    for ``who-claims-path`` tests."""
+    from pathlib import Path as _Path
+
+    wrd = _dispatch_import("coordinator_core.ops.warp_run_deliverable")
+    repo_root = _dispatch_import("coordinator_core.git.repo_root")
+    root = repo_root.show_toplevel(cwd) or cwd or os.getcwd()
+    scan = wrd._live_claim_scan(_Path(root), [path], "", cwd, None, None)
+    if scan is None:
+        return None
+    return scan.get(wrd._norm(path), [])
+
+
 def _import_harness_registry_module():
     """Separate seam from ``_import_liveness_module`` so ``who-claims-path``'s
     rung-2 name resolution (``harness_registry.lookup(sid)``) can be stubbed
@@ -996,6 +1017,33 @@ def _dispatch(argv: list[str]) -> int:
                 f"{sid}\t{'live' if live else 'dead'}\t{name_col}\t{kind_col}"
                 f"\t{'yes' if blocks else 'no'}"
             )
+        try:
+            run_holders = _live_run_holders(path, cwd)
+        except Exception as exc:  # noqa: BLE001 - see is-session-live's own guard
+            print("indeterminate")
+            print(
+                f"session-claim-cli: who-claims-path: run-declaration read raised "
+                f"{type(exc).__name__}: {exc} for {path!r} -- could not determine "
+                f"run-declaration holders (exit {_TRANSPORT_FAIL})",
+                file=sys.stderr,
+            )
+            return _TRANSPORT_FAIL
+        if run_holders is None:
+            print("indeterminate")
+            print(
+                f"session-claim-cli: who-claims-path: a live run's declaration for "
+                f"{path!r} is unreadable -- contest unknown, NOT a verdict that the "
+                f"path is unclaimed (exit {_TRANSPORT_FAIL})",
+                file=sys.stderr,
+            )
+            return _TRANSPORT_FAIL
+        remedies = []
+        for _minted_at, run_id, run_sid in run_holders:
+            rows.append(f"{run_sid}\tlive\trun {run_id}\t{_RUN_DECLARATION_KIND}\tyes")
+            remedies.append(
+                _dispatch_import("coordinator_core.ops.dispatch_emit.peer_claim_contract")
+                .WITHHOLD_CALL.format(run_id=run_id)
+            )
         if not rows:
             # A5/DD4 -- SC-DR-023's own caveat, cited verbatim rather than
             # paraphrased (Review: coordinator:staff-eng -- register is one
@@ -1014,6 +1062,12 @@ def _dispatch(argv: list[str]) -> int:
             print(
                 "Only rows with blocks=yes can refuse a commit; "
                 "a dead holder's touch is inert.",
+                file=sys.stderr,
+            )
+        for remedy in remedies:
+            print(
+                "Run-declaration holder blocks a commit; the run's owner can "
+                f"release it: {remedy}",
                 file=sys.stderr,
             )
         return 0

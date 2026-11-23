@@ -5,9 +5,12 @@ of the fleet: it holds no product code, and its git history records only its own
 
 ## Who works here
 
-- **The Group EM** (G-EM): first line between the repo EMs and the PM. It clears false "needs PM"
-  flags, unblocks EMs, and escalates only what the PM alone can decide. It relays the PM's word to
-  an EM stamped `PM via G-EM`; its own messages are stamped as the G-EM's and rank below PM verbatim.
+- **The Group EM** (G-EM): manages box resources (GPU, UBT, RAM and core slots, admission of heavy
+  commands) and air-traffic control (sequencing, routing messages to their owners, finding the owner
+  of orphaned work). It makes no rulings (`A-GROUP-EM-MAKES-NO-RULINGS`): rulings come from process,
+  research and the PM, and a peer takes one to its own EM or the PM. It may break glass for box acts
+  (SSH, killing a process). It relays the PM's word to an EM stamped `PM via G-EM`; its own
+  messages are stamped as the G-EM's and rank below PM verbatim.
 - **A session the PM opens here**: an ask with no obvious repo.
 
 ## The fleet — which repos exist and what each owns
@@ -29,6 +32,14 @@ exhaustive.
 3. **No repo owns it** → do it here.
 
 Decide on the first turn. Don't hold an ask here to "see where it goes".
+
+## Place work across boxes
+
+Cross-box placement is the G-EM's job, decided from one query: `fleet-capacity` prints every known box's
+maxima and measured use, and lists a box that does not answer as `UNREACHABLE` with its last-known
+maxima: ask the PM to power it on. Place by measured headroom; the fleet's box preferences are in
+the group-em skill's `references/multibox.md` § Placement
+(`CROSS-BOX-PLACEMENT-IS-THE-G-EM-S-FROM-ONE-QUERY`).
 
 ## Boundaries
 

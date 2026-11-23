@@ -1594,6 +1594,12 @@ A regression-net-before-refactor plan must declare the test-env injection mechan
 
 Defense-in-depth contracts are "deliberate overlap" — NOT "necessary AND sufficient." The framing "necessary AND sufficient" implies orthogonality that layered defenses rarely have and invites future layer-removal ("we already cover that"). The correct framing is "compose with deliberate overlap." Apply: when documenting layered defenses (multiple validators, schema + runtime check + test), describe them as "deliberately overlapping" rather than "necessary AND sufficient."
 
+## Couple Two Halves at the Test, Never at Runtime
+
+When a producer's output must stay consistent with a downstream artifact (a policy, partition, or mapping file), do not plan a write-time assertion in the producer's write path. "Assert it at write time" reads as rigour and is fragility: it makes the producer depend on the downstream artifact being complete, so a stale or incomplete policy file stops data landing. That inverts the responsibilities (the store records what the source says; the policy artifact decides who sees it), and a policy gap becomes a data-loss event, unrecoverable when the upstream corpus cannot be re-pulled. It also puts a downstream artifact's completeness on the producer's critical path, the coupling both sides' anti-scope sections usually exist to prevent.
+
+**Rule:** plan a reconciliation TEST instead. It reads both sides and asserts the set relationship (every distinct key the producer can emit has a row in the consuming artifact). It fails loudly on exactly the condition the write-time check would catch, at a cadence gate rather than in the ingest path, and it cannot block a write. Case: a registry ticket table gaining a project-key column against a partition artifact mapping keys to buckets; a missing partition row is a fail-closed hole that surfaces as a quiet wrong answer, and a test is the someone looking.
+
 ## Sizing from inside an investigation under-counts execution scope 2-3x
 
 Scope numbers derived from inside an investigation or spike systematically under-count execution cost by 2-3×. Investigation-resolved scope reflects the planner's mental model, not the executor's cost. Apply 2× multiplier to any scope estimate that came from a spike, OR dispatch a scope-scout before writing the plan. Apply: never take a spike-derived "it's just N files" estimate at face value; budget for 2× to 3× actual.

@@ -12,6 +12,7 @@ import ipaddress
 import socket
 import subprocess
 import sys
+from typing import NamedTuple
 
 ADDRESSES_KEY = "unimatrix.addresses.{box}"
 HOSTKEY_KEY = "unimatrix.hostkey.{box}"
@@ -23,7 +24,10 @@ _MISMATCH_MARKERS = ("REMOTE HOST IDENTIFICATION HAS CHANGED", "Host key verific
 
 
 def box_addresses(box, read_key):
-    """The box's ordered address list: comma-separated IP literals, order kept, duplicates and invalid tokens dropped, at most 8."""
+    """The box's address list: comma-separated IP literals, duplicates and invalid tokens dropped, at most 8.
+
+    Order kept within a class, but IPv4 first, other IPv6 next, link-local (fe80) last: a link-local dial is
+    scope-ambiguous and adds a pre-auth connection the sshd MaxStartups drop counts."""
     raw = read_key(ADDRESSES_KEY.format(box=box)) or ""
     out = []
     for token in str(raw).split(","):
@@ -38,7 +42,12 @@ def box_addresses(box, read_key):
             out.append(tok)
         if len(out) == MAX_ADDRESSES:
             break
-    return out
+    return sorted(out, key=_address_rank)
+
+
+def _address_rank(tok):
+    ip = ipaddress.ip_address(tok.split("%", 1)[0])
+    return 0 if ip.version == 4 else (2 if ip.is_link_local else 1)
 
 
 def pinned_hostkey(box, read_key):
@@ -115,3 +124,54 @@ def first_answering(box, user, addresses, *, connect, verify):
             return address, skipped
         skipped.append((address, NOT_THIS_BOX if status == NOT_THIS_BOX else (detail or UNREACHABLE)))
     return None, skipped
+
+
+LAN = "lan"
+FALLBACK = "fallback"
+VERIFIED = "verified"
+SSH_STRICT_AT_DIAL = "ssh-strict-at-dial"
+UNAVAILABLE = "unavailable"
+NO_PINNED_HOSTKEY = "no-pinned-hostkey"
+NO_LAN_ADDRESS = "no-lan-address"
+MAX_TRIED = 2
+
+
+class Route(NamedTuple):
+    """The authenticated route to one enrolled peer; internal, never persisted.
+
+    `alias` is the logical peer name (identity, HostKeyAlias, record naming); `endpoint` is the address to
+    dial, which for a verified LAN route is the address that passed verification. `verification` is
+    `verified` (strict host-key ssh probe passed at `endpoint`), `ssh-strict-at-dial` (fallback, authenticated
+    by the strict ssh dial itself) or `unavailable` (no route: `endpoint` and `transport` are None)."""
+    peer: str
+    alias: str
+    endpoint: str | None
+    transport: str | None
+    relay_key: str | None
+    hostkey: str | None
+    verification: str
+    fallback_reason: str | None = None
+
+
+def select_route(peer, user, alias, read_key, *, connect, verify, fallback=None, relay_key=None, max_tried=MAX_TRIED) -> Route:
+    """The best authenticated route to `peer`: a verified LAN address, else `fallback`, else unavailable.
+
+    A TCP `connect` is only a prefilter; LAN needs a pinned host key (`unimatrix.hostkey.<peer>`) and a passing
+    strict `verify`. A peer with no pinned key never takes LAN. At most `max_tried` listed addresses are
+    verified, so one selection spawns at most `max_tried` ssh probes. Never raises on missing configuration:
+    the reason lands in `fallback_reason`."""
+    hostkey = pinned_hostkey(peer, read_key)
+    if not hostkey:
+        reason = NO_PINNED_HOSTKEY
+    else:
+        addresses = box_addresses(peer, read_key)[:max_tried]
+        if not addresses:
+            reason = NO_LAN_ADDRESS
+        else:
+            address, skipped = first_answering(peer, user, addresses, connect=connect, verify=verify)
+            if address:
+                return Route(peer, alias, address, LAN, relay_key, hostkey, VERIFIED)
+            reason = NOT_THIS_BOX if any(why == NOT_THIS_BOX for _a, why in skipped) else UNREACHABLE
+    if fallback:
+        return Route(peer, alias, fallback, FALLBACK, relay_key, hostkey, SSH_STRICT_AT_DIAL, reason)
+    return Route(peer, alias, None, None, relay_key, hostkey, UNAVAILABLE, reason)

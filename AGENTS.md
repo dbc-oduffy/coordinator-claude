@@ -24,7 +24,7 @@ The playbook for your agent type tells you:
 - What you are installing and why the order of steps matters
 - How to validate the result
 - What to tell the user before they restart
-- The command to run after the restart, if your agent type has one (Claude Code: `/coordinator:install` in a fresh session)
+- The activation and restart steps, followed by setup verification, for your agent type
 - The engine step — installing the required engine, `claude-klabauter`, from its own public repo, at the point your agent's playbook places it (step ordering is per host; follow `install/<agent>.md`, never another host's order)
 
 ## Why this file exists
@@ -35,7 +35,7 @@ The playbook for your agent type tells you:
 
 - Do not improvise the install steps from memory or inference — the playbook handles platform-specific traps (path translation, JSON-merge edge cases, the Windows Python App Execution Alias stub) that you will get wrong without it.
 - Do not skip the validation pass after install — an install that looks done but isn't validated will fail silently at SessionStart hooks.
-- Do not skip the restart your agent's playbook names — registration needs a fresh session. For Claude Code the post-restart step is `/coordinator:install`; other agents follow their own `install/<agent>.md`.
+- Do not skip the activation or restart your agent's playbook names — registration needs a fresh session. Follow `install/<agent>.md` for the continuation.
 - Do not skip leg 2, and do not present leg 1 alone as the whole job — see below.
 
 ## Leg 2: the engine (a hard co-requisite)
@@ -46,10 +46,10 @@ coordinator-claude has one hard dependency: the engine, published as `claude-kla
 `python3 <klabauter-clone>/scripts/setup.py --i-am-agent` (the non-interactive agent path), then verify with
 `python3 <klabauter-clone>/scripts/setup.py --check`. `pip install .` is NOT the engine install — do not use it.
 
-Step ordering belongs to each host's playbook, `install/<agent>.md`; follow your host's order and do
-not apply another host's. Claude Code's own case: run the engine only after the restart and
-`/coordinator:setup` complete Step 3 of its playbook; earlier, the engine's dependency check exits 127
-(`resolver not installed`) because coordinator-claude's `machine-local` forwarder has no resolver yet.
+Step ordering belongs to each host's generated playbook, `install/<agent>.md`; follow your host's
+order and its prerequisite checks. `/coordinator:setup` verifies the installed environment and
+engine; it is not a prerequisite for installing the engine. A `resolver not installed` failure
+requires the playbook's substrate remedy, rather than setup verification of an absent engine.
 
 Windows: `python <klabauter-clone>\scripts\setup.py` with the same flags, and disable the Python App Execution Alias
 stubs first (Settings › Apps › App execution aliases › turn off `python`/`python3`) — left on,

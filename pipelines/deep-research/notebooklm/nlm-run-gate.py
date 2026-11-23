@@ -24,6 +24,7 @@ _WORKER_COUNT = re.compile(r"^worker_count:\s*(\d+)\s*$", re.M)
 _NOTEBOOK_SECTION = re.compile(r"^##\s+Notebook\s+([A-Z])\b[^\n]*$", re.M)
 _SOURCES_SECTION = re.compile(r"^##\s+Sources\s+for\s+Notebook\s+([A-Z])\b[^\n]*$", re.M)
 _SOURCE_STRATEGY = re.compile(r"Source\s+strategy\s*\**\s*:\s*\**\s*`?([A-Za-z_\-]+)", re.I)
+_NOTEBOOK_ID = re.compile(r"Notebook\s+ID\s*\**\s*:\s*\**\s*`?([0-9A-Za-z][0-9A-Za-z_\-]{7,})", re.I)
 _URL = re.compile(r"https?://\S+")
 _ACCESSIBLE_OK = re.compile(r"Accessible:\s*\**\s*(?:YES|PARTIAL)\b", re.I)
 _ANY_HEADING = re.compile(r"^##\s", re.M)
@@ -106,6 +107,16 @@ def gate_sources(
         accessible = len(_ACCESSIBLE_OK.findall(scouted.get(letter, "")))
         checks["notebooks"][letter] = {"strategy": strategy, "accessible": accessible, "strategy_urls": urls}
         if strategy == "research_start":
+            continue
+        if strategy == "existing_notebook":
+            nid = _NOTEBOOK_ID.search(body)
+            if nid:
+                checks["notebooks"][letter]["notebook_id"] = nid.group(1)
+            else:
+                remedy.append(
+                    f"Notebook {letter} is existing_notebook but its section has no 'Notebook ID: <uuid>' line: "
+                    "re-run the scope stage to carry the bound id, or switch the notebook to scout-provided"
+                )
             continue
         if probe_status == "rate_limited" and accessible == 0:
             section = scouted.get(letter, "")

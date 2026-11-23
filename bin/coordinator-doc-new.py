@@ -509,6 +509,8 @@ def _no_console_passthrough_kwargs() -> dict:
 
 # Slug regex — mirrors cross-repo-memo's _TOPIC_SLUG_RE.
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]*$")
+# Engine row ids are uppercase (C0, R4); a chunk id only has to be path- and YAML-safe, so case is kept, not refused.
+_CHUNK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9\-]*$")
 
 #: Legal `kind:` values for a cross-repo memo. Mirrors
 #: `coordinator_core/ops/fleet/_outbox_frontmatter_rules.VALID_KINDS` and
@@ -8367,7 +8369,7 @@ def main(argv: "list[str] | None" = None) -> int:
         if not _SLUG_RE.match(args.plan):
             print(
                 f"error: --plan '{args.plan}' is not a valid plan stem. "
-                "Use lowercase alphanumeric + dashes only (^[a-z0-9][a-z0-9-]*$). "
+                "Use alphanumeric + dashes only (^[A-Za-z0-9][A-Za-z0-9-]*$). "
                 "Path separators, dots, colons, and other metacharacters are not allowed.",
                 file=sys.stderr,
             )
@@ -8387,10 +8389,10 @@ def main(argv: "list[str] | None" = None) -> int:
         # os.path.join("tasks", plan_slug, "flight", f"{cid}.md") carrying the raw traversal.
         # _SLUG_RE (^[a-z0-9][a-z0-9-]*$) matches canonical chunk ids (e.g. "c1-executor-prompt").
         # _assert_output_safe is a second-layer catch; this is the parse-time first layer.
-        if not _SLUG_RE.match(args.chunk):
+        if not _CHUNK_ID_RE.match(args.chunk):
             print(
                 f"error: --chunk '{args.chunk}' is not a valid chunk id. "
-                "Use lowercase alphanumeric + dashes only (^[a-z0-9][a-z0-9-]*$). "
+                "Use alphanumeric + dashes only (^[A-Za-z0-9][A-Za-z0-9-]*$). "
                 "Path separators, dots, colons, and other metacharacters are not allowed.",
                 file=sys.stderr,
             )
@@ -8419,10 +8421,10 @@ def main(argv: "list[str] | None" = None) -> int:
         if not args.chunk:
             print("error: --chunk <id> is required for --type subagent-sidecar.", file=sys.stderr)
             return 1
-        if not _SLUG_RE.match(args.chunk):
+        if not _CHUNK_ID_RE.match(args.chunk):
             print(
                 f"error: --chunk '{args.chunk}' is not a valid chunk id. "
-                "Use lowercase alphanumeric + dashes only (^[a-z0-9][a-z0-9-]*$). "
+                "Use alphanumeric + dashes only (^[A-Za-z0-9][A-Za-z0-9-]*$). "
                 "Path separators, dots, colons, and other metacharacters are not allowed.",
                 file=sys.stderr,
             )
@@ -8445,7 +8447,7 @@ def main(argv: "list[str] | None" = None) -> int:
         if not _SLUG_RE.match(args.system):
             print(
                 f"error: --system '{args.system}' is not a valid slug. "
-                "Use lowercase alphanumeric + dashes only (^[a-z0-9][a-z0-9-]*$). "
+                "Use alphanumeric + dashes only (^[A-Za-z0-9][A-Za-z0-9-]*$). "
                 "Path separators, dots, colons, and other metacharacters are not allowed.",
                 file=sys.stderr,
             )
@@ -9610,8 +9612,7 @@ def main(argv: "list[str] | None" = None) -> int:
                     out_path = os.path.join(_repo_root, out_path)
                     _anchored_repo_root = _repo_root
 
-    if not (args.out and doc_type == "plan"):  # an explicit plan --out is verbatim: sizing `plan:` edges name it
-        out_path = _place_in_output_tree(out_path, explicit=bool(args.out))
+    out_path = _place_in_output_tree(out_path, explicit=bool(args.out))
 
     # Security: containment check — resolve symlinks + '..' and verify the output
     # path falls within an allowed write root before creating any directories or files.

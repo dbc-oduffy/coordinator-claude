@@ -16,6 +16,10 @@ from pathlib import Path
 from types import ModuleType
 
 _REGISTRY_KEY = "repos.coordinator_claude"
+# repos.content_root is the canonical coordinator-claude anchor; a box that never set the
+# legacy key (the machine-local CLI may still answer it from a publish-mirror path the
+# direct registry reader does not see) resolves through it.
+_REGISTRY_KEYS = (_REGISTRY_KEY, "repos.content_root")
 
 
 def _scripts_dirs() -> "Iterator[Path]":
@@ -31,10 +35,10 @@ def _scripts_dirs() -> "Iterator[Path]":
     try:
         from coordinator_core import machine_resolver
 
-        root = machine_resolver.registry_get(_REGISTRY_KEY)
+        roots = [machine_resolver.registry_get(key) for key in _REGISTRY_KEYS]
     except Exception:
-        root = None
-    if root:
+        roots = []
+    for root in filter(None, roots):
         yield Path(root) / "hooks" / "scripts"
         yield Path(root) / "coordinator" / "hooks" / "scripts"
 

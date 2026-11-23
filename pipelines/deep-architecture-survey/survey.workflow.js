@@ -91,11 +91,12 @@ export const meta = {
 const INPUT = typeof args === 'string' ? JSON.parse(args) : args
 
 
-// INPUT arrives through the Workflow tool's `inputPath` (a JSON file the EM writes under the run's
-// scratch directory), never inline in the invocation — the atlas and chunk table are large.
+// Native Workflow scriptPath loads this script; args exactly {argsFile, argsSha256} is expanded
+// by the PreToolUse loader from the leg's immutable UTF-8 JSON snapshot, never embedded in script.
+// Top-level resumeFromRunId retries only the same leg with identical script and expanded args.
 //   runId: 'YYYY-MM-DD-HHhMM',
 //   repoRoot, mode, scaleTier, since, systemDirs, censusBuckets
-//   existingAtlas: { <systemName>: { content } }   // refresh only; read from the inputPath file
+//   existingAtlas: { <systemName>: { content } }   // refresh only; carried in file-expanded args
 //   selection: <survey_select_step.py stdout>       // refresh only; absent -> halt selection-required
 //                                                   //   (changed_systems[].plans[].preview_path, stable_systems)
 //   consumeGate: <survey-consume-gate.py stdout> | absent  // incl. structure_path | null (+ structure_unavailable_reason)
@@ -839,7 +840,7 @@ if (MODE === 'refresh' && !SELECTION) {
     phase_reached: 'selection',
     halted: 'selection-required',
     run_id: RUN_ID,
-    resume_hint: 'Run survey_select_step.py (pipelines/deep-architecture-survey) and carry its JSON as `selection` in the inputPath file, then re-invoke. Bootstrap mode needs no selection.',
+    resume_hint: 'Run survey_select_step.py (pipelines/deep-architecture-survey) and carry its JSON as `selection` in a new leg input file; recompute argsSha256 and start a fresh native run via scriptPath and args {argsFile, argsSha256}. Bootstrap mode needs no selection.',
   }
 }
 if (MODE === 'refresh') {
@@ -965,7 +966,7 @@ if (symbolsExtraction.halted) {
     symbols_receipt: SYMBOLS_RECEIPT
       ? { halt: SYMBOLS_RECEIPT.halt || null, artifact_path: SYMBOLS_RECEIPT.artifact_path || null, total_files: SYMBOLS_RECEIPT.total_files, requested_files: SYMBOLS_RECEIPT.requested_files, unavailable_count: SYMBOLS_RECEIPT.unavailable_count, unsupported_count: SYMBOLS_RECEIPT.unsupported_count }
       : null,
-    resume_hint: 'No agentic fallback exists for this stop. symbols-step-required: run the EM-side symbols step (--census-dir for the census-fallback path) and re-invoke with symbolsReceipt in the inputPath file. Any other label: resolve the named producer/coverage gap, then re-run the symbols step.',
+    resume_hint: 'No agentic fallback exists for this stop. symbols-step-required: run the EM-side symbols step (--census-dir for the census-fallback path), read the receipt at the printed path and its chunk_table_path JSON array, write them as symbolsReceipt and chunkTable in a new leg input file, recompute argsSha256 and start a fresh native run via scriptPath and args {argsFile, argsSha256}. Any other label: resolve the named producer/coverage gap, then re-run the symbols step.',
   }
 }
 

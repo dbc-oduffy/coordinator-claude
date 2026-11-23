@@ -74,6 +74,8 @@ Read the plan in full. Its **claim surface** is the assertions, decisions, and a
 
 **Mechanical thoroughness: every claim x every always-on corpus gets a search, and each search is a logged cell** (claim, corpus, query, hit count). 7 corpora x N claims cells; no claim is skipped because an earlier claim's search "covered" it. A corpus you cannot read is a cell with `status: absent|unreadable` and a named reason, never a missing cell. Grep is the finder, not the reader: **read in full the best hit per corpus per claim** (a hit's neighbours can carry the qualification), and for the doctrine wiki read its guide index and every title that shares a noun with the claim. A lesson written in different words than the plan (a time, a path, a symptom) is still prior art: search each claim's concrete nouns AND its mechanism, not only its title words.
 
+Enumerate each corpus once per run. When a search script builds a file inventory, keep the complete path list in scratch for reuse across claims. Return the inventory path, digest and count with the search cells and selected hits. Read each selected document in full as required below. Rebuild the inventory if the corpus changes.
+
 Per claim, search the corpus for prior art bearing on it:
 
 1. **Project wikis first.** `grep -rn "<keywords>" docs/wiki/`. Read promising matches in full.

@@ -226,6 +226,13 @@ REGISTRY: Tuple[StartGuard, ...] = (
     # `project_type: unreal-engine`.
     StartGuard("session_start_unreal_em_notice", "session-start-unreal-em-notice.py",
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
+    # Not resume/fork: their injection cap (400 bytes) cannot hold the rulings list.
+    StartGuard("session_start_pm_rulings_context", "session-start-pm-rulings-context.py",
+               frozenset({"startup", "clear", "compact"})),
+    # `compact` only: a compaction drops the goal the session's `/loop` carried; startup, clear
+    # and fork begin without that transcript's loop, and resume's 400-byte cap cannot hold it.
+    StartGuard("session_start_loop_goal", "session-start-loop-goal.py",
+               frozenset({"compact"})),
     # Every source: a compact or clear re-reads the boot payload, and the probe is a handful of
     # in-process imports. Silent unless an engine guard module fails to import.
     StartGuard("engine_guards_importable", "session-start-engine-guards-importable.py",

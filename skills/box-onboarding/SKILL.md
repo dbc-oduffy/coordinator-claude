@@ -50,6 +50,12 @@ run over ssh.
      `python3 <klabauter-clone>/scripts/setup.py --check --i-am-agent`.
      Done when the last prints `check: all items verified`. Engine deps land in
      `<settings-home>/engine-site` (no venv); never `--break-system-packages`.
+   - **Peer inbound (required, every box and OS):** `crossSessionInbound=accept` in
+     the Claude config dir's `settings.json`. Seed it with `seed-cross-session-inbound.py --apply`
+     per `coordinator/commands/install.md` "Cross-session inbound" (POSIX and PowerShell forms
+     there; `<plugin-root>/bin` resolved per `snippets/resolve-coordinator-bin.md`); it sets the key
+     only when unset, an explicit value stays. Done when the key reads `accept`; see
+     `cross-session-inbound-defaults-to-accept` in the tripwire registry.
    - **Capability probe (shipped):** `python3 -m coordinator_core.group_em.box_probe` writes `capability`
      (`os`, `arch`, `cpu_count`, `ram_mb`, `python`, `gpu`, `has_p4`, `has_ue`) into
      `<home>/state/group-em/box.json`. `has_ue` is true only with `UE_ROOT` or `UNREAL_ENGINE_ROOT` set

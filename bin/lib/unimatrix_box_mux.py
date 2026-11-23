@@ -33,6 +33,16 @@ _IP_HOSTS = {}
 IP_HOSTS_TTL_SECONDS = 300.0
 ADDRESS_TTL_SECONDS = 30.0
 _VERIFIED = {}
+MAX_SSH_PER_HOST = 4
+_HOST_SLOTS = {}
+_HOST_SLOTS_LOCK = threading.Lock()
+
+
+def host_slot(host):
+    """Process-local semaphore capping concurrent ssh to one host at MAX_SSH_PER_HOST: sshd's MaxStartups drops
+    pre-auth connections at random past ~10 from one source, so a fan-out must queue, not burst."""
+    with _HOST_SLOTS_LOCK:
+        return _HOST_SLOTS.setdefault(str(host).lower(), threading.BoundedSemaphore(MAX_SSH_PER_HOST))
 
 
 def _no_window():
@@ -116,11 +126,12 @@ def resolve_remote(remote, ip_hosts=None):
     return (f"{user}@{host}" if user else host), box_of(host)
 
 
-def ssh_argv(box, key, host, extra=()):
-    """The ssh argv up to (not including) the remote command: key, batch mode, HostKeyAlias=<box>, keepalive.
+def ssh_argv(box, key, host, extra=()) -> list:
+    """The ssh argv up to (not including) the remote command: pinned key only (IdentitiesOnly, IdentityAgent=none so
+    SSH_AUTH_SOCK/1Password is never consulted), batch mode, HostKeyAlias=<box>, keepalive.
 
     `extra` leads the options: ssh keeps the first value of a repeated -o, so a caller's keepalive overrides the default."""
-    return ["ssh", *extra, "-i", key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "AddressFamily=inet",
+    return ["ssh", *extra, "-i", key, "-o", "IdentitiesOnly=yes", "-o", "IdentityAgent=none", "-o", "BatchMode=yes", "-o", "AddressFamily=inet",
             "-o", f"HostKeyAlias={box}", "-o", "StrictHostKeyChecking=accept-new", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
             host]
 
@@ -143,8 +154,9 @@ class DirectChannel:
     def run(self, command, data=b"", timeout=30):
         """ssh `command` with `data` on stdin; any fault is a returncode-255 result."""
         try:
-            return subprocess.run([*self._argv(), command], input=data, capture_output=True, timeout=timeout,
-                                  creationflags=_no_window())
+            with host_slot(self.host):
+                return subprocess.run([*self._argv(), command], input=data, capture_output=True, timeout=timeout,
+                                      creationflags=_no_window())
         except Exception as ex:
             return _fault(command, ex)
 
@@ -191,8 +203,10 @@ class BrokerChannel(DirectChannel):
         self.home = Path(home)
         self._spawn = spawn_broker or self._spawn_detached
 
-    def _spawn_detached(self):
-        flags = _no_window() | getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    def _spawn_detached(self) -> None:
+        # Trap: never DETACHED_PROCESS. It overrides CREATE_NO_WINDOW, leaving the broker without a console,
+        # so every console grandchild opens a visible window.
+        flags = _no_window() | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         subprocess.Popen([_roster().console_python(), str(Path(__file__).resolve()), "broker", "--box", self.box, "--host", self.host,
                           "--key", self.key, "--home", str(self.home), *[f"--extra={e}" for e in self.extra]],
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -258,7 +272,7 @@ def _recorded_far_platform(box):
     roster = _roster()
     safe = _ALIAS_UNSAFE.sub("-", box)
     try:
-        rec = json.loads((Path(roster.settings_home()) / "unimatrix" / "control-far" / f"{safe}.json").read_text(encoding="utf-8"))
+        rec = json.loads((Path(roster.delivery_settings_home()) / "unimatrix" / "control-far" / f"{safe}.json").read_text(encoding="utf-8"))
         found = _platform_class(rec.get("platform")) if isinstance(rec, dict) else None
     except (OSError, ValueError):
         found = None
@@ -313,7 +327,7 @@ def channel(box, *, key, host, home=None, extra=(), direct=False, mux_options=No
             # Windows sshd replays a master's first command to later channels: a send lands in the wrong session.
             mux_options = lambda h: []
         return DirectChannel(box, key, host, extra, mux_options)
-    return BrokerChannel(box, key, host, home or _roster().settings_home(), extra, spawn_broker)
+    return BrokerChannel(box, key, host, home or _roster().delivery_settings_home(), extra, spawn_broker)
 
 
 def _far_addresses():
@@ -322,7 +336,7 @@ def _far_addresses():
 
 def machine_local_value(name):
     """The machine-local value of `name` (one reader spawn), '' when the reader is missing or fails."""
-    reader = _roster().settings_home() / "bin" / "_machine_local.py"
+    reader = _roster().delivery_settings_home() / "bin" / "_machine_local.py"
     if not reader.is_file():
         return ""
     try:

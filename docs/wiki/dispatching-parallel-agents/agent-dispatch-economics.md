@@ -213,6 +213,12 @@ A sizing object's scout evidence — collected to justify its route — also ans
 
 **How to apply.** When dispatching a reviewer on work that went through `coordinator:sizing`, name the sizing object in the brief or inline its scout evidence — this doesn't tell the reviewer what to conclude, it spares it re-deriving context the EM already paid for. This matters most where a diff's scope looks wider than its subject line, which is exactly the shape that draws a spurious scope-creep finding. The same reasoning extends to carrying forward a prior reviewer's verification notes, so a second reviewer does not re-trace hazards already traced.
 
+## Dispatch "Check N Items for Property X" Audits at Once — Don't Grep Them Inline
+
+When a request becomes "check N commits/files for property X" (for example, macOS parity across a day's commits), dispatch it as one audit-and-fix agent immediately. Do not start reading launchers and grepping tests inline first: inline auditing burns EM context on file dumps and serialises work that would otherwise run in parallel with everything else in flight. The PM has had to interrupt this pattern ("dispatch for this sort of thing").
+
+**How to apply.** Allow at most one or two confirming reads, only to write a precise brief: name the commits, the suspected traps, and the in-flight files to leave alone. Then dispatch. State the cross-platform requirement (macOS is first-class) in EVERY dispatch brief up front; adding it afterwards by `SendMessage` is the fallback, not the pattern.
+
 ## Related
 
 - → `docs/wiki/dispatching-parallel-agents.md` — when parallel-shape is appropriate; Coupling Rules Out Concurrency; Peer-Scope Prohibition

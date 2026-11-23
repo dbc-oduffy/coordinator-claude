@@ -114,6 +114,7 @@ VENDORED_SCRIPTS = (
     "unimatrix-peer-contract.py",
     "unimatrix-local-transport.py",
     "unimatrix-peer-codex.py",
+    "unimatrix-codex-launch.py",
     "unimatrix-peer-agy.py",
     "unimatrix-peer-grok.py",
     "unimatrix-agy-leg.py",
@@ -132,6 +133,7 @@ VENDORED_SCRIPTS = (
     "unimatrix-membership.py",
     "unimatrix-doctor.py",
     "unimatrix-pair.py",
+    "unimatrix-install.py",
     "unimatrix-file.py",
     "unimatrix-file-relay.py",
     "unimatrix-passphrase.py",
@@ -354,7 +356,7 @@ def check_win32_pipe_capability(src_dir, dest_dir):
         f"install from the klabauter published mirror tree")
 
 
-def install_scripts(src_dir, dest_dir):
+def install_scripts(src_dir, dest_dir, on_copy=None):
     """Copy VENDORED_SCRIPTS plus the autolink closure from src_dir into dest_dir; return the copied names.
     Raises PipeCapabilityRefused on win32 before any copy when the source router lacks the pipe transport."""
     wanted = list(VENDORED_SCRIPTS) + sorted(script_closure(src_dir) - set(VENDORED_SCRIPTS))
@@ -365,14 +367,14 @@ def install_scripts(src_dir, dest_dir):
     dest = Path(dest_dir)
     _mkdir_0755(dest)
     for name in wanted:
-        _copy_if_changed(Path(src_dir) / name, dest / name)
+        _copy_if_changed(Path(src_dir) / name, dest / name, on_copy)
     for name in VENDORED_LIB:
         if (Path(src_dir) / "lib" / name).is_file():
             _mkdir_0755(dest / "lib")
-            _copy_if_changed(Path(src_dir) / "lib" / name, dest / "lib" / name)
+            _copy_if_changed(Path(src_dir) / "lib" / name, dest / "lib" / name, on_copy)
     extra = [n for n in OPTIONAL_SCRIPTS if n not in wanted and (Path(src_dir) / n).is_file()]
     for name in extra:
-        _copy_if_changed(Path(src_dir) / name, dest / name)
+        _copy_if_changed(Path(src_dir) / name, dest / name, on_copy)
     return wanted + extra
 
 
@@ -404,7 +406,7 @@ def untraversable_path_dirs(path_env=None):
     return bad
 
 
-def _copy_if_changed(src, dst):
+def _copy_if_changed(src, dst, on_copy=None):
     """copy2 unless dst already holds the same bytes: an unchanged script keeps its st_ctime, which the
     relay reap reads as the moment the code last changed."""
     try:
@@ -413,6 +415,8 @@ def _copy_if_changed(src, dst):
     except OSError:
         pass
     shutil.copy2(src, dst)
+    if on_copy is not None:
+        on_copy(dst)
 
 
 VENDORED_LIB = ("python_interp.py", "unimatrix_box_mux.py", "unimatrix_relay_sessions.py", "session_detach.py",
@@ -479,6 +483,8 @@ _PIN_CACHE = {}
 
 def _pin_value():
     """The machine-local `unimatrix.python` value autolink reads, when it names a file; else None. One read per settings home."""
+    # Trap: a non-login ssh session carries no env, and the roster's settings_home() is strict.
+    os.environ.setdefault("COORDINATOR_SETTINGS_HOME", str(settings_home()))
     roster = _sibling("unimatrix-roster.py")
     home = str(roster.settings_home())
     if home not in _PIN_CACHE:
@@ -967,6 +973,41 @@ def rewrite_forced_interpreters(path, interpreter):
     return changed
 
 
+_FORCED_RELAY_PATH = re.compile(r'\\"([^"]*?)unimatrix-relay\.py\\"|(\S*?)unimatrix-relay\.py')
+
+
+def rewrite_forced_relay_paths(path, dest_dir) -> int:
+    """Point every uncommented forced command that runs unimatrix-relay.py out of a klabauter checkout
+    (`.../coordinator/bin/`) at the installed copy in `dest_dir`, which --install refreshes; the checkout is never
+    updated by an install, so the far relay otherwise drifts. Lines naming any other directory are left alone.
+    Returns the number of lines rewritten (0 when the file is absent or unreadable)."""
+    path = Path(path).resolve()
+    try:
+        text = path.read_text(encoding="utf-8", newline="")
+    except OSError:
+        return 0
+    target = str(Path(dest_dir) / _RELAY_FORCED_SCRIPT)
+    token = f'\\"{target}\\"' if " " in target else target
+    changed = 0
+    lines = []
+    for line in text.splitlines(keepends=True):
+        m = _FORCED_COMMAND.search(line)
+        if m and not line.lstrip().startswith("#"):
+            inner = m.group(1)
+            rm = _FORCED_RELAY_PATH.search(inner)
+            folder = rm and (rm.group(1) if rm.group(1) is not None else rm.group(2))
+            if folder and folder.replace("\\", "/").rstrip("/").lower().endswith("/coordinator/bin"):
+                line = line[:m.start(1)] + inner[:rm.start()] + token + inner[rm.end():] + line[m.end(1):]
+                changed += 1
+        lines.append(line)
+    if changed:
+        tmp = path.with_name(path.name + ".unimatrix-tmp")
+        tmp.write_text("".join(lines), encoding="utf-8", newline="")
+        shutil.copymode(path, tmp)
+        os.replace(tmp, path)
+    return changed
+
+
 def agy_hooks_path():
     """agy's global hook discovery file."""
     return Path.home() / ".gemini" / "config" / "hooks.json"
@@ -1218,10 +1259,10 @@ def unseed_agy_hook(hooks_path):
 _CODEX_OWNED_SCRIPTS = (CODEX_SESSIONSTART_SCRIPT, GUARD_SCRIPT, EXTERNAL_SESSION_SCRIPT)
 
 
-def _codex_ours(group):
+def _codex_ours(group, dest_dir=None):
     """True for a group holding a handler that runs the SessionStart script or the guard."""
     return isinstance(group, dict) and any(
-        isinstance(h, dict) and any(s in str(h.get("command", "")) for s in _CODEX_OWNED_SCRIPTS)
+        _codex_owned_handler(h, dest_dir)
         for h in group.get("hooks") or []
     )
 
@@ -1236,15 +1277,50 @@ def _codex_events(data, path, event="SessionStart"):
     return events
 
 
-def _codex_owned_handler(handler):
-    return isinstance(handler, dict) and any(
-        name in str(handler.get("command", "")) for name in _CODEX_OWNED_SCRIPTS)
+def _codex_owned_handler(handler, dest_dir=None):
+    return _codex_handler_script(handler, dest_dir) is not None
 
 
-def _without_codex_handlers(group):
-    if not _codex_ours(group):
+def _codex_handler_script(handler, dest_dir=None):
+    if not isinstance(handler, dict) or not isinstance(handler.get("command"), str):
+        return None
+    command = handler["command"]
+    try:
+        argv = [arg.strip("\"'") for arg in shlex.split(command, posix="\\" not in command)]
+    except ValueError:
+        return None
+    if not argv:
+        return None
+    executable = Path(argv[0].replace("\\", "/")).name
+    if re.fullmatch(r"(?:python(?:w|\d+(?:\.\d+)*)?|py)(?:\.exe)?", executable, re.IGNORECASE):
+        argv = argv[1:]
+        while argv and argv[0] in ("-u", "-B", "-E", "-I", "-s", "-S"):
+            argv = argv[1:]
+    if not argv:
+        return None
+    script_path = argv[0].replace("\\", "/")
+    script = Path(script_path).name
+    if script not in _CODEX_OWNED_SCRIPTS:
+        return None
+    target = dest_dir if dest_dir is not None else settings_home() / "unimatrix"
+    wanted = str(Path(str(target).replace("\\", "/")) / script).replace("\\", "/")
+    # Windows legacy commands used backslashes and case-insensitive drive paths.
+    if re.match(r"^[a-zA-Z]:/", wanted):
+        return script if script_path.casefold() == wanted.casefold() else None
+    return script if script_path == wanted else None
+
+
+def _write_codex_hooks(path, data, baseline):
+    if (path.read_bytes() if path.exists() else None) != baseline:
+        raise ValueError(f"{path}: retryable drift during hook merge; rerun enrollment")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+
+def _without_codex_handlers(group, dest_dir=None):
+    if not _codex_ours(group, dest_dir):
         return group
-    foreign = [handler for handler in group.get("hooks") or [] if not _codex_owned_handler(handler)]
+    foreign = [handler for handler in group.get("hooks") or [] if not _codex_owned_handler(handler, dest_dir)]
     return {**group, "hooks": foreign} if foreign else None
 
 
@@ -1252,20 +1328,21 @@ def seed_codex_hook(hooks_path, dest_dir, engine_root=None):
     """Install owned handlers idempotently, retaining every foreign handler/group."""
     path = Path(hooks_path)
     existed = path.exists()
+    baseline = path.read_bytes() if existed else None
     data = _load_hooks(path)
     changed = False
     added = False
     for event, want in codex_hook_events(dest_dir, engine_root).items():
         events = _codex_events(data, path, event)
         found = False
-        had_owned = any(_codex_ours(group) for group in events)
+        had_owned = any(_codex_ours(group, dest_dir) for group in events)
         updated = []
         for group in events:
             if group == want and not found:
                 updated.append(group)
                 found = True
             else:
-                cleaned = _without_codex_handlers(group)
+                cleaned = _without_codex_handlers(group, dest_dir)
                 if cleaned is not None:
                     updated.append(cleaned)
         if not found:
@@ -1276,14 +1353,14 @@ def seed_codex_hook(hooks_path, dest_dir, engine_root=None):
             changed = True
     if not changed:
         return "present"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    _write_codex_hooks(path, data, baseline)
     return "created" if not existed else "added" if added else "updated"
 
 
-def unseed_codex_hook(hooks_path):
+def unseed_codex_hook(hooks_path, dest_dir=None):
     """Remove owned handlers individually; mixed foreign groups retain their data."""
     path = Path(hooks_path)
+    baseline = path.read_bytes() if path.exists() else None
     data = _load_hooks(path)
     hooks = data.get("hooks")
     if not isinstance(hooks, dict):
@@ -1291,17 +1368,17 @@ def unseed_codex_hook(hooks_path):
     removed = False
     for event in tuple(hooks):
         events = hooks[event]
-        if not isinstance(events, list) or not any(_codex_ours(group) for group in events):
+        if not isinstance(events, list) or not any(_codex_ours(group, dest_dir) for group in events):
             continue
         removed = True
-        events[:] = [cleaned for group in events if (cleaned := _without_codex_handlers(group)) is not None]
+        events[:] = [cleaned for group in events if (cleaned := _without_codex_handlers(group, dest_dir)) is not None]
         if not events:
             del hooks[event]
     if not removed:
         return "absent"
     if not hooks:
         del data["hooks"]
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    _write_codex_hooks(path, data, baseline)
     return "removed"
 
 
@@ -1310,7 +1387,7 @@ def _event_id(name):
     return re.sub(r"[^a-z0-9]", "", str(name).lower())
 
 
-def _codex_expected_handlers(hooks_path):
+def _codex_expected_handlers(hooks_path, dest_dir=None):
     """Exact (event, command) identities; multiple owned handlers may share an event."""
     hooks = _load_hooks(hooks_path).get("hooks")
     expected = {}
@@ -1326,10 +1403,10 @@ def _codex_expected_handlers(hooks_path):
     for event, groups in (hooks.items() if isinstance(hooks, dict) else ()):
         for group in groups if isinstance(groups, list) else ():
             for handler in (group.get("hooks") or []) if isinstance(group, dict) else ():
-                if not _codex_owned_handler(handler):
+                if not _codex_owned_handler(handler, dest_dir):
                     continue
                 command = str(handler.get("command", ""))
-                script = next(name for name in _CODEX_OWNED_SCRIPTS if name in command)
+                script = _codex_handler_script(handler, dest_dir)
                 identity = (event, script)
                 if identity not in required:
                     raise ValueError(f"{script} is on the wrong event {event}")
@@ -1476,6 +1553,9 @@ def seed_codex_status_line(config_path, *, uninstall=False) -> str:
             prior = None
     # A footer we seeded earlier re-derives from its pre-install value, dropping natives we added.
     base = prior["original"] if prior is not None and current == prior["managed"] else current
+    if prior is not None and current != prior["managed"] and isinstance(current, list):
+        seeded = set(prior["managed"]) - set(prior["original"] or []) - set(_STATUS_DEFAULT)
+        base = [item for item in current if item not in seeded]
     wanted = _status_profile(base)
     if wanted == current:
         return "present"
@@ -1486,7 +1566,7 @@ def seed_codex_status_line(config_path, *, uninstall=False) -> str:
     # Preserve the first pre-install value across subsequent managed updates.
     state = _footer_state(state_path) if state_path.exists() else None
     if not isinstance(state, dict) or state.get("version") != 1 or current != state.get("managed"):
-        state = {"version":1, "present":present, "original":current}
+        state = {"version":1, "present":present, "original":base}
     state["managed"] = wanted
     path.parent.mkdir(parents=True, exist_ok=True)
     _footer_write(state_path, json.dumps(state, ensure_ascii=False) + "\n")
@@ -2182,6 +2262,7 @@ LOGIN_AGENT_LABEL = "com.unimatrix.autolink"
 LOGIN_AGENT_INTERVAL_S = 60
 LOGIN_TASK_NAME = "UnimatrixAutolink"
 LOGIN_UNIT = "unimatrix-autolink.service"
+LOGIN_TIMER = "unimatrix-autolink.timer"
 
 
 def run_schtasks(*args):
@@ -2306,17 +2387,32 @@ def _delete_login_task(schtasks=None, strict=False):
 def _login_agent_text(dest_dir):
     """Bytes of the login-agent file for this OS: a RunAtLoad plist that launchd re-runs every
     LOGIN_AGENT_INTERVAL_S (autolink's healthy path reads records and spawns nothing; a dead supervisor is
-    relinked), or a oneshot systemd unit. AbandonProcessGroup keeps launchd's job-exit cleanup from reaping
-    the supervisors autolink spawned."""
+    relinked), or a oneshot systemd unit that a sibling timer (``_login_timer_text``) re-runs on the same
+    interval. AbandonProcessGroup keeps launchd's job-exit cleanup from reaping the supervisors autolink
+    spawned; KillMode=process is systemd's analogue -- the default control-group mode reaps every process
+    left in the oneshot's cgroup when ExecStart exits, killing the link at every login."""
     argv = _autolink_argv(dest_dir)
     if sys.platform == "darwin":
         import plistlib
         return plistlib.dumps({"Label": LOGIN_AGENT_LABEL, "ProgramArguments": argv, "RunAtLoad": True,
                                "StartInterval": LOGIN_AGENT_INTERVAL_S, "AbandonProcessGroup": True,
                                "ProcessType": "Standard", "Nice": 0})
-    return ("[Unit]\nDescription=Unimatrix autolink at login\n\n[Service]\nType=oneshot\n"
+    return ("[Unit]\nDescription=Unimatrix autolink at login\nWants=network-online.target\n"
+            "After=network-online.target\n\n[Service]\nType=oneshot\nKillMode=process\n"
             f"ExecStart={' '.join(shlex.quote(a) for a in argv)}\n\n[Install]\nWantedBy=default.target\n"
             ).encode("utf-8")
+
+
+def _login_timer_text() -> bytes:
+    """The Linux relink timer: launchd's StartInterval for the oneshot unit, so a dead supervisor is
+    relinked within LOGIN_AGENT_INTERVAL_S of dying, not at the next login."""
+    return ("[Unit]\nDescription=Unimatrix autolink relink\n\n[Timer]\nOnBootSec=30\n"
+            f"OnUnitInactiveSec={LOGIN_AGENT_INTERVAL_S}\nUnit={LOGIN_UNIT}\n\n"
+            "[Install]\nWantedBy=timers.target\n").encode("utf-8")
+
+
+def _login_timer_paths(agent_dir) -> tuple:
+    return Path(agent_dir) / LOGIN_TIMER, Path(agent_dir) / "timers.target.wants" / LOGIN_TIMER
 
 
 def _login_agent_paths(agent_dir):
@@ -2401,9 +2497,19 @@ def register_login_agent(dest_dir, agent_dir=None, schtasks=None, launchctl=None
     if state != "present":
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
-    if sys.platform != "darwin" and not link.is_symlink():
-        link.parent.mkdir(parents=True, exist_ok=True)
-        link.symlink_to(f"../{LOGIN_UNIT}")
+    if sys.platform != "darwin":
+        if not link.is_symlink():
+            link.parent.mkdir(parents=True, exist_ok=True)
+            link.symlink_to(f"../{LOGIN_UNIT}")
+        timer, timer_link = _login_timer_paths(root)
+        timer_data = _login_timer_text()
+        if not timer.exists() or timer.read_bytes() != timer_data:
+            timer.write_bytes(timer_data)
+            if state == "present":
+                state = "updated"
+        if not timer_link.is_symlink():
+            timer_link.parent.mkdir(parents=True, exist_ok=True)
+            timer_link.symlink_to(f"../{LOGIN_TIMER}")
     # A caller-chosen agent_dir with the real launchctl would boot out this box's live agent: reload only
     # the OS agent dir, or under an injected launchctl.
     if sys.platform == "darwin" and state == "updated" and (launchctl or not agent_dir):
@@ -2557,7 +2663,8 @@ def unregister_login_agent(agent_dir=None, schtasks=None):
     if root is None:
         return "absent"
     removed = False
-    for path in _login_agent_paths(root):
+    paths = (*_login_agent_paths(root), *(() if sys.platform == "darwin" else _login_timer_paths(root)))
+    for path in paths:
         if path.is_symlink() or path.exists():
             path.unlink()
             removed = True
@@ -2635,10 +2742,12 @@ def reap_stale_relays(dest_dir, ps=None, kill=None):
     return [s.pid for s in groups[rs.STALE]], [s.pid for s in groups[rs.MISMATCHED]], failed
 
 
-def render_peer_doctrine(dest_dir, template=None):
-    """Return the managed block: the doctrine template with {SEND} bound to the installed send command."""
+def render_peer_doctrine(dest_dir, template=None, skills_root=None):
+    """Return the managed block: the doctrine template with {SEND}, {INVOKE} and {SKILLS_ROOT} bound.
+
+    {SKILLS_ROOT} is the installed plugin skills tree (the module SKILLS_ROOT when `skills_root` is None)."""
     body = Path(template or PEER_DOCTRINE_TEMPLATE).read_text(encoding="utf-8").strip("\n")
-    body = body.replace("{SEND}", _hook_command(dest_dir, SEND_SCRIPT)).replace("{INVOKE}", _quote_argv([invoke_launcher_path()]))
+    body = body.replace("{SEND}", _hook_command(dest_dir, SEND_SCRIPT)).replace("{INVOKE}", _quote_argv([invoke_launcher_path()])).replace("{SKILLS_ROOT}", str(Path(skills_root or SKILLS_ROOT)))
     return f"{DOCTRINE_BEGIN}\n{body}\n{DOCTRINE_END}\n"
 
 
@@ -2771,7 +2880,7 @@ def resolve_engine_root():
                   "run: machine-local set repos.claude_klabauter <published klabauter root>")
 
 
-def trust_codex_hook(hooks_path, timeout=30):
+def trust_codex_hook(hooks_path, timeout=30, *, dest_dir=None):
     """Mark our Codex SessionStart hook trusted in config.toml via `codex app-server`.
 
     Codex runs a user hook only after its content hash is recorded under hooks.state; the app-server
@@ -2813,7 +2922,7 @@ def trust_codex_hook(hooks_path, timeout=30):
         rpc(1, "initialize", {"clientInfo": {"name": "unimatrix-install", "version": "1"}})
         proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "initialized"}) + "\n")
         proc.stdin.flush()
-        expected = _codex_expected_handlers(hooks_file)
+        expected = _codex_expected_handlers(hooks_file, dest_dir)
         here = hooks_file.resolve()
 
         def discover(rid):
@@ -2842,6 +2951,8 @@ def trust_codex_hook(hooks_path, timeout=30):
             if not (isinstance(hook.get("key"), str) and hook["key"]
                     and isinstance(hook.get("currentHash"), str) and hook["currentHash"]):
                 raise ValueError(f"{hook.get('eventName', 'hook')} reports no key or content hash")
+            if hook.get("trustedHash") == hook["currentHash"] or (hook.get("trustedHash") is None and hook.get("trustStatus") == "trusted"):
+                continue
             rpc(3, "config/value/write", {
                 "keyPath": f'hooks.state.{json.dumps(hook["key"], ensure_ascii=False)}.trusted_hash',
                 "value": hook["currentHash"],
@@ -2871,6 +2982,81 @@ def trust_codex_hook(hooks_path, timeout=30):
         proc.wait()
 
 
+def enroll_codex_runtime(engine_root, *, consent=False, check=False, dest_dir=None, out=None):
+    """Shared strict enrollment/update: return zero only for a ready, trusted runtime.
+
+    Check mode is read-only; consent must be the literal boolean True for writes.
+    """
+    out = out or sys.stdout
+    if not check and consent is not True:
+        print("Codex runtime: consent.codex_runtime must be true", file=out)
+        return 2
+    root = Path(engine_root)
+    dest = Path(dest_dir) if dest_dir else settings_home() / "unimatrix"
+    hp = codex_hooks_path()
+    from coordinator_core.install import host_install_codex
+    if not host_present("codex"):
+        print("Codex runtime: codex CLI absent; install Codex then rerun coordinator-install", file=out)
+        return 7
+    ready, note = external_session_capability(str(root))
+    if not ready:
+        print(f"Codex runtime: lifecycle unavailable: {note}", file=out)
+        return 7
+    try:
+        # Validate operator configuration before changing any owned surface.
+        config = hp.with_name("config.toml")
+        if config.exists():
+            tomllib.loads(config.read_text(encoding="utf-8"))
+        data = _load_hooks(hp)
+        drift = any([g for g in _codex_events(data, hp, event) if _codex_ours(g, dest)] != [want]
+                    for event, want in codex_hook_events(dest, str(root)).items())
+        mcp = host_install_codex.apply(check=True)
+        print(f"Codex runtime: hooks={'drift' if drift else 'current'} mcp={mcp.mcp}", file=out)
+        if mcp.mcp not in ("current", "present", "would-write"):
+            return 7
+        plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
+        template = Path(plugin_root) / "templates" / "unimatrix" / "peer-doctrine.md" if plugin_root else None
+        peer_block = render_peer_doctrine(dest, template, Path(plugin_root) / "skills" if plugin_root else None)
+        if check:
+            print("Codex runtime: native trust not probed (read-only)", file=out)
+            return 0
+        copied = []
+        try:
+            install_scripts(root / "coordinator" / "bin", dest, copied.append)
+        finally:
+            if copied:
+                print(f"Codex runtime: copied {len(copied)} runtime files into {dest}", file=out)
+        if not copied:
+            print(f"Codex runtime: runtime files current in {dest}", file=out)
+        state = seed_codex_hook(hp, dest, str(root))
+        ok, note = trust_codex_hook(hp, dest_dir=dest)
+        print(f"Codex runtime: hooks={state}; {note}", file=out)
+        if not ok:
+            return 5
+        footer = seed_codex_status_line(config)
+        print(f"Codex runtime: status line {footer}", file=out)
+        doctrine = seed_peer_doctrine(codex_rules_path(), peer_block)
+        print(f"Codex runtime: peer doctrine {doctrine}", file=out)
+        rule = seed_file(codex_exec_rule_path(), render_codex_exec_rule(dest))
+        print(f"Codex runtime: exec rule {rule}", file=out)
+        missing = _seed_standing_doctrine(
+            out, True, False, codex_rules_path(), None,
+            Path.home() / ".agents" / "skills", None,
+            plugin_root, Path(plugin_root) / "skills" if plugin_root else SKILLS_ROOT)
+        if missing:
+            print(f"Codex runtime: incomplete: {', '.join(missing)}", file=out)
+            return 7
+        mcp = host_install_codex.apply()
+        print(f"Codex runtime: project-rag MCP {mcp.mcp}", file=out)
+        if mcp.mcp not in ("written", "current", "present"):
+            return 7
+    except (OSError, ValueError, RuntimeError) as exc:
+        print(f"Codex runtime: {exc}", file=out)
+        return 7
+    print("Codex runtime ready", file=out)
+    return 0
+
+
 def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
          codex_hooks=None, codex_trust=None, codex_rules=None, agy_rules=None, codex_exec_rule=None,
          agy_skills_json=None, codex_skills=None, agent_dir=None, schtasks=None, pair_run=None,
@@ -2891,6 +3077,7 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
     when that is overridden, or `agent_dir`; `schtasks` (argv tail -> CompletedProcess) replaces the real
     Task Scheduler, which an overridden `hooks_path` otherwise skips."""
     out = out or sys.stdout
+    os.environ.setdefault("COORDINATOR_SETTINGS_HOME", str(settings_home()))
     if agent_dir is None and hooks_path is not None:
         agent_dir = Path(hooks_path).with_name("login-agent")
     if schtasks is None and hooks_path is not None:
@@ -2919,7 +3106,7 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
     grok_rp = grok_rules_path() if hooks_path is None else Path(hooks_path).with_name("grok-peer-doctrine.md")
     grok_hp = grok_hooks_path() if hooks_path is None else Path(hooks_path).with_name("grok-hooks.json")
     if codex_trust is None and codex_default:
-        codex_trust = trust_codex_hook
+        codex_trust = lambda hp: trust_codex_hook(hp, dest_dir=dest_dir)
     agy_sj = Path(agy_skills_json) if agy_skills_json else (
         agy_hooks_path().with_name("skills.json") if hooks_path is None else Path(hooks_path).with_name("agy-skills.json")
     )
@@ -2929,6 +3116,8 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
     )
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--install", action="store_true", help="copy the vendored scripts into the settings home")
+    ap.add_argument("--enroll-runtime", action="store_true", help="explicitly consent to strict Codex enrollment/update")
+    ap.add_argument("--check", action="store_true", help="read-only runtime drift report with --enroll-runtime")
     ap.add_argument("--uninstall", action="store_true", help="remove everything --install seeded for Codex and agy")
     ap.add_argument("--refresh-hooks", action="store_true", help="re-render an already-installed Grok hook to the current emitter output "
                     "(session-start and adoption trigger; creates nothing, no script copy, no Claude gate)")
@@ -2963,6 +3152,12 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
                     "process at nice != 0 (project-rag serve lineage excluded), then boot the autolink launchd agent out "
                     "and in so the messaging set relaunches at nice 0; no sudo")
     args = ap.parse_args(argv)
+    if args.enroll_runtime:
+        root, provenance = resolve_engine_root()
+        if not root:
+            print(f"Codex runtime: engine unresolved ({provenance})", file=out)
+            return 7
+        return enroll_codex_runtime(root, consent=True, check=args.check, dest_dir=dest_dir, out=out)
     skills_root = Path(args.plugin_root) / "skills" if args.plugin_root else SKILLS_ROOT
     if args.openssh_receive:
         if sys.platform != "win32":
@@ -3096,7 +3291,7 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
             steps.append(("agy peer doctrine", agy_rp, lambda: unseed_peer_doctrine(agy_rp)))
         if want_codex:
             steps.append(("codex status footer", codex_hp.with_name("config.toml"), lambda: seed_codex_status_line(codex_hp.with_name("config.toml"), uninstall=True)))
-            steps.append(("codex hook", codex_hp, lambda: unseed_codex_hook(codex_hp)))
+            steps.append(("codex hook", codex_hp, lambda: unseed_codex_hook(codex_hp, dest_dir)))
             steps.append(("codex skills", codex_sd, lambda: ",".join(_seed().unseed_codex_skills(codex_sd)) or "absent"))
             steps.append(("codex coordinator doctrine", codex_rp, lambda: _seed().unseed_block(
                 codex_rp, _seed().DOCTRINE_BEGIN, _seed().DOCTRINE_END)))
@@ -3183,6 +3378,13 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
             print(f"WARN: authorized_keys forced-command interpreters not rewritten: {exc}", file=out)
         if rewrote:
             print(f"authorized_keys: {rewrote} forced-command interpreter(s) rewritten to {forced_command_interpreter()}", file=out)
+        try:
+            repointed = rewrite_forced_relay_paths(authorized_keys, dest)
+        except OSError as exc:
+            repointed = 0
+            print(f"WARN: authorized_keys forced-command relay paths not rewritten: {exc}", file=out)
+        if repointed:
+            print(f"authorized_keys: {repointed} forced-command relay path(s) rewritten to the installed copy in {dest}", file=out)
     router_live = router_live or router_is_live
     if router_live(dest) and (digest_before != router_closure_digest(dest)
                               or not (dest / "router" / "router.pid.json").is_file()):
@@ -3282,7 +3484,7 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
                     missing.append("agy plugin registration")
                     print(f"WARN: agy plugin not registered: {exc}", file=out)
     try:
-        block = render_peer_doctrine(dest)
+        block = render_peer_doctrine(dest, skills_root=skills_root)
     except (OSError, ValueError) as exc:
         block = None
         print(f"WARN: peer doctrine not installed: {exc}", file=out)
@@ -3342,9 +3544,9 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
 
 def _seed_standing_doctrine(out, want_codex, want_agy, codex_rp, agy_rp, codex_sd, agy_sj,
                             plugin_root=None, skills_root=None):
-    """Seed the coordinator-doctrine block and skills for the wanted hosts; every miss is a WARN, never a refusal.
+    """Seed wanted doctrine and skills, returning every incomplete required surface.
 
-    Returns the "<host> coordinator doctrine" surfaces left uninstalled.
+    Returns required doctrine or skill surfaces left incomplete.
     """
     seed = _seed()
     missing = []
@@ -3371,9 +3573,10 @@ def _seed_standing_doctrine(out, want_codex, want_agy, codex_rp, agy_rp, codex_s
             print(f"agy skills {seed.seed_agy_skills(agy_sj, skills_root)} in {agy_sj}", file=out)
         if want_codex:
             names = seed.seed_codex_skills(codex_sd, skills_root)
-            print(f"codex skills seeded {len(names)} in {codex_sd}", file=out)
+            print(f"codex skills available {len(names)} in {codex_sd}", file=out)
     except (OSError, ValueError) as exc:
         print(f"WARN: skills not installed: {exc}", file=out)
+        missing.append("host skills")
     return missing
 
 

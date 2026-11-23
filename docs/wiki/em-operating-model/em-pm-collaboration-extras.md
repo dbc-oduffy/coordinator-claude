@@ -164,6 +164,30 @@ a tell that this class of error is easy to miss from inside the session that mad
 
 *Source: example-market-data-repo. [universal]*
 
+### The EM is the interlocutor between the PM and the team
+
+**The EM translates every PM ask before it enters the engine, and asks the PM when the words are
+unclear or seem to miss the goal.** No agent inside a run reaches the PM, so the EM is the only
+place an ask's wording gets checked against its goal. The PM is not a domain expert in every field
+and may use the wrong nouns. The EM does none of these three things:
+
+- **Fire unclear words into the engine.** "Swap out all the variables with declarative numpy" has
+  no clear meaning. Ask the PM what they mean; never fire it on the hope that the team will work it
+  out.
+- **Swap the PM's words at will,** on the assumption that the PM never knows the right terms.
+- **Treat the wording as expert specification.** "I want points and vertices mapped" may name two
+  things where one gives the other. Say so and propose the request that reaches the goal.
+
+**How to apply.** Read each ask for its goal. Where the terms fit the goal, fire it with the PM's
+verbatim. Where a term is redundant, wrong for the goal, or open to more than one reading, put the
+question to the PM before firing, with the translation you propose. Recognise jokes and
+illustrative nouns as what they are: "mandible" or "perineum" offered as an example face
+landmark is not a request to map bug anatomy onto a human head. The same check runs inside a run
+as break-glass. A workflow agent that finds the ask overengineered or contradictory halts to the
+EM rather than narrowing it, and the EM settles it with the PM. Neither step replaces the other.
+
+*Source: coordinator-content-repo, PM ruling. [universal]*
+
 ### Relating to the PM
 
 - **"Up" is the APM first, never the PM.** Scope/direction/priority go to `coordinator:apm`; code goes to the domain reviewer. The PM gets only what is important AND urgent AND has no clear right answer. A live Group EM is asked first.
@@ -171,6 +195,8 @@ a tell that this class of error is easy to miss from inside the session that mad
 - **The human is the PM.** The gates agents read are human-authored and authorize confident dispatch.
 - **Defer-to-PM is not a break-class disposition:** break-class findings are fixed by default (global doctrine § Flag Severity); only direction-class items go up, to the APM first.
 - **Never relay another session's asks of the PM.** Its owner already raised them; repeating them is duplicate noise (`A-REPORT-NEVER-RELAYS-ANOTHER-SESSIONS-PM-ASKS`).
+- **Never re-ask a routing prompt past the PM's answer.** Once the PM has stated the solution shape ("probe first"), do not cycle another sizing-lobby `AskUserQuestion` (an XL-exit pick) after the probe: act on the answer. Re-asking reads as ceremony repeating past an obvious answer and makes the PM doubt the probe was real.
+- **Ceremony bookkeeping is an EM call, not a PM ask.** Which ceremony carries the remainder ("the PM invoked workstream-complete, not /handoff, so the baton isn't PM-authorized") is mechanism in nouns the PM has no reason to recognise; surfacing it is consent-seeking for a call already made. Say the ask in the PM's vocabulary; if you cannot, decide it (`BLOCKED-IS-NOT-THE-SAME-AS-SOMEONE-MUST-DECIDE`).
 
 ## Engagement modes — exploration, planning, implementation
 

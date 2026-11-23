@@ -53,8 +53,8 @@ Announce the resolved mode before starting.
    it performs the symbols extraction EM-side and writes the receipt. Write `survey-input.json`
    under the scratch dir — the consume-gate output verbatim (its `structure_path`, or null plus
    `structure_unavailable_reason`, reaches the synthesis agents from there), the receipt as
-   `symbolsReceipt`, and `existingAtlas` — and hand the Workflow that file as `inputPath`. A receipt `halt` stops the
-   run under that label.
+   `symbolsReceipt`, and `existingAtlas` — in a per-leg directory `<run-dir>/leg-N/survey-input.json`,
+   immutable once written. A receipt `halt` stops the run under that label.
 
 Emergent-set/chunk-K detection is engine-owned. An escalation flag in the Workflow's returned
 manifest → surface a re-bootstrap recommendation to the PM in the Phase 5 report; deciding it is
@@ -66,13 +66,27 @@ op step 7 calls was deleted engine-side, so refresh silently takes the costlier 
 
 ## Phase 0.5-3: Invoke the Workflow
 
-Invoke `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-architecture-survey/survey.workflow.js`, passing
-`inputPath` from Phase 0's step 8 — its own header comment documents the full input
-shape; read it there, not a hand-copy here. It owns the whole extraction-through-synthesis
+Hash the leg file's written bytes, then launch the native Workflow by `scriptPath` with `args`
+exactly `{argsFile, argsSha256}`; the PreToolUse loader expands it from that file. Its header
+comment documents the input shape; read it there, not a hand-copy here.
+
+```powershell
+$argsFile = Join-Path $runDir 'leg-1/survey-input.json'
+$argsSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $argsFile).Hash.ToLower()
+$scriptPath = Join-Path $pluginRoot 'pipelines/deep-architecture-survey/survey.workflow.js'
+```
+
+POSIX: run `sha256sum` (macOS: `shasum -a 256`) on `$argsFile` and take the first field as `argsSha256`.
+
+```json workflow-launch
+{"scriptPath": "${scriptPath}", "args": {"argsFile": "${argsFile}", "argsSha256": "${argsSha256}"}}
+```
+
+The Workflow owns the whole extraction-through-synthesis
 pipeline end to end — never hand-orchestrate it. When it returns `symbols-step-required` (the
 census-fallback first leg), run `survey_symbols_step.py` with `--census-dir` set to the returned
-`census_dir`, then invoke leg 2 with the new receipt. Resume a rate-limit wipe with
-`resumeFromRunId`. Read the returned manifest (paths plus counts); it writes every atlas
+`census_dir`, then launch leg 2 from a new `leg-N` file with the new receipt (fresh hash, no `resumeFromRunId`). Resume a
+rate-limit wipe on the same leg, script and args: `resumeFromRunId` stays a top-level Workflow argument. Read the returned manifest (paths plus counts); it writes every atlas
 artifact. Mechanism detail: `coordinator/docs/wiki/skills-corpus/architecture-survey-residue.md` § What the Workflow actually does, phase by phase.
 
 ## Phase 4: Accuracy and Clarity Review (YOU)

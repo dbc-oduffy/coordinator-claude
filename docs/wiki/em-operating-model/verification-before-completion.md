@@ -153,6 +153,10 @@ Three recurring shapes:
 
 The tell that this section is being read too widely: a generic verify-before-you-commit reflex reaching for the suite, then citing this page for it. That reflex is what this page replaces with captured evidence — it is not what the page licenses.
 
+### Shared-seam exception: run the owning package's suite before committing
+
+The scoped-run default above has one carve-out. When a change touches a shared schema, a version constant or a producer's output shape, the EM runs the owning package's suite before committing, because tripwires sit at seams the diff does not name. A test selection built from the diff's own paths cannot see them: one session's schema bump and producer-output change each tripped a completeness or unmask guard in a file it never edited, and one stayed red across a commit until the full package run surfaced it (3m38s, cheap against shipping a red guard). Leaf edits with no shared seam keep the scoped run. This is a scoped exception, not a new cadence: the full repo suite stays with /workday-complete and executors still name test files only, so DR-1298 and DR-1371 are not contradicted (see DR-088 and [test-design-discipline.md](../test-design-discipline.md)).
+
 ### A dispatched agent's green is narrower than a directory-shaped brief by construction — covering the brief's breadth is the EM's job, not the agent's to guarantee
 
 A dispatched agent's test invocations are confined to file-and-node-id precision — it cannot accept a bare directory as a test-command argument, deliberately, so that a fan-out wave of agents cannot each re-run a wide suite concurrently. When an EM's dispatch brief names verification breadth in directory terms ("run `tests/foo/`"), the confinement means the agent's actual run is necessarily narrower than the breadth the brief asked for.

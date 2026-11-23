@@ -6,7 +6,7 @@ The prompt is built by `scripts/family_stage_prompt.py`, the one source of the p
 Per statement (`;`, `&&`, `||`, `|`, `&`, newline), with the vendor name in command position only:
   - `codex exec ... - < <file>`: the stdin file is read; no resolvable file (argv prompt, pipe,
     heredoc) is denied.
-  - `codex-exec-windows.ps1 -Prompt <file>`: the file is read.
+  - `codex-exec-windows --prompt <file>` (the engine bin, any of .exe/.cmd/.py): the file is read.
   - `grok ... --prompt-file <file>`: the file is read.
   - `agy -p=<v>` / `agy -p <v>`: `<v>` is literal text, or `$(cat <file>)` / `$(Get-Content -Raw <file>)`.
 A call carrying --help, -h or --version, a prompt file that does not exist yet, and a path built
@@ -47,12 +47,14 @@ _HEREDOC = re.compile(r"<<-?\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?")
 _ENV = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _WRAP = {"sudo", "env", "nohup", "time", "command", "exec", "timeout", "nice", "call", "start",
          "then", "do", "else", "if", "while", "until", "!", "setsid"}
+_INTERPRETERS = {"python", "python3", "py"}
 _SHELLS = {"bash", "sh", "zsh", "dash", "pwsh", "powershell", "cmd"}
 _BODY_FLAGS = {"-c", "-command", "/c", "/k"}
 _HELP = {"--help", "-h", "--version"}
 _CODEX_VALUE_FLAGS = {"-c", "--config", "-m", "--model", "-p", "--profile", "-C", "--cd", "-s",
                       "--sandbox", "-i", "--image"}
-_WINDOWS_WRAPPER = "codex-exec-windows.ps1"
+_WINDOWS_WRAPPER = "codex-exec-windows"
+_WRAPPER_SUFFIXES = ("", ".exe", ".cmd", ".py")
 _CAT_NAMES = {"cat", "get-content", "gc", "type"}
 _CAT_VALUE_FLAGS = {"-encoding", "-readcount", "-totalcount", "-tail", "-first"}
 _SUBST = re.compile(r"^\$\(\s*(.*?)\s*\)$", re.S)
@@ -268,7 +270,7 @@ def _verdicts(tokens: list[str], cwd: str) -> tuple[str, str] | None:
     name, raw, args = _head(tokens)
     if not name:
         return None
-    if raw.lower().endswith(_WINDOWS_WRAPPER) or name == _WINDOWS_WRAPPER:
+    if _is_wrapper(raw):
         return _check_windows_wrapper(args, cwd)
     if name == "codex" and _codex_is_exec(args):
         return _check_codex(args, cwd)
@@ -280,10 +282,15 @@ def _verdicts(tokens: list[str], cwd: str) -> tuple[str, str] | None:
 
 
 def _check_windows_wrapper(args: list[str], cwd: str) -> tuple[str, str] | None:
-    present, value = _flag_value(args, ("-prompt",))
+    present, value = _flag_value(args, ("--prompt",))
     if not present or value is None:
         return None
-    return _judge_file("codex-exec-windows.ps1 -Prompt", value, cwd)
+    return _judge_file("codex-exec-windows --prompt", value, cwd)
+
+
+def _is_wrapper(token: str) -> bool:
+    base = token.replace(chr(92), "/").rsplit("/", 1)[-1].lower()
+    return any(base == _WINDOWS_WRAPPER + sfx for sfx in _WRAPPER_SUFFIXES)
 
 
 def _check_codex(args: list[str], cwd: str) -> tuple[str, str] | None:
@@ -344,10 +351,8 @@ def _load_builder() -> bool:
 
 
 def _scan_shell_args(args: list[str], cwd: str, depth: int, env: dict[str, str]) -> tuple[str, str] | None:
-    """A `-c`/`-Command` body, or a `-File codex-exec-windows.ps1 ...` call, passed to a shell."""
+    """A `-c`/`-Command`//c body passed to a shell."""
     for idx, a in enumerate(args):
-        if a.lower().endswith(_WINDOWS_WRAPPER):
-            return _check_windows_wrapper(args[idx + 1:], cwd)
         if a.lower() in _BODY_FLAGS and idx + 1 < len(args) and depth < _MAX_DEPTH:
             return _scan(args[idx + 1], cwd, depth + 1, env)
     return None
@@ -393,8 +398,8 @@ def _grant_holds(env: dict[str, str], family: str) -> bool:
         root = resolve_claude_klabauter_root()
         if not root:
             return False
-        if root not in sys.path:
-            sys.path.insert(0, root)
+        from _engine_root import place_engine_root_on_path
+        place_engine_root_on_path(root)
         from coordinator_core.ops.workflow_fire.headless_em_grant import headless_em_grant_matches
         return bool(headless_em_grant_matches({GRANT_ENV: token}, sid, family))
     except Exception:
@@ -420,16 +425,30 @@ def _scan(command: str, cwd: str, depth: int = 0, env: dict[str, str] | None = N
             continue
         if any(a in _HELP for a in args):
             continue
-        hit = _verdicts(tokens, cwd)
-        if hit and _grant_holds({**env, **_inline_env(tokens)}, _family(name, _raw)):
+        family = _family(name, _raw)
+        if name in _INTERPRETERS:
+            hit = _interpreted_wrapper(args, cwd)
+            family = "codex"
+        else:
+            hit = _verdicts(tokens, cwd)
+        if hit and _grant_holds({**env, **_inline_env(tokens)}, family):
             continue
         if hit:
             return hit
     return None
 
 
+def _interpreted_wrapper(args: list[str], cwd: str) -> tuple[str, str] | None:
+    """`python [-flags] codex-exec-windows.py --prompt <file> ...`; any other script is not ours."""
+    for idx, a in enumerate(args):
+        if a.startswith("-"):
+            continue
+        return _check_windows_wrapper(args[idx + 1:], cwd) if _is_wrapper(a) else None
+    return None
+
+
 def _family(name: str, raw: str) -> str:
-    if name == "codex" or raw.lower().endswith(_WINDOWS_WRAPPER) or name == _WINDOWS_WRAPPER:
+    if name == "codex" or _is_wrapper(raw):
         return "codex"
     return name
 
