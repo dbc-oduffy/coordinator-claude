@@ -236,6 +236,11 @@ if os.path.basename(p) == 'preuse-workflow-dispatch.py':
         sys.exit(_child.returncode)
     sys.exit(0)  # a submission with no stdout was already answered by the named deny above
 elif os.path.isfile(p):
+    # run_path does not put the script's directory on sys.path, so a hook importing a sibling
+    # helper (`from _runaway_patterns import ...`) fails with ModuleNotFoundError on every call.
+    _hook_dir = os.path.dirname(os.path.abspath(p))
+    if _hook_dir not in sys.path:
+        sys.path.insert(0, _hook_dir)
     runpy.run_path(p, run_name='__main__')
 else:
     sys.stderr.write(

@@ -4,6 +4,10 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.26] — 2026-11-22
+
+- Hook launchers now load sibling Python modules when started outside the hook directory.
+
 ## [4.6.24] — 2026-11-20
 
 - **Group EM watch:** fresh Claude home starts arm the watch before other startup work.
