@@ -14,7 +14,6 @@ BIN_DIR = Path(__file__).resolve().parents[2] / "bin"
 
 FORWARDER_NAMES = (
     "_hook_cost_probe.py",
-    "approvability-calibration.py",
     "atlas-citation-check.py",
     "baton-chain-closure.py",
     "census-recheck.py",
@@ -54,7 +53,6 @@ FORWARDER_NAMES = (
     "mise-prep-gate.py",
     "mise-prep-run.py",
     "needs-restart.py",
-    "plan-reversibility-eligibility.py",
     "plan-spine-check.py",
     "pm-brief.py",
     "pre_commit_corpus_artifact_guard.py",

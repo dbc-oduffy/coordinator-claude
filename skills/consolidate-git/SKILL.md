@@ -89,7 +89,7 @@ leave it. "Merged into HEAD" is not "safe to lose".
 
 **Conflict resolution (surfaces mid-directive-apply).** If the current branch already supersedes
 the change, abort and skip (note it); else resolve and continue. Never force through conflicts.
-`guard-git-merge-dirty-tree` refuses a merge or `--abort` on a tree with foreign uncommitted changes; on refusal stop, report the named paths and sessions, never stash or commit them.
+`guard-git-merge-dirty-tree` advises on a merge or `--abort` whose merge set overlaps foreign uncommitted changes; on advice stop, report the named paths and sessions, never stash or commit them.
 
 **Post-absorb:** confirm a conflict-resolved shared file kept its canonical phrase; re-apply if lost.
 

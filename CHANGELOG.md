@@ -4,6 +4,14 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.28] — 2026-11-24
+
+- **Group EM:** a Group EM manages box resources and air-traffic only and makes no rulings; the execute-plan turn stays with the PM. The delegated-approval judge, its reversibility checker and calibration CLI are retired.
+- **Agy:** first-class Agy runtime enrollment: install-time `agy_runtime` decision, `--model`/`--effort` flags on family-stage runs, SessionStart and tool-map parity.
+- **Grok:** a `grok-coordinator` shell function launches a Grok session Unimatrix can resume.
+- **Mise-en-place:** a run naming no baton still renders a passing intake summary on the Skill path.
+- **Merge guard:** the dirty-tree merge check is advisory, judges the repo named by `git -C` or `cd`, and resolves Git Bash drive paths.
+
 ## [4.6.27] — 2026-11-23
 
 - **Research:** a NotebookLM question can reuse an existing notebook by id (`Source strategy: existing_notebook`); the scout makes no NotebookLM call for it and cleanup never deletes a reused notebook.

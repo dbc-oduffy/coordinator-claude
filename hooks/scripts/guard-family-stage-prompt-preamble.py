@@ -9,8 +9,9 @@ Per statement (`;`, `&&`, `||`, `|`, `&`, newline), with the vendor name in comm
   - `codex-exec-windows --prompt <file>` (the engine bin, any of .exe/.cmd/.py): the file is read.
   - `grok ... --prompt-file <file>`: the file is read.
   - `agy -p=<v>` / `agy -p <v>`: `<v>` is literal text, or `$(cat <file>)` / `$(Get-Content -Raw <file>)`.
-A call carrying --help, -h or --version, a prompt file that does not exist yet, and a path built
-from a variable are allowed. `bash -c`/`pwsh -Command` bodies are parsed too.
+A call carrying --help, -h or --version, and a path built from a variable, are allowed. A literal
+prompt file that does not exist yet is allowed only when `family_stage_prompt.py --out` builds it
+earlier in the same command; otherwise it is denied. `bash -c`/`pwsh -Command` bodies are parsed too.
 
 A headless EM is exempt: a vendor statement whose COORDINATOR_SESSION_ID and
 COORDINATOR_ALLOW_HEADLESS_EM_TOKEN (inline `VAR=v`, an earlier `export VAR=v` or `$env:VAR = v`, or
@@ -188,16 +189,29 @@ def _norm(path: str) -> str:
     return p
 
 
-def _read_head(path: str, cwd: str) -> str | None:
-    """First bytes of the file at `path`, or None when it is a variable path or cannot be read."""
+def _resolve(path: str, cwd: str) -> str | None:
+    """Absolute form of a literal path; None for a variable, glob or empty path."""
     if not path or "$" in path or "`" in path or any(c in path for c in "*?["):
         return None
+    p = _norm(path)
+    if p == "~" or p.startswith("~/"):
+        p = os.path.expanduser(p)
+    return os.path.normpath(p if os.path.isabs(p) else os.path.join(_norm(cwd), p))
+
+
+# Prompt files the builder writes earlier in the command under check. A literal prompt path that
+# does not exist yet is allowed only when it is one of these: a prompt written by hand in the same
+# call (printf > file, then codex) would otherwise escape the check because the file is absent at
+# hook time.
+_BUILT_HERE: set[str] = set()
+
+
+def _read_head(path: str, cwd: str) -> str | None:
+    """First bytes of the file at `path`, or None when it is a variable path or cannot be read."""
+    p = _resolve(path, cwd)
+    if p is None:
+        return None
     try:
-        p = _norm(path)
-        if p == "~" or p.startswith("~/"):
-            p = os.path.expanduser(p)
-        if not os.path.isabs(p):
-            p = os.path.join(_norm(cwd), p)
         with open(p, "rb") as fh:
             return fh.read(_READ_BYTES).decode("utf-8", errors="replace")
     except (OSError, ValueError):
@@ -324,7 +338,13 @@ def _check_agy(args: list[str], cwd: str) -> tuple[str, str] | None:
 
 def _judge_file(label: str, path: str, cwd: str) -> tuple[str, str] | None:
     head = _read_head(path, cwd)
-    if head is None or _starts_with_preamble(head):
+    if head is None:
+        resolved = _resolve(path, cwd)
+        if resolved is None or os.path.exists(resolved) or resolved in _BUILT_HERE:
+            return None
+        return (label, f"prompt file {path} does not exist when the call is checked and nothing "
+                "earlier in the command builds it")
+    if _starts_with_preamble(head):
         return None
     return (label, f"prompt file {path} does not start with the preamble")
 
@@ -418,6 +438,12 @@ def _scan(command: str, cwd: str, depth: int = 0, env: dict[str, str] | None = N
             base = _norm(args[0])
             cwd = base if os.path.isabs(base) else os.path.join(_norm(cwd), base)
             continue
+        if any(t.replace("\\", "/").endswith("family_stage_prompt.py") for t in tokens):
+            present, out = _flag_value(tokens, ("--out",))
+            built = _resolve(out, cwd) if present and out else None
+            if built:
+                _BUILT_HERE.add(built)
+            continue
         if name in _SHELLS:
             hit = _scan_shell_args(args, cwd, depth, {**env, **_inline_env(tokens)})
             if hit:
@@ -481,6 +507,7 @@ def main() -> int:
             return 0
         cwd = payload.get("cwd")
         cwd = cwd if isinstance(cwd, str) and cwd else os.getcwd()
+        _BUILT_HERE.clear()
         hit = _scan(command, cwd)
         if not hit:
             return 0

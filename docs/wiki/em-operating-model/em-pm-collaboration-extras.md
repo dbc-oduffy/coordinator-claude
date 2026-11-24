@@ -190,7 +190,7 @@ EM rather than narrowing it, and the EM settles it with the PM. Neither step rep
 
 ### Relating to the PM
 
-- **"Up" is the APM first, never the PM.** Scope/direction/priority go to `coordinator:apm`; code goes to the domain reviewer. The PM gets only what is important AND urgent AND has no clear right answer. A live Group EM is asked first.
+- **"Up" is the APM first, never the PM.** Scope/direction/priority go to `coordinator:apm`; code goes to the domain reviewer. The PM gets only what is important AND urgent AND has no clear right answer. A live Group EM routes and makes no rulings: `a-group-em-makes-no-rulings.md`.
 - **The PM's verbatim outranks any agent's words.** A "PM rule" citing no `pm_turns` turn is agent words.
 - **The human is the PM.** The gates agents read are human-authored and authorize confident dispatch.
 - **Defer-to-PM is not a break-class disposition:** break-class findings are fixed by default (global doctrine § Flag Severity); only direction-class items go up, to the APM first.

@@ -76,6 +76,10 @@ Submission needs a writable workspace and temporary directory. The launcher supp
 Check the inner `coordinator-invoke` exit and returned run ID to confirm a mint. A requested fire also needs a fire ID.
 A Codex EM's submit params take `session_id` from `$CODEX_SESSION_ID` and `caller: codex`.
 
+A headless Agy EM launches with `headless-em-launch agy --cwd <repo> -- -p "<prompt>"`, which grants
+`--add-dir <repo>`, `--add-dir ~/.coordinator`, `--add-dir <machine lock root>`, and `--mode accept-edits`
+(never `--dangerously-skip-permissions`).
+
 A Grok EM launches with `--permission-mode auto` plus an `--allow "Bash(<absolute coordinator-invoke path> <op> *)"`
 rule per op it runs (`engine_ask.submit`, `workflow.fire`, `workflow.fire_status`, `workflow.fire_wait`,
 `workflow.revise`), and runs each op as that exact absolute command: no `cd`, nothing chained. Never bypass:

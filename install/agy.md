@@ -95,6 +95,33 @@ The agy CLI is required to begin. The slash commands (`/coordinator:install`,
 `/coordinator:setup`) do not exist in agy: run the shell steps here, or finish those legs
 from a Claude Code session.
 
+### Agy EMs and workers
+
+From the resolved published engine, run
+`python3 lib/install/coordinator_install.py --plan` for a read-only capability check.
+If its JSON omits `agy_runtime`, this engine cannot enroll the Agy profile yet.
+Verify that the decision offers `enrol` and `skip` (default) and the plan reports
+top-level `engine_channel`. Choose `enrol` and supply its normal step consent when
+authorized to change the native Agy profile. `skip` leaves existing configuration in place.
+
+Merge this fragment into the plan's complete `--answers` document when configuration
+and its native profile writes are authorized:
+
+```json
+{"agy_runtime":"enrol","consent":{"agy_runtime":true}}
+```
+
+This is a fragment, not a replacement for the plan's other answers or consents.
+Selecting `enrol` without that consent fails the step and withholds the concluded
+setup receipt. Choosing `skip` does not configure or repair Agy.
+Strict enrollment installs the owned lifecycle hooks (`SessionStart`, `PreToolUse`,
+`PreInvocation`, `PostToolUse`, `Stop`), generates and strict-validates the `agy-plugin`
+tree from the coordinator plugin source root, registers it in `~/.gemini/config/plugins.json`,
+seeds peer and standing doctrine, configures the `coordinator-invoke` allow rule and
+`statusLine` in `~/.gemini/antigravity-cli/settings.json`, and configures the managed
+`project-rag` MCP entry in `~/.gemini/config/mcp_config.json`. Foreign configuration is
+preserved, and `coordinator-doctor` verifies the enrolled Agy runtime layer read-only.
+
 ### Status line parity
 
 Every host shows the same three status-line fields the Claude Code status line shows: the
@@ -117,7 +144,7 @@ a per-session `/statusline` command is not a required step. Print mode (`-p`) st
 |---|---|---|
 | Unimatrix name | nothing | the per-session registered name, mapped by the `statusLine` command script from `session_id` / `conversation_id` |
 | Context before compact | nothing | context remaining before compact; the payload has `remaining_percentage` but no compaction threshold, so the before-compact part stays `unknown` |
-| Session spend | nothing | the estimated session spend from the payload `cost` field |
+| Session spend | nothing | the estimated session spend from the payload `cost` field, or Gemini 4 / 3.8 Flash list-price estimates from lifetime tokens |
 
 **Required default, not yet shipped:** after normal installation the installer seeds `statusLine`
 itself, so bare `agy` shows the status line with no opt-in flag, no per-session `/statusline` and
@@ -625,8 +652,8 @@ Use this script.
 | Lands | agy |
 |---|---|
 | Doctrine block (`coordinator-doctrine`, `global-doctrine/CLAUDE.md` then `rules/rules.md`, beside the peer block) | `~/.gemini/GEMINI.md` (cap 24000 B) |
-| Skills | `{"entries":[{"path":"<plugin root>/skills"}]}` in `~/.gemini/config/skills.json` |
-| Guard hook | `PreToolUse` and `PreInvocation` groups in `~/.gemini/config/hooks.json`, merged with the peer-bootstrap hook |
+| Skills & Plugin | generated strict-valid `agy-plugin` tree under `<settings-home>/unimatrix/agy-plugin` registered in `~/.gemini/config/plugins.json`, plus `skills.json` |
+| Guard hooks | `PreToolUse`, `PreInvocation`, `PostToolUse`, and `Stop` groups in `~/.gemini/config/hooks.json`, merged with the peer-bootstrap hook |
 | Lifecycle and role context | flat `SessionStart` handler list |
 
 ### The managed block
@@ -689,7 +716,8 @@ Read these as the boundary of what is governed.
   CSRF token, so a peer leg starts `pending` at session start and upgrades to `live` on the
   first `run_command` (including `unimatrix-send.py` peer replies) through the `PreToolUse` rewrite (on macOS/Linux) or
   detached `spawn_launcher` (on Windows).
-- `PostToolUse` and `Stop` hooks do not yet have Claude-parity guard enforcement on agy.
+- `PostToolUse` and `Stop` hooks are wired through `agy_adapter.py` / `unimatrix-agy-hook-pretool.py`
+  (`--event PostToolUse` / `--event Stop`) by `unimatrix-install.py` and `agy_runtime` enrollment.
 
 ### Pre-installing before the host CLI lands
 

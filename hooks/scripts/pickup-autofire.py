@@ -237,9 +237,9 @@ def extract_baton_paths(command_args: str) -> str:
     inventory input rather than artifacts with a claim. Briefing those would at
     best emit error batons and at worst make every ordinary invocation carry
     assembler noise, so only `_BATON_PATH_FAMILIES` members survive extraction.
-    Returns `""` when the arguments name no baton at all — the caller reads
-    that as "not a baton grab" and passes silently, which is what keeps a plain
-    backlog run untouched by this hook.
+    Returns `""` when the arguments name no baton at all — the caller then
+    briefs nothing and renders only the zero-claim summary line, so a plain
+    backlog run still passes Phase 0a's intake check.
 
     Negative-spec: never used on the `/pickup` path. There, the whole argument
     string is already a path string and is forwarded byte-identically (AC4);
@@ -1040,12 +1040,14 @@ def compute_context(stdin_text: str) -> str | None:
         return None
 
     command_args = inv.command_args
-    if not command_args:
-        return None
-
-    path_string, prose = split_prose_tail(command_args)
+    path_string, prose = split_prose_tail(command_args) if command_args else ("", "")
     if is_baton_grab:
         path_string = extract_baton_paths(path_string)
+        # A run handed no batons claimed none, and must say so: Phase 0a's
+        # --check-intake reads an absent summary as "the hook never ran" and
+        # stops. A model-invoked Skill call usually names no baton at all.
+        if not path_string:
+            return _baton_grab_summary([], 0, inv.agent_id is not None)
     elif path_string:
         reduced = first_path_token(path_string)
         if reduced is None:

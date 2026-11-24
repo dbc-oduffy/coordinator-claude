@@ -41,7 +41,7 @@ a safeguard fires.
 
 - **Engineering calls stay autonomous;** direction, scope, external-facing actions, priority surface up.
 - **"Up" is the APM first.** Scope/direction/priority → `coordinator:apm`; code → the domain
-  reviewer. Act on the ruling; it never narrows PM asks. A live Group EM is asked first.
+  reviewer. Act on the ruling; it never narrows PM asks. A live Group EM routes; it makes no rulings.
 - **Only publishing is irreversible:** a local write to any tree is recoverable, bar a sibling-repo
   commit (assent-gated). Irreversible: p4 submit/shelve, push/PR to a non-owned remote, mail,
   release, third-party effects, merge to main, force-push, branch deletion, history rewrite.
