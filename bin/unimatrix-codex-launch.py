@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Optional: start Codex attached to the app-server daemon with --remote.
+"""Start a verified Astra EM directly, or attach an explicit model launch with --remote.
 
 Using this launcher is NOT required for peer delivery. A plain `codex` TUI started without
---remote and without a peers.json entry is reached by the router through the queue route; this
-launcher only adds live injection through the daemon's control socket (unimatrix-peer-codex.py),
-which an attached TUI renders. If the daemon cannot start, codex is launched plain.
+--remote and without a peers.json entry is reached by the router through the queue route;
+explicit model launches add live injection through the daemon's control socket
+(unimatrix-peer-codex.py), which an attached TUI renders. Standard EM launches run directly
+so their SessionStart observer inherits the expected model. An explicit --remote endpoint
+is passed through unchanged. If the daemon cannot start, an explicit model launch runs plain.
 Usage: unimatrix-codex-launch.py [codex args...]   (--help prints this text)
 
 Socket: $CODEX_APP_SERVER_SOCK, else the Codex default. A default socket is brought up with
@@ -22,6 +24,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 READY_SECONDS = 20
+EXPECTED_MODEL_ENV = "COORDINATOR_CODEX_EXPECTED_MODEL"
 
 import lib  # noqa: E402,F401 -- bootstraps coordinator/bin/lib onto sys.path
 from cc_invoke import ensure_engine_on_path  # noqa: E402
@@ -82,6 +85,23 @@ def tui_argv(codex, sock, args):
     return [codex, "--remote", f"unix://{sock}", *args]
 
 
+def select_model(args):
+    """Select Astra for standard EM launches; explicit native model overrides remain caller-owned."""
+    option_end = args.index("--") if "--" in args else len(args)
+    for i, arg in enumerate(args[:option_end]):
+        if arg in ("-m", "--model") or arg.startswith(("--model=", "-m=")):
+            return args, None
+        if arg in ("-c", "--config") and i + 1 < len(args):
+            if args[i + 1].split("=", 1)[0].strip() == "model":
+                return args, None
+        if arg.startswith("--config=") and arg[len("--config="):].split("=", 1)[0].strip() == "model":
+            return args, None
+    from coordinator_core.agent_pipe.model_tiers import model_for_role
+
+    model = model_for_role("codex", "em")
+    return [*args[:option_end], "--model", model, *args[option_end:]], model
+
+
 def main(argv=None):
     ensure_engine_on_path(__file__)
     args = list(sys.argv[1:] if argv is None else argv)
@@ -92,12 +112,23 @@ def main(argv=None):
     if not codex:
         print("unimatrix-codex-launch: codex is not on PATH", file=sys.stderr)
         return 127
+    args, expected = select_model(args)
+    if expected:
+        os.environ[EXPECTED_MODEL_ENV] = expected
+        print(f"unimatrix-codex-launch: requested {expected}; native SessionStart verifies startup. "
+              "If unavailable, run `codex login` and retry; no fallback model is selected.", file=sys.stderr)
+    else:
+        os.environ.pop(EXPECTED_MODEL_ENV, None)
     if os.name == "nt":
         print("unimatrix-codex-launch: unix-socket attach is unavailable on Windows; "
               "starting codex without --remote", file=sys.stderr)
         sys.path.insert(0, str(HERE.parents[1]))
         from coordinator_core.codex_runner.codex_spawn_env import place_installed_pwsh
         return subprocess.call([codex, *args], env=place_installed_pwsh(dict(os.environ), os.environ, windows=True))
+    options = args[:args.index("--")] if "--" in args else args
+    if expected or any(arg == "--remote" or arg.startswith("--remote=") for arg in options):
+        os.execv(codex, [codex, *args])
+        return 0
     pc = load_sibling("unimatrix-peer-codex")
     sock = pc.socket_path()
     default_sock = os.path.expanduser(pc.DEFAULT_SOCK)

@@ -67,7 +67,9 @@ Windows), grants it a grace period to flush output such as pytest's junit file,
 then kills what remains and returns 124: there is no child exit code to
 report in that case, because the child never produced one. With no
 --max-runtime, a pytest run's ceiling is derived from the test count pytest
-prints; the ceiling hit is reported on stderr as a defect naming the junit path.
+prints, else from the collection's last recorded wall time (bounded); the
+ceiling hit is reported on stderr as a defect naming the junit path and the
+partial log kept.
 
 RELEASE ON EVERY EXIT PATH: normal completion, non-zero child exit, an
 exception before/after spawn, and Ctrl-C/SIGINT. Achieved by running the
@@ -276,6 +278,20 @@ _CEILING_MIN_SECS = 900.0
 _COUNT_SCAN_BYTES = 256 * 1024
 _COLLECTED_RE = re.compile(rb"collected (\d+) items?|\[(\d+) items?\]")
 
+#: With neither a declaration nor a count line, the ceiling is the longest
+#: completed (pass/fail) wall time in the collection's two-slot suite-run record
+#: times ``_RECORD_HEADROOM`` plus ``_CEILING_BASE_SECS``, floored at
+#: ``_CEILING_MIN_SECS`` and capped at ``_RECORD_CEILING_CAP_SECS`` so a record
+#: can never make a run unbounded. A timeout/interrupted slot is excluded: its
+#: duration is the old ceiling, not a measurement of the suite.
+_RECORD_HEADROOM = 1.5
+_RECORD_CEILING_CAP_SECS = 4 * 3600.0
+
+#: Tail of the live log scanned for the partial data a ceiling kill keeps.
+_PARTIAL_SCAN_BYTES = 4 * 1024 * 1024
+_PROGRESS_RE = re.compile(rb"\[\s*(\d{1,3})%\]")
+_FAILURE_RE = re.compile(rb"(?:^|\] )(?:FAILED|ERROR) (\S+)", re.MULTILINE)
+
 #: Seconds the tree gets after the interrupt to exit on its own; pytest writes
 #: its junit file during that exit and only then. The hard kill follows after.
 #: Every tree kill, an operator interrupt included, can wait this long on a
@@ -315,6 +331,57 @@ def _collected_count(log_path: Optional[str]) -> Optional[int]:
 def _count_ceiling_secs(count: int) -> float:
     """How long a run of ``count`` tests may take before it counts as wedged."""
     return max(_CEILING_MIN_SECS, _CEILING_BASE_SECS + count * _CEILING_SECS_PER_TEST)
+
+
+def _record_wall_secs(rec_dir) -> Optional[float]:
+    """Longest completed (pass/fail) wall time in the collection's record, else None.
+
+    Pure file reads of the two-slot record; unreadable slots read as absent.
+    """
+    best: Optional[float] = None
+    for run in suite_run_record.read_runs(rec_dir).values():
+        if not isinstance(run, dict) or run.get("outcome") not in ("pass", "fail"):
+            continue
+        wall = run.get("duration_s")
+        if isinstance(wall, (int, float)) and not isinstance(wall, bool) and wall > 0:
+            best = float(wall) if best is None else max(best, float(wall))
+    return best
+
+
+def _record_ceiling_secs(wall: float) -> float:
+    """How long a collection whose last run took ``wall`` seconds may run before it counts as wedged."""
+    return min(
+        _RECORD_CEILING_CAP_SECS,
+        max(_CEILING_MIN_SECS, _CEILING_BASE_SECS + wall * _RECORD_HEADROOM),
+    )
+
+
+def _partial_report(log_path: Optional[str]) -> str:
+    """One sentence naming the partial output a ceiling kill leaves behind.
+
+    The live log is retained as the run's record (``current.log``); this names
+    its size, the last progress percentage and the failure lines already printed.
+    """
+    if not log_path:
+        return "No suite-run log was kept for this run (no record directory)."
+    kept = os.path.join(os.path.dirname(os.path.abspath(log_path)), "current.log")
+    try:
+        size = os.path.getsize(log_path)
+        with open(log_path, "rb") as handle:
+            handle.seek(max(0, size - _PARTIAL_SCAN_BYTES))
+            tail = handle.read()
+    except OSError:
+        return f"The partial log could not be read; the run's record is {kept}."
+    ids = list(dict.fromkeys(m.group(1).decode("utf-8", "replace") for m in _FAILURE_RE.finditer(tail)))
+    progress = _PROGRESS_RE.findall(tail)
+    reached = f"reached {int(progress[-1])}%" if progress else "no percentage was printed"
+    failures = (
+        f"{len(ids)} failure line(s) already printed (first: {', '.join(ids[:5])})"
+        if ids else "no failure lines were printed"
+    )
+    return (
+        f"Partial output kept: {size} bytes of log retained as {kept}; {reached}; {failures}."
+    )
 
 
 def _junit_report(junit_path: Optional[str], started_wall: float) -> str:
@@ -549,11 +616,11 @@ def _default_collection(owner_label: Optional[str], command: List[str]) -> str:
     return name if name and suite_run_record.COLLECTION_RE.match(name) else _DEFAULT_COLLECTION
 
 
-def _ceiling_line(max_runtime: float) -> str:
+def _ceiling_line(max_runtime: float, source: str = "") -> str:
     """The stderr line stating the active ceiling, printed once the mutex is won."""
     if max_runtime > 0:
         return (
-            f"with-suite-mutex: max-runtime ceiling {max_runtime:g}s; the command is killed "
+            f"with-suite-mutex: max-runtime ceiling {max_runtime:g}s{source}; the command is killed "
             "(exit 124) past it. Override with --max-runtime SECS (0 = unbounded)."
         )
     return "with-suite-mutex: max-runtime ceiling disabled (unbounded)."
@@ -613,7 +680,16 @@ def _wait_for_free(timeout: float, owner: str) -> int:
             suite_mutex.drop_ticket(ticket)
 
 
-def _kill_process_tree(process: "subprocess.Popen[bytes]") -> int:
+#: Grace after an operator interrupt (CTRL_BREAK/SIGINT/SIGTERM at the wrapper).
+#: The wrapper must exit well inside a caller's wait, so this is shorter than the
+#: ceiling kill's grace; a Windows child under CREATE_NO_WINDOW has no console to
+#: receive CTRL_BREAK, so the terminate that follows is what actually stops it.
+_OPERATOR_INTERRUPT_GRACE_SECS = 3.0
+
+
+def _kill_process_tree(
+    process: "subprocess.Popen[bytes]", grace: float = _INTERRUPT_GRACE_SECS
+) -> int:
     """Terminate ``process`` AND its descendants; return how many were killed.
 
     Killing only the direct child is not enough for any runner that spawns
@@ -641,7 +717,7 @@ def _kill_process_tree(process: "subprocess.Popen[bytes]") -> int:
     # SIGINT triggers and SIGTERM/SIGKILL do not. Terminate/kill follow only for
     # whatever is still alive after the grace period (a child that ignores SIGINT).
     _interrupt_tree(process)
-    _gone, victims = psutil.wait_procs(victims, timeout=_INTERRUPT_GRACE_SECS)
+    _gone, victims = psutil.wait_procs(victims, timeout=grace)
 
     for victim in victims:
         try:
@@ -689,6 +765,18 @@ _PR_SET_PDEATHSIG = 1
 _JOB_HANDLES: list = []
 
 
+def _has_console() -> bool:
+    """True when this process is attached to a console (a hidden one counts)."""
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+
+        return bool(ctypes.windll.kernel32.GetConsoleCP())
+    except Exception:  # noqa: BLE001 - unknown reads as console-less, the prior behaviour
+        return False
+
+
 def _own_tree_popen_kwargs() -> dict:
     """POSIX: put the child in its own process group so one signal reaches its
     whole tree; on Linux also have the kernel SIGKILL it when this wrapper dies.
@@ -696,10 +784,13 @@ def _own_tree_popen_kwargs() -> dict:
     the child its own console process group so CTRL_BREAK_EVENT reaches it
     alone; its flags carry CREATE_NO_WINDOW too, as main() merges, not splats."""
     if sys.platform == "win32":
-        return {
-            "creationflags": no_console_creationflags().get("creationflags", 0)
-            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        }
+        # A CREATE_NO_WINDOW child gets a console of its own, which this wrapper is not
+        # attached to, so CTRL_BREAK_EVENT could never reach it. With a console here
+        # (real or hidden) the child inherits it: no window appears, the event reaches it.
+        flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        if not _has_console():
+            flags |= no_console_creationflags().get("creationflags", 0)
+        return {"creationflags": flags}
     kwargs: dict = {"process_group": 0}
     if sys.platform.startswith("linux"):
 
@@ -871,6 +962,7 @@ def _wait_interruptible(
     junit_path: Optional[str] = None,
     log_path: Optional[str] = None,
     derive_ceiling: bool = False,
+    ceiling_source: str = "",
 ) -> int:
     """Wait for ``process`` to exit while staying responsive to signals.
 
@@ -892,7 +984,8 @@ def _wait_interruptible(
 
     With ``derive_ceiling`` the ceiling becomes ``_count_ceiling_secs`` of the
     test count found in ``log_path`` as soon as pytest prints it; ``max_runtime``
-    stays the ceiling until then and for a child that never prints a count.
+    stays the ceiling until then and for a child that never prints a count;
+    ``ceiling_source`` names where that initial ceiling came from.
     The kill interrupts the tree first (see ``_kill_process_tree``), and the
     message that follows is a defect report naming ``junit_path``'s fate.
     """
@@ -925,14 +1018,16 @@ def _wait_interruptible(
                 _dump_process_tree(process)
                 killed = _kill_process_tree(process)
                 source = (
-                    f" (derived from {count} collected tests)" if count is not None else ""
+                    f" (derived from {count} collected tests)" if count is not None
+                    else ceiling_source
                 )
                 print(
                     "with-suite-mutex: this is a defect, not a clean finish: the run hit its "
                     f"ceiling{source}. The tree was interrupted first, then "
                     f"killed the command after {int(max_runtime)}s ({killed} process(es)) "
                     "and released the suite mutex. "
-                    f"{_junit_report(junit_path, started_wall)} {progress} "
+                    f"{_junit_report(junit_path, started_wall)} "
+                    f"{_partial_report(log_path)} {progress} "
                     "Output above is unbuffered. Bound workers via "
                     "coordinator-resolve-validation-cmd --full, or if wedged: "
                     "py-spy dump --pid <controller-pid>. "
@@ -1035,7 +1130,7 @@ def main(argv: List[str]) -> int:
                 process.wait()
         raise
 
-    def _resume_then_escalate() -> None:
+    def _resume_then_escalate(grace: float = _OPERATOR_INTERRUPT_GRACE_SECS) -> None:
         """Resume-then-escalate cleanup for a child that may still be
         SUSPENDED when we're forced off the happy path.
 
@@ -1051,7 +1146,7 @@ def main(argv: List[str]) -> int:
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
         try:
-            _kill_process_tree(process)
+            _kill_process_tree(process, grace)
         except Exception:  # noqa: BLE001 - the direct-child escalation below still runs
             pass
         if process.poll() is None:
@@ -1098,9 +1193,19 @@ def main(argv: List[str]) -> int:
                         file=sys.stderr,
                     )
                 return _MUTEX_HELD_EXIT_CODE
-            print(_ceiling_line(max_runtime), file=sys.stderr, flush=True)
+            ceiling_source = ""
+            if derive_ceiling and repo_root is not None:
+                record_wall = _record_wall_secs(suite_run_record.record_dir(repo_root, collection))
+                if record_wall is not None:
+                    max_runtime = _record_ceiling_secs(record_wall)
+                    ceiling_source = (
+                        f" (derived from the last recorded {record_wall:g}s run of "
+                        f"collection {collection})"
+                    )
+            print(_ceiling_line(max_runtime, ceiling_source), file=sys.stderr, flush=True)
             started_at = suite_run_reuse._now_iso()
             started_mono = time.monotonic()
+            started_wall = time.time()
             head_sha, dirty_paths = (None, [])
             log_path: Optional[str] = None
             if repo_root is not None:
@@ -1120,6 +1225,7 @@ def main(argv: List[str]) -> int:
                     junit_path=_junit_path_from(command),
                     log_path=log_path,
                     derive_ceiling=derive_ceiling,
+                    ceiling_source=ceiling_source,
                 )
                 outcome = (
                     "pass" if exit_code == 0
@@ -1129,6 +1235,12 @@ def main(argv: List[str]) -> int:
                 return exit_code
             except BaseException:
                 _resume_then_escalate()
+                print(
+                    "with-suite-mutex: interrupted or failed mid-run; the command tree was stopped and the "
+                    f"suite mutex released. {_junit_report(_junit_path_from(command), started_wall)} "
+                    f"{_partial_report(log_path)}",
+                    file=sys.stderr, flush=True,
+                )
                 raise
             finally:
                 complete = tee.finish()

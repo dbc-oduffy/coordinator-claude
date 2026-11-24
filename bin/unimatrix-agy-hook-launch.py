@@ -111,7 +111,7 @@ def discover_ls_address(agy_pid):
                              capture_output=True, text=True, timeout=5).stdout
     except (OSError, subprocess.SubprocessError):
         return None
-    ports = [int(m.group(1)) for m in re.finditer(r"^n127\.0\.0\.1:(\d+)$", out or "", re.M)]
+    ports = [int(m.group(1)) for m in re.finditer(r"^n(?:127\.0\.0\.1|localhost):(\d+)$", out or "", re.M)]
     return f"127.0.0.1:{min(ports)}" if ports else None
 
 
@@ -132,11 +132,13 @@ def start(req, roster, state):
         old = json.loads(record.read_text())
         old_alive = roster.pid_alive(int(old["pid"]))
         old_live = old.get("mode", "live") == "live"
-        if old_alive and live and old_live and old.get("ls_address") == ls:
+        old_ep = old.get("endpoint")
+        old_ep_ok = os.name == "nt" or not (isinstance(old_ep, str) and os.path.isabs(old_ep)) or os.path.exists(old_ep)
+        if old_alive and old_ep_ok and live and old_live and old.get("ls_address") == ls:
             if old.get("agy_pid") != req.get("agyPid"):  # stamp it, or the hook asks again every call
                 write_record(record, dict(old, agy_pid=req.get("agyPid")))
             return  # already current for this language server
-        if old_alive and not live and old.get("agy_pid") == req.get("agyPid"):
+        if old_alive and old_ep_ok and not live and old.get("agy_pid") == req.get("agyPid"):
             return  # a pending start never replaces a leg of this agy process, live or pending
         if old_alive:
             os.kill(int(old["pid"]), signal.SIGTERM)  # stale, or pending being made live

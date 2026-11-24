@@ -74,7 +74,12 @@ and the dead code does not return. A verdict never deletes a branch whose tip is
 the current branch.
 
 **Delete gate.** Before deleting any local or remote branch, confirm no live session on any box has
-it checked out or is pushing to it. A live branch is absorbed, not deleted.
+it checked out or is pushing to it. A live branch is absorbed, not deleted, unless the PM rules
+its sessions will rebase.
+
+**Remote deletes go through the gh API** — `gh api -X DELETE repos/<owner>/<repo>/git/refs/heads/<branch>`
+— never `git push --delete`, which `block-empty-source-push` refuses (`A-PUSH-WITH-AN-EMPTY-SOURCE-DELETES-A-BRANCH`). Re-check
+`git merge-base --is-ancestor origin/<branch> HEAD` immediately before each call.
 
 **Test gate.** Run the ratchet or targeted tests after the absorbs and before `/merging-to-main`; a
 red from an absorb blocks the merge.

@@ -833,11 +833,42 @@ _CONTENT_ROOT_KEY_PAIR = {
 }
 
 
-def resolve_one(key: str, layers: list[dict] | None = None) -> tuple[int, str | None]:
+# A stored value of the form `${other.key}` or `${other.key}/rel/tail` names another
+# key's root plus a relative tail; readers expand it so a root is spelled once.
+_KEYREF_RE = re.compile(r"^\$\{([A-Za-z0-9_][A-Za-z0-9_.\-]*)\}((?:[/\\].*)?)$", re.DOTALL)
+_KEYREF_MAX_DEPTH = 8
+
+
+def resolve_one(
+    key: str, layers: list[dict] | None = None, _chain: tuple[str, ...] = ()
+) -> tuple[int, str | None]:
+    """Resolve `key`, expanding a leading `${other.key}` reference (chained, cycle-checked)."""
     rc, val = _resolve_one_exact(key, layers)
     if rc == EXIT_NOT_FOUND and key in _CONTENT_ROOT_KEY_PAIR:
-        return _resolve_one_exact(_CONTENT_ROOT_KEY_PAIR[key], layers)
-    return rc, val
+        rc, val = _resolve_one_exact(_CONTENT_ROOT_KEY_PAIR[key], layers)
+    if rc != EXIT_OK or val is None:
+        return rc, val
+    m = _KEYREF_RE.match(val)
+    if m is None:
+        return rc, val
+    ref, tail = m.group(1), m.group(2)
+    chain = _chain + (key,)
+    if ref in chain or len(chain) >= _KEYREF_MAX_DEPTH:
+        return EXIT_OPERATIONAL, (
+            f"machine-local: key '{key}' = {val!r} has a reference cycle "
+            f"({' -> '.join(chain + (ref,))})"
+        )
+    ref_rc, base = resolve_one(ref, layers, chain)
+    if ref_rc in (EXIT_OPERATIONAL, EXIT_TIMEOUT):
+        return ref_rc, base
+    if ref_rc != EXIT_OK or not base:
+        return EXIT_OPERATIONAL, (
+            f"machine-local: key '{key}' = {val!r} references '{ref}', which is not set "
+            f"on this machine -- provision it with `machine-local set {ref} <value>`"
+        )
+    if not tail:
+        return EXIT_OK, base
+    return EXIT_OK, base.rstrip("/\\") + "/" + tail.lstrip("/\\")
 
 
 def _resolve_one_exact(key: str, layers: list[dict] | None = None) -> tuple[int, str | None]:
@@ -1737,6 +1768,66 @@ def _external_collision_refusal(reg_dir: str, key: str, value: str) -> str | Non
     return None
 
 
+_DRIVE_ROOT_RE = re.compile(r"^[A-Za-z]:[\\/]*$")
+_DRIVE_PREFIX_RE = re.compile(r"^[A-Za-z]:")
+
+
+def _spelled_path(p: str) -> tuple[str, str]:
+    """(display, compare) forms of a path: `~` expanded, `\\` -> `/`, no trailing `/`;
+    compare is case-folded when it is drive-lettered (drive paths are case-insensitive)."""
+    if p.startswith("~"):
+        p = os.path.expanduser(p)
+    disp = p.replace("\\", "/")
+    disp = disp.rstrip("/") or "/"
+    cmp_ = disp.casefold() if _DRIVE_PREFIX_RE.match(disp) else disp
+    return disp, cmp_
+
+
+def _looks_absolute(v: str) -> bool:
+    return v.startswith(("~", "/", "\\")) or bool(_DRIVE_PREFIX_RE.match(v))
+
+
+def _absolute_path_refusal(reg_dir: str, key: str, value: str) -> str | None:
+    """Reason a write of `value` to `key` must be refused (None when it may proceed): the
+    value spells a bare drive root, or an absolute path under a `repos.*` root, where a
+    `${repos.<slug>}/tail` key reference names the same place without spelling the root.
+    `repos.*` root keys and external-workspace roots are where a root is spelled, so exempt."""
+    if key.startswith("repos.") or key.startswith(_EXTERNAL_NS + "."):
+        return None
+    v = value.strip()
+    if not v or v.startswith("${") or not _looks_absolute(v):
+        return None
+    if _DRIVE_ROOT_RE.match(v) or v in ("/", "\\"):
+        return (
+            f"refusing `set {key}`: '{value}' is a bare drive root. Name a key's root "
+            f"instead (`machine-local set {key} '${{repos.<slug>}}/<relative tail>'`)."
+        )
+    disp, cmp_ = _spelled_path(v)
+    best: tuple[str, str] | None = None
+    for layer in _build_resolution_layers(reg_dir):
+        for other, root in layer.items():
+            if not other.startswith("repos.") or not isinstance(root, str):
+                continue
+            root = root.strip()
+            if not root or root.startswith("${") or not _looks_absolute(root):
+                continue
+            r_disp, r_cmp = _spelled_path(root)
+            if len(r_cmp) <= 3 or r_cmp == "/":
+                continue
+            if cmp_ == r_cmp or cmp_.startswith(r_cmp + "/"):
+                if best is None or len(r_cmp) > len(best[1]):
+                    best = (other, r_cmp)
+    if best is None:
+        return None
+    tail = disp[len(best[1]):].lstrip("/")
+    ref = "${" + best[0] + "}" + (f"/{tail}" if tail else "")
+    return (
+        f"refusing `set {key}`: '{value}' spells an absolute path under the root of "
+        f"'{best[0]}', so it breaks when that repo moves. Use the key reference: "
+        f"`machine-local set {key} '{ref}'`."
+    )
+
+
 def cmd_check(args: argparse.Namespace) -> int:
     """Implement: machine-local check — report registry keys shadowed by a concern file.
 
@@ -2120,6 +2211,11 @@ def cmd_array_append(args: argparse.Namespace) -> int:
         )
         return 1
 
+    refusal = _absolute_path_refusal(reg_dir, key, element)
+    if refusal:
+        print(f"machine-local: {refusal}", file=sys.stderr)
+        return 1
+
     _target_file, target_path, content, is_new = _load_registry_target(reg_dir, args.write_global)
     date_tag = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -2262,6 +2358,10 @@ def cmd_array_set(args: argparse.Namespace) -> int:
                 "Literal-string TOML has no escape for single quote.",
                 file=sys.stderr,
             )
+            return 1
+        refusal = _absolute_path_refusal(reg_dir, key, element)
+        if refusal:
+            print(f"machine-local: {refusal}", file=sys.stderr)
             return 1
 
     _target_file, target_path, content, is_new = _load_registry_target(reg_dir, args.write_global)
@@ -2668,6 +2768,11 @@ def _cmd_set_concern(args: argparse.Namespace) -> int:
         )
         return 1
 
+    refusal = _absolute_path_refusal(reg_dir, key, value)
+    if refusal:
+        print(f"machine-local: {refusal}", file=sys.stderr)
+        return 1
+
     registered = set()
     for p in (os.path.join(reg_dir, "registry.toml"),
               os.path.join(reg_dir, "registry.local.toml")):
@@ -2781,6 +2886,11 @@ def cmd_set(args: argparse.Namespace) -> int:
     if refusal:
         print(f"machine-local: {refusal}", file=sys.stderr)
         return EXIT_OPERATIONAL
+
+    refusal = _absolute_path_refusal(reg_dir, key, value)
+    if refusal:
+        print(f"machine-local: {refusal}", file=sys.stderr)
+        return 1
 
     if os.path.exists(target_path):
         content = _read_text_shared(target_path)

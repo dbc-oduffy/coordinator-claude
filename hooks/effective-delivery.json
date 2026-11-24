@@ -1,10 +1,10 @@
 {
   "x-effective-delivery": {
     "version": 1,
-    "generated_from_sha": "8f6fc5ad89d9f249e060e50cb5e7f6d98b2f207c",
-    "generated_at": "2026-11-21T02:56:28Z",
-    "generated_from_dirty_tree": false,
-    "engine_source_sha": "09153979aa169ea52a2c3eb8e90ac03e6ab9faf0",
+    "generated_from_sha": "3772dcadc15851c8f2076071725eaef95c19ea5c",
+    "generated_at": "2026-11-23T02:01:58Z",
+    "generated_from_dirty_tree": true,
+    "engine_source_sha": "f4869348aca8fb299c03431ba00ffa167d3cfef3",
     "engine_source_dirty_tree": false,
     "engine_source_resolution": "resolved-engine/published-target",
     "carriers": {
@@ -145,6 +145,16 @@
           {
             "id": "guard_research_layout_write",
             "script": "scripts/guard-research-layout-write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "guard_abs_path_literal_on_write",
+            "script": "scripts/guard-abs-path-literal-on-write.py",
             "tool_names": [
               "Write",
               "Edit",
@@ -1464,6 +1474,11 @@
             "tool_names": []
           },
           {
+            "id": "session_start_loop_goal",
+            "script": "scripts/session-start-loop-goal.py",
+            "tool_names": []
+          },
+          {
             "id": "engine_guards_importable",
             "script": "scripts/session-start-engine-guards-importable.py",
             "tool_names": []
@@ -1766,6 +1781,14 @@
         ]
       },
       {
+        "id": "guard-codex-exec-windows-sandbox.py",
+        "script": "scripts/guard-codex-exec-windows-sandbox.py",
+        "tool_names": [
+          "Bash",
+          "PowerShell"
+        ]
+      },
+      {
         "id": "guard-config-change-hookstack-selfdefence.py",
         "script": "scripts/guard-config-change-hookstack-selfdefence.py",
         "tool_names": []
@@ -1787,6 +1810,13 @@
         ]
       },
       {
+        "id": "guard-grep-tool-scope.py",
+        "script": "scripts/guard-grep-tool-scope.py",
+        "tool_names": [
+          "Grep"
+        ]
+      },
+      {
         "id": "guard-msys-ps-wait.py",
         "script": "scripts/guard-msys-ps-wait.py",
         "tool_names": [
@@ -1804,6 +1834,14 @@
       {
         "id": "guard-recursive-grep-repo-root.py",
         "script": "scripts/guard-recursive-grep-repo-root.py",
+        "tool_names": [
+          "Bash",
+          "PowerShell"
+        ]
+      },
+      {
+        "id": "guard-runaway-spawn.py",
+        "script": "scripts/guard-runaway-spawn.py",
         "tool_names": [
           "Bash",
           "PowerShell"
@@ -1918,6 +1956,17 @@
         "tool_names": [
           "clear",
           "compact",
+          "resume",
+          "startup"
+        ]
+      },
+      {
+        "id": "session-start-thread-caps.py",
+        "script": "scripts/session-start-thread-caps.py",
+        "tool_names": [
+          "clear",
+          "compact",
+          "fork",
           "resume",
           "startup"
         ]

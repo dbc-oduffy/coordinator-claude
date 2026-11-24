@@ -49,7 +49,7 @@ def sessions_dir():
     """Claude Code's session registry: `$CLAUDE_CONFIG_DIR/sessions`, else `~/.claude/sessions`.
 
     It belongs to the Claude config dir, never the settings home: settings homes on one box share it
-    (G-EM ruling 2026-11-20, plan row C0-R)."""
+    (plan row C0-R, 2026-11-20)."""
     config = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
     return os.path.join(config, "sessions") if config else os.path.expanduser("~/.claude/sessions")
 
@@ -142,11 +142,11 @@ def console_python():
     return found
 
 
-def spawn(cmd):
+def spawn(cmd, stderr=None):
     """Start a child that can be tree-killed later: its own process group off Windows."""
     if sys.platform == "win32":
-        return subprocess.Popen(cmd, creationflags=no_window())
-    return subprocess.Popen(cmd, start_new_session=True)
+        return subprocess.Popen(cmd, stderr=stderr, creationflags=no_window())
+    return subprocess.Popen(cmd, stderr=stderr, start_new_session=True)
 
 
 TASKKILL_ARGV_BUDGET = 8000
@@ -209,39 +209,21 @@ def _signal_pid(pid, sig):
         pass
 
 
+def _core_module(subname):
+    bin_dir = os.path.dirname(os.path.abspath(__file__))
+    if "_unimatrix" not in sys.modules and os.path.isdir(os.path.join(bin_dir, "_unimatrix")):
+        if bin_dir not in sys.path:
+            sys.path.insert(0, bin_dir)
+    import importlib
+    return importlib.import_module(f"_unimatrix.{subname}")
+
+
 def pid_alive(pid):
-    if sys.platform == "win32":
-        import ctypes
-        from ctypes import wintypes
-        k32 = ctypes.windll.kernel32
-        k32.OpenProcess.restype = wintypes.HANDLE
-        h = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
-        if not h:
-            return False
-        code = wintypes.DWORD()
-        ok = k32.GetExitCodeProcess(h, ctypes.byref(code))
-        k32.CloseHandle(h)
-        return bool(ok) and code.value == STILL_ACTIVE
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
-_LIVENESS = []
+    return _core_module("proc").pid_alive(pid)
 
 
 def _liveness():
-    if not _LIVENESS:
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("unimatrix_liveness", HERE / "unimatrix-liveness.py")
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        _LIVENESS.append(mod)
-    return _LIVENESS[0]
+    return _core_module("proc")
 
 
 _CODEX_HOOK = []
@@ -336,9 +318,34 @@ def mirror_ghost(d, rows):
         (transport_row(d) and not d.get("unimatrixReplyInbox")) or far_codex_unbacked(d) or far_duplicate(d, rows))
 
 
-def listed_row(d, rows=()):
+_SUPERSEDED_TTL_SECONDS = 1.0
+_SUPERSEDED = None
+
+
+def codex_superseded_faces(rows) -> dict:
+    """{id(face): surviving face} over `rows`, computed once per listing and memoized on the rows' shape.
+
+    The memo expires after `_SUPERSEDED_TTL_SECONDS`: holder liveness changes without the rows changing, so a
+    caller reusing one rows list must not read a stale survivor map."""
+    global _SUPERSEDED
+    sig = tuple((id(r), r.get("startedAt"), r.get("pid"), r.get("target")) for r in rows if isinstance(r, dict))
+    memo = _SUPERSEDED
+    now = time.monotonic()
+    if memo is None or memo[0] != sig or memo[1] is not rows or now - memo[3] > _SUPERSEDED_TTL_SECONDS:
+        memo = (sig, rows, _liveness().codex_superseded_faces([r for r in rows if isinstance(r, dict)]), now)
+        _SUPERSEDED = memo
+    return memo[2]
+
+
+def codex_superseded(d, rows) -> bool:
+    """True for a local Codex face another face of the same holder (pid+start, else thread) outranks."""
+    return isinstance(d, dict) and d.get("vendor") == "codex" and id(d) in codex_superseded_faces(rows)
+
+
+def listed_row(d, rows=()) -> bool:
     """The one listing predicate: a live peer shown once. `rows` is every session entry the listing covers."""
-    return entry_listed(d) and not transport_row(d) and not mirror_ghost(d, rows)
+    return (entry_listed(d) and not transport_row(d) and not mirror_ghost(d, rows)
+            and not codex_superseded(d, rows))
 
 
 def far_seen_fields():
@@ -351,18 +358,9 @@ def supervisor_fields():
     return {"unimatrixRosterPid": pid, "unimatrixRosterProcStart": proc_start(pid)}
 
 
-_CONTRACT = []
-
-
 def _contract():
-    """The peer contract module (box_id, BOX_FIELD), loaded by path on first use."""
-    if not _CONTRACT:
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("unimatrix_peer_contract", HERE / "unimatrix-peer-contract.py")
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        _CONTRACT.append(mod)
-    return _CONTRACT[0]
+    """The peer contract module (box_id, BOX_FIELD), loaded via _unimatrix.protocol."""
+    return _core_module("protocol")
 
 
 def _ps_lstart(pid):
@@ -405,7 +403,9 @@ def pid_domain(platform=None):
     plat = platform or sys.platform
     if plat == "win32":
         return f"win32:{socket.gethostname().lower()}"
-    return "darwin" if plat == "darwin" else _liveness().linux_pid_domain()
+    if plat == "darwin":
+        return "darwin"
+    return linux_pid_domain() if platform is None else "linux"
 
 
 def local_endpoint(far_socket, platform=None):
@@ -823,6 +823,15 @@ def box_label(remote):
     return str(remote).rpartition("@")[2]
 
 
+def stable_label(remote):
+    """`box_label` without a trailing mDNS `.local`, the label a mirror name carries.
+
+    Trap: the ssh alias differs by supervisor generation (`Mac-mini.local`, then `Mac-mini`); a name built
+    from the raw alias changes on every box restart and breaks each cached address."""
+    label = box_label(remote)
+    return label[:-len(".local")] if label.lower().endswith(".local") and len(label) > len(".local") else label
+
+
 def box_key(remote):
     """Identity of the box behind an ssh alias: `box_label` lower-cased, cut at its first dot and
     stripped of a trailing `-lan`, so `machine-b`, `Machine-b.local` and `machine-b-lan` are one box
@@ -849,7 +858,7 @@ def labelled(name, remote):
     """The name, a dot, then the box, for a mirror's session name; idempotent, so a re-mirror never stacks labels."""
     if not isinstance(name, str) or not name:
         return name
-    return f"{bare_name(name)}{LABEL_SEP}{box_label(remote)}"
+    return f"{bare_name(name)}{LABEL_SEP}{stable_label(remote)}"
 
 
 def mirror_scan_key(remote, far_sock):
@@ -917,7 +926,7 @@ def mirror_name(name, remote, far_sock=None, scan=None):
     label separator, so a raw dotted name would be cut at its first dot and collide."""
     if not isinstance(name, str) or not name:
         return name
-    if LABEL_SEP in name and not name.endswith(LABEL_SEP + box_label(remote)):
+    if LABEL_SEP in name and not name.endswith((LABEL_SEP + box_label(remote), LABEL_SEP + stable_label(remote))):
         name = name.replace(LABEL_SEP, "-")
     bare = bare_name(name)
     if scan is None:
@@ -956,8 +965,8 @@ def pushed_from(d, remote):
     box = d.get(_contract().BOX_FIELD)
     if box:
         return box == _contract().box_id(remote)
-    label = re.sub(r"[^A-Za-z0-9_-]+", "-", box_label(remote)).strip("-")
-    return str(d.get("name") or "").endswith(LABEL_SEP + label)
+    return any(str(d.get("name") or "").endswith(LABEL_SEP + re.sub(r"[^A-Za-z0-9_-]+", "-", lab).strip("-"))
+               for lab in {box_label(remote), stable_label(remote)})
 
 
 def superseded_inbound(far_rows, remote):
@@ -1007,23 +1016,28 @@ def prune_superseded_inbound(far_rows, remote, say):
         say(f"unlist pushed mirror {d.get('name')} session {d.get('sessionId')}: the far box lists another session under that name")
 
 
-def far_rows(fetched, remote, skip, say):
+def far_rows(fetched, remote, skip, say, keep=()):
     """The far rows worth mirroring after the superseded pushed mirrors of this box are dropped."""
     prune_superseded_inbound(fetched, remote, say)
-    return mirrorable(fetched, skip, inbound_names())
+    return mirrorable(fetched, skip, inbound_names(), keep)
 
 
-def mirrorable(rows, skip, inbound):
+def mirrorable(rows, skip, inbound, keep=()):
     """far socket -> row for the far rows worth mirroring: true far sessions only.
 
     A far relay older than its re-export filter still lists its own mirrors of our sessions
     (`unimatrixMirror`, or the far-socket field); mirroring those back loops every name into a
-    duplicate. `inbound` is `inbound_names()`, computed once per poll by the caller."""
+    duplicate. `inbound` is `inbound_names()`, computed once per poll by the caller.
+
+    Trap: `inbound` only stops a NEW mirror. A far socket in `keep` (the caller's live bridges) stays in
+    the result though a relay-pushed mirror now holds its name: `sync` unmirrors a bridge whose row is
+    missing, so dropping it here killed the bridge of a session the far roster still lists."""
     return {r["entry"]["messagingSocketPath"]: r for r in rows
             if r["entry"]["messagingSocketPath"] not in skip
             and not (r["entry"].get("unimatrixMirror") or r["entry"].get(FAR_SOCKET_FIELD))
             and not far_codex_unbacked(r["entry"])
-            and bare_name(r["entry"].get("name")) not in inbound}
+            and (bare_name(r["entry"].get("name")) not in inbound
+                 or r["entry"]["messagingSocketPath"] in keep)}
 
 
 _AGENT_OK = {}
@@ -1209,7 +1223,7 @@ def reap_orphaned_mirrors(remote, say, unbacked=False, keep=(), bridges=None):
     for _, pid, d in owners:
         if (d.get("pid") != pid or pid in keep
                 or not (mirror_orphaned(d) or (unbacked and (mirror_unbacked(d) or mirror_ghost(d, entries))))
-                or box_label(d.get("unimatrixRemote") or "") != box_label(remote)):
+                or stable_label(d.get("unimatrixRemote") or "") != stable_label(remote)):
             continue
         if isinstance(d.get("procStart"), str) and d["procStart"] and entry_live(d):
             to_kill.append(pid)
@@ -1332,8 +1346,6 @@ def reap_stale_sockets(owners, keep, readable, say):
     legs = live_agy_leg_sockets()
     if legs is None:
         return
-
-
     held |= _non_session_held_sockets()
     for f in socks:
         full = os.path.join(LOOPBACK_SOCKS, f)
@@ -1434,7 +1446,7 @@ def session_identity(entry, box=None):
 
 
 def mirror_identity(entry, remote):
-    out = session_identity(entry, box_label(remote))
+    out = session_identity(entry, stable_label(remote))
     if entry.get("pidDomain"):
         out["farPidDomain"] = entry["pidDomain"]
     return out
@@ -1445,9 +1457,9 @@ def remote_mirrors(entries, remote=None):
     entries = list(entries)
     if not remote:
         return entries
-    want = box_label(remote)
+    want = stable_label(remote)
     matches = [entry for entry in entries
-               if box_label(entry.get("unimatrixRemote") or entry.get(_contract().BOX_FIELD)
+               if stable_label(entry.get("unimatrixRemote") or entry.get(_contract().BOX_FIELD)
                             or entry.get("box") or "") == want]
     if matches:
         return matches
@@ -1467,7 +1479,7 @@ def mirror_entry_name(entry, remote, far_sock=None, scan=None):
         vendor, target = legacy.groups()
         cwd = str(entry.get("cwd") or "").replace("\\", "/").rstrip("/")
         repo = re.sub(r"[^A-Za-z0-9_-]+", "-", cwd.rsplit("/", 1)[-1]).strip("-") or "session"
-        box = re.sub(r"[^A-Za-z0-9_-]+", "-", str(entry.get("box") or box_label(remote))).strip("-").lower()
+        box = re.sub(r"[^A-Za-z0-9_-]+", "-", str(entry.get("box") or stable_label(remote))).strip("-").lower()
         short = hashlib.sha256(target.lower().encode()).hexdigest()[:10]
         name = f"{vendor.lower()}-{repo}-{short}-on-{box or 'unknown'}"
     name = mirror_name(name, remote, mirror_scan_key(remote, far_sock), scan)
@@ -1839,7 +1851,8 @@ def main(argv=None) -> None:
                                default=link)
             if _now() >= next_fetch:
                 try:
-                    rows = far_rows(fetch_roster(cfg.remote, cfg.key, cfg.tunnel_remote), cfg.remote, skip, say)
+                    rows = far_rows(fetch_roster(cfg.remote, cfg.key, cfg.tunnel_remote), cfg.remote, skip, say,
+                                    keep=bridges)
                 except Exception as ex:
                     failures += 1
                     if not stale:

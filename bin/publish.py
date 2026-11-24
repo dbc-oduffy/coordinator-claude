@@ -110,7 +110,7 @@ import time
 from datetime import datetime, timezone
 from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
-from typing import IO, Any, Callable, List, Mapping, NamedTuple, Optional, Sequence, Tuple
+from typing import IO, Any, Callable, Iterator, List, Mapping, NamedTuple, Optional, Sequence, Tuple
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _COORDINATOR_LIB = _REPO_ROOT / "coordinator" / "lib"
@@ -202,6 +202,28 @@ _BOOTSTRAPPED_NAMES = (
 )
 
 
+def _pin_first(root: Path, package: str) -> None:
+    """Put `root` at the front of `sys.path` and, when this file runs as a script, evict a `package`
+    already imported from elsewhere, so every module of it comes from the same tree as this bin.
+
+    Trap: a claude-klabauter commit clone run under a stamped engine had `coordinator_core` pre-imported from
+    the klabauter install; the clone's newer modules then failed to import one by one (doe-ab round 4).
+    Imported as a module (a warm server, a test), nothing is evicted: shared processes keep theirs."""
+    entry = str(root)
+    while entry in sys.path:
+        sys.path.remove(entry)
+    sys.path.insert(0, entry)
+    loaded = sys.modules.get(package)
+    origin = getattr(loaded, "__file__", None)
+    if not origin or Path(origin).resolve().parent.parent == root.resolve():
+        return
+    main_file = getattr(sys.modules.get("__main__"), "__file__", None)
+    if not main_file or Path(main_file).resolve() != Path(__file__).resolve():
+        return
+    for name in [n for n in sys.modules if n == package or n.startswith(package + ".")]:
+        del sys.modules[name]
+
+
 def _bootstrap_engine() -> None:
     """Bind `coordinator.lib` (and this repo root) on `sys.path`, then every
     non-stdlib name this module's body used to import at MODULE scope.
@@ -218,15 +240,13 @@ def _bootstrap_engine() -> None:
         return
     try:
         _engine_lib = (_ENGINE_ROOT or _REPO_ROOT) / "coordinator" / "lib"
-        if str(_engine_lib) not in sys.path:
-            sys.path.insert(0, str(_engine_lib))
+        _pin_first(_engine_lib, "percolate")
         # percolate.targets resolves sibling modules via absolute `coordinator.lib.percolate.*`
         # imports, so the repo root must be importable too — else a bareword
         # `python coordinator/bin/publish.py` (the invocation docs + the /percolate skill now
         # point at) dies with ModuleNotFoundError before argparse runs.
         _engine_root = _ENGINE_ROOT or _REPO_ROOT
-        if str(_engine_root) not in sys.path:
-            sys.path.insert(0, str(_engine_root))
+        _pin_first(_engine_root, "coordinator_core")
 
         #: D1 fix — single source of truth shared with
         #: `percolate-round.py::_INHERITED_LOCK_ROOTS_ENV` (one wire contract
@@ -3478,6 +3498,7 @@ def dispatch_end_of_run_live_identifier_gate(
             cache, digest = _gate_result_cache(target, _live, "live-identifier", _pct_engine, params)
             hits = _live.scrubbed_in_tree(
                 target.source_dir, _transform, cache=cache, params_digest=digest,
+                files=_row_payload_files(target, _load_repo_key_literals()),
                 progress=_gate_heartbeat(f"{target.name} live identifiers"),
             )
             if cache is not None:
@@ -3547,6 +3568,26 @@ def _row_published_payload(target, files: "list[tuple[str, Path]]") -> "list[tup
     return files
 
 
+def _row_payload_files(target, rkl) -> "list[tuple[str, Path]]":
+    """Sorted `(rel_path, path)` of what the row can publish, listed from the source's git
+    index rather than walked. A walk stats every untracked tree under `source_dir`
+    (scratch, caches, shadow stores: gigabytes on a working box), which is what made the
+    end-of-run gates take tens of minutes; the index listing is one `ls-files` call.
+    A source that is not a git work tree falls back to the walk."""
+    listing = _git_capture(target.source_dir, "ls-files", "--cached", "-z")
+    if listing is None:
+        return _row_published_payload(target, rkl.list_files(target.source_dir))
+    files = sorted(
+        (rel, target.source_dir / rel)
+        for rel in listing.split("\0")
+        if rel and (target.source_dir / rel).is_file()
+    )
+    if getattr(target, "allowlist", ""):
+        withheld = _paths_the_row_allowlist_denies(target, [rel for rel, _ in files])
+        files = [f for f in files if f[0] not in withheld]
+    return files
+
+
 def _gate_result_cache(target, gate_module, gate_id, pct_engine, params):
     """`(cache, transform identity)` for one end-of-run gate. The cache lives in the
     destination REPO's git dir (the nearest `.git` at or above `dest_dir`, since a row
@@ -3601,26 +3642,51 @@ def _import_closure_gate(target, restricted_tmp_src, tests_only=False) -> "tuple
 
 def _repo_key_gate_cache(target, rkl, pct_engine, params):
     """`(cache, transform identity, shared file walk)` for the repo-key gate."""
-    files = _row_published_payload(target, rkl.list_files(target.source_dir))
+    files = _row_payload_files(target, rkl)
     cache, digest = _gate_result_cache(target, rkl, "repo-key-literal", pct_engine, params)
     return cache, digest, files
 
 
 _GATE_HEARTBEAT_SECS = 30.0
+_PROGRESS_FILE_SECS = 5.0
+
+#: The `--progress-file` a driving round watches for stalls; None when run bare. A gate
+#: that only prints is invisible to that watchdog, so a slow gate reads as a hang.
+_PROGRESS_FILE: "list[Optional[Path]]" = [None]
+
+
+def _write_progress_file(record: "dict[str, Any]") -> None:
+    """Best effort, never raises: a progress sidecar failure never fails the publish.
+    Atomic replace, so the watchdog never reads a torn record."""
+    path = _PROGRESS_FILE[0]
+    if path is None:
+        return
+    try:
+        tmp = path.with_name(path.name + f".{os.getpid()}.tmp")
+        tmp.write_text(json.dumps({"writer": "publish", "pid": os.getpid(), **record}),
+                       encoding="utf-8", newline="\n")
+        os.replace(tmp, path)
+    except (OSError, ValueError):
+        return
 
 
 def _gate_heartbeat(label: str, *, out: "IO[str] | None" = None, every: float = _GATE_HEARTBEAT_SECS,
                     clock: "Callable[[], float]" = time.monotonic):
     """A `progress(done, total)` callback that prints one line at most every `every`
     seconds, so a gate walking thousands of files shows it is alive (and where) instead
-    of sitting silent until its leg timeout."""
+    of sitting silent until its leg timeout. Under a driving round it also refreshes the
+    `--progress-file` every few seconds, which is what that round's stall watchdog reads."""
     last = [clock()]
+    last_file = [float("-inf")]
 
     def _tick(done: int, total: int) -> None:
         now = clock()
         if now - last[0] >= every:
             last[0] = now
             print(f"  [progress] {label}: {done}/{total} files", file=out or sys.stdout, flush=True)
+        if _PROGRESS_FILE[0] is not None and (now - last_file[0] >= _PROGRESS_FILE_SECS or done == total):
+            last_file[0] = now
+            _write_progress_file({"phase": "gate", "gate": label, "done": done, "total": total})
 
     return _tick
 
@@ -6211,6 +6277,11 @@ def check_version_consistency(
         print("", file=out)
         return False
 
+    # The publisher's checkout is the authoring tree this process bound
+    # coordinator_core from; naming it keeps the gate (run from the published
+    # mirror) from reading that binding as a foreign engine.
+    gate_env = _utf8_child_env()
+    gate_env.setdefault("COORDINATOR_ENGINE_SOURCE_ROOT", str(_REPO_ROOT))
     # Captured and re-emitted, not inherited: with CREATE_NO_WINDOW and no
     # stream kwarg the gate's disagreement report is lost on Windows.
     result = subprocess.run(
@@ -6220,7 +6291,7 @@ def check_version_consistency(
         text=True,
         encoding="utf-8",
         errors="replace",
-        env=_utf8_child_env(),
+        env=gate_env,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     if result.stdout:
@@ -8610,6 +8681,56 @@ class GitMaterializeError(RuntimeError):
     silently reintroduce the TOCTOU this plan closes for that root)."""
 
 
+class GitArchiveDeadlineError(GitMaterializeError):
+    """`git archive` (or its unpacking) ran past its deadline and was stopped; the message names
+    the toplevel, sha, elapsed seconds and the bytes (and, unpacking, members) done."""
+
+
+class PathspecNotEnumerableError(GitMaterializeError):
+    """A row sourcing the git toplevel itself has no enumerable allowlist, so scoping its archive
+    would mean archiving the whole tree; the message names the row. Also the sole refusal for a
+    `.`-rooted row, since `_relative_pathspec_entry` never emits `:(literal).`."""
+
+
+#: How long one `git archive` may run before it is a defect. Measured 2026-11-22: the scoped
+#: own-repo archive takes 1.3s and the unscoped foreign coordinator-content-repo archive 2-3s. Measured 2026-11-24
+#: under fleet load: the own-repo archive wrote 77-87MB and was still running at 10s, twice, so 10s
+#: killed a healthy publish. 120s matches the unpack deadline below. It must stay well under
+#: percolate-round's `_PUBLISH_LEG_TIMEOUT_SECS` (3600), or the leg kill fires first and this typed
+#: error never prints. Bulk-transfer carve-out of the brightline, not a target.
+_GIT_ARCHIVE_DEADLINE_SECS = 120.0
+
+
+#: How long unpacking one archive may run. Measured 2026-11-22 after `.`-rooted rows were narrowed
+#: to their allowlist entries: the scoped coordinator-content-repo archive (5032 files / 46.6MB) unpacks in 11s,
+#: the scoped own-repo archive 33s under load; unscoped foreign coordinator-content-repo was 70-84s (327MB).
+#: 2026-11-24: the own-repo scoped archive grew to ~10.3k members / 107MB and unpacked in 104-120s
+#: on Machine-a, so 120s killed a round that was nearly done. 600s stays far under percolate-round's
+#: 3600s leg timeout. Bulk transfer, not a target.
+_GIT_EXTRACT_DEADLINE_SECS = 600.0
+
+
+def _members_within_deadline(
+    archive: "tarfile.TarFile", started: float, toplevel: Path, sha: str
+) -> "Iterator[tarfile.TarInfo]":
+    """Yields `archive`'s members for `extractall`, raising `GitArchiveDeadlineError` once
+    `_GIT_EXTRACT_DEADLINE_SECS` has passed since `started` (a `time.perf_counter()` reading),
+    naming the members and bytes already yielded."""
+    members = 0
+    size = 0
+    for member in archive:
+        elapsed = time.perf_counter() - started
+        if elapsed > _GIT_EXTRACT_DEADLINE_SECS:
+            raise GitArchiveDeadlineError(
+                f"extracting git archive {sha!r} of {toplevel} exceeded "
+                f"{_GIT_EXTRACT_DEADLINE_SECS:.0f}s deadline after {elapsed:.1f}s with "
+                f"{members} members / {size} bytes extracted"
+            )
+        yield member
+        members += 1
+        size += member.size
+
+
 @dataclass(frozen=True)
 class _GitRevParseResult:
     """Full outcome of a `git rev-parse` invocation — `_git_rev_parse`'s
@@ -8809,7 +8930,7 @@ def _relative_pathspec_entry(path: Path, toplevel: Path) -> Optional[str]:
         return None
     rel_posix = rel.as_posix()
     if rel_posix in ("", "."):
-        return ":(literal)."
+        return None
     return f":(literal){rel_posix}"
 
 
@@ -8855,6 +8976,44 @@ def _all_inject_srcs_resolved(setup_dir: Path, percolate_root: Path) -> "List[st
     return srcs
 
 
+def _toplevel_root_allowlist_entries(
+    row: "ResolvedTarget", root: Path, toplevel: Path, tracked: "set"
+) -> "List[str]":
+    """Pathspec entries for a row whose source root IS the git toplevel: the row's own tracked
+    allowlist inclusions, never the whole tree. Empty when the root is a subdirectory (the caller
+    names the root itself). Raises `PathspecNotEnumerableError` naming the row when the allowlist
+    cannot be enumerated: none, a glob, an escaping entry, a `source_map`, or no inclusion
+    tracked at the sha."""
+    _bootstrap_engine()
+    if root.resolve() != toplevel.resolve():
+        return []
+    inclusions, _ = split_inclusion_exclusion(parse_allowlist_csv(row.allowlist))
+    reason = None
+    if row.source_map:
+        reason = "it carries a source_map"
+    elif not inclusions:
+        reason = "it has no allowlist inclusions"
+    elif any(c in e for e in inclusions for c in "*?[") or any(
+        e in (".", "") or e.startswith("/") or ".." in e.split("/") for e in inclusions
+    ):
+        reason = "its allowlist has a glob or an escaping entry"
+    named = []
+    if reason is None:
+        for entry in inclusions:
+            if _path_tracked_at_sha(root / entry, toplevel, tracked):
+                spec = _relative_pathspec_entry(root / entry, toplevel)
+                if spec is not None:
+                    named.append(spec)
+        if not named:
+            reason = "none of its allowlist inclusions is tracked at the archived sha"
+    if reason is not None:
+        raise PathspecNotEnumerableError(
+            f"row {row.name!r} sources git toplevel {toplevel} itself and {reason}; refusing to "
+            "archive the whole tree. Give the row an explicit literal allowlist."
+        )
+    return named
+
+
 def _required_pathspec_for_toplevel(
     toplevel: Path, sha: Optional[str] = None
 ) -> "tuple[str, ...]":
@@ -8883,27 +9042,23 @@ def _required_pathspec_for_toplevel(
     `_MATERIALIZED_REF_CACHE` itself uses — computed once, on the first
     (cache-MISS) extraction for that toplevel.
 
-    A `toplevel` other than THIS repo's own (`_REPO_ROOT`) is not scoped at
-    all — an empty tuple, meaning `_extract_git_archive` falls through to
-    its pre-C5 full-tree behavior unchanged. Every contributing root and
-    every store-declared inject `src` this repo's own configuration names
-    resolves under `_REPO_ROOT` (§ `_git_materialize_ref`'s own docstring:
-    "every contributing root... is a subdirectory of this repo's own
-    single git toplevel"), so a DIFFERENT toplevel — a sibling checkout, or
-    a throwaway repo a lower-level test builds directly to exercise
-    `_extract_git_archive` in isolation (e.g.
-    `test_publish_git_archive_eol_regimes.py`) — has no declared coverage
-    to compute here in the first place; scoping it is "not this pathspec's
-    business" (dispatch brief).
+    A foreign `toplevel` (a sibling checkout the source resolves to) is
+    scoped the same way: only the roots and inject srcs that resolve under it
+    and are tracked at `sha` are named, because `git archive` hard-fails on
+    any unmatched entry. Archiving the whole foreign tree is what stalled a
+    publish for the 3600s round timeout. A foreign toplevel with no declared
+    coverage returns an empty tuple — a full-tree archive, bounded by
+    `_GIT_ARCHIVE_DEADLINE_SECS` — which keeps a throwaway repo a lower-level
+    test builds to exercise `_extract_git_archive` in isolation (e.g.
+    `test_publish_git_archive_eol_regimes.py`) working.
 
     Raises `GitMaterializeError` (fail-loud, never a silent full-tree
-    fallback) when `toplevel` IS `_REPO_ROOT` and the computed pathspec is
-    still empty: that is a real coverage bug, not an out-of-scope
-    toplevel — nothing this run's declared configuration contributes
-    resolves under this repo's own toplevel at all, which means archiving
-    it here would either produce a useless empty shadow or (per the
-    measured `git archive` behavior above) hard-fail inside
-    `_extract_git_archive` anyway with a less legible error.
+    fallback) when `toplevel` IS the source repo and the computed pathspec is
+    still empty: that is a real coverage bug — nothing this run's declared
+    configuration contributes resolves under this repo's own toplevel at
+    all, which means archiving it here would either produce a useless empty
+    shadow or (per the measured `git archive` behavior above) hard-fail
+    inside `_extract_git_archive` anyway with a less legible error.
 
     `sha` (Review: code-reviewer — coverage must gate on the tree actually
     being archived, not the live working tree at compute time; a root or
@@ -8927,9 +9082,7 @@ def _required_pathspec_for_toplevel(
     if cached is not None:
         return cached
 
-    if toplevel.resolve() != _source_repo().resolve():
-        _REQUIRED_PATHSPEC_CACHE[key] = ()
-        return ()
+    own_toplevel = toplevel.resolve() == _source_repo().resolve()
 
     percolate_root, _rung = _resolve_percolate_root_and_rung(override=_PERCOLATE_ROOT_OVERRIDE)
     setup_dir = percolate_root / "setup"
@@ -8967,10 +9120,14 @@ def _required_pathspec_for_toplevel(
             # row of the mirror.
             if not root_tracked:
                 continue
-            root_entry = _relative_pathspec_entry(root, toplevel)
-            if root_entry is None:
-                continue
-            entries.add(root_entry)
+            narrowed = _toplevel_root_allowlist_entries(row_target, root, toplevel, tracked)
+            if narrowed:
+                entries.update(narrowed)
+            else:
+                root_entry = _relative_pathspec_entry(root, toplevel)
+                if root_entry is None:
+                    continue
+                entries.add(root_entry)
             ignore_file = root / ".percolate-ignore"
             if ignore_file.is_file():
                 ignore_entry = _relative_pathspec_entry(ignore_file, toplevel)
@@ -8995,7 +9152,7 @@ def _required_pathspec_for_toplevel(
             entries.add(src_entry)
 
     result = tuple(sorted(entries))
-    if not result:
+    if not result and own_toplevel:
         raise GitMaterializeError(
             f"no contributing root or resolved inject src resolves under git toplevel "
             f"{toplevel} — refusing to archive it with an empty pathspec rather than "
@@ -9079,9 +9236,11 @@ def _extract_git_archive(toplevel: Path, sha: str) -> Path:
     from coordinator_core.temp_layout import managed_tempdir  # noqa: PLC0415
 
     managed = managed_tempdir()
-    shadow_dir = Path(tempfile.mkdtemp(prefix="claude-klabauter-publish-materialize-", dir=managed))
+    shadow_dir = Path(
+        tempfile.mkdtemp(prefix=f"claude-klabauter-publish-materialize-{os.getpid()}-", dir=managed)
+    )
     fd, archive_path_str = tempfile.mkstemp(
-        prefix="claude-klabauter-publish-archive-", suffix=".tar", dir=managed
+        prefix=f"claude-klabauter-publish-archive-{os.getpid()}-", suffix=".tar", dir=managed
     )
     os.close(fd)
     archive_path = Path(archive_path_str)
@@ -9105,13 +9264,26 @@ def _extract_git_archive(toplevel: Path, sha: str) -> Path:
                 ]
                 if pathspec:
                     _archive_cmd += ["--", *pathspec]
-                result = subprocess.run(
-                    _archive_cmd,
-                    capture_output=True,
-                    text=True, encoding="utf-8", errors="replace",
-                    check=False,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                )
+                try:
+                    result = subprocess.run(
+                        _archive_cmd,
+                        capture_output=True,
+                        text=True, encoding="utf-8", errors="replace",
+                        check=False,
+                        timeout=_GIT_ARCHIVE_DEADLINE_SECS,
+                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    )
+                except subprocess.TimeoutExpired as exc:
+                    try:
+                        written = archive_path.stat().st_size
+                    except OSError:
+                        written = 0
+                    raise GitArchiveDeadlineError(
+                        f"git archive {sha!r} of {toplevel} exceeded "
+                        f"{_GIT_ARCHIVE_DEADLINE_SECS:.0f}s deadline: killed after "
+                        f"{time.perf_counter() - _git_archive_start:.1f}s with {written} bytes "
+                        "written"
+                    ) from exc
             finally:
                 print(
                     f"  [timing] _extract_git_archive: git archive: "
@@ -9126,7 +9298,13 @@ def _extract_git_archive(toplevel: Path, sha: str) -> Path:
             _extractall_start = time.perf_counter()
             try:
                 with tarfile.open(archive_path) as archive:
-                    archive.extractall(path=shadow_dir, filter="tar")
+                    archive.extractall(
+                        path=shadow_dir,
+                        members=_members_within_deadline(
+                            archive, _extractall_start, toplevel, sha
+                        ),
+                        filter="tar",
+                    )
             finally:
                 print(
                     f"  [timing] _extract_git_archive: extractall: "
@@ -13925,7 +14103,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--progress-file",
         default=None,
-        help="Accepted and ignored: the round has no staging copy to report progress on.",
+        help="A driving round's stall-watchdog sidecar: each end-of-run gate refreshes it with its name and file count.",
     )
     p.add_argument(
         "--commit",
@@ -16264,6 +16442,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     """
     global _DEST_ROOT_OVERRIDE, _PERCOLATE_ROOT_OVERRIDE
     lower_process_priority_self()
+    _reap_dead_publish_temps()
     restore_signals = _install_staging_signal_cleanup()
     try:
         return _main(argv)
@@ -16411,6 +16590,7 @@ def _main(argv: Optional[List[str]] = None) -> int:
     _bootstrap_engine()
 
     args = build_arg_parser().parse_args(argv)
+    _PROGRESS_FILE[0] = Path(args.progress_file) if args.progress_file else None
     _MID_STAGE_OVERRIDE.clear()
     if args.swap_over_mid_stage_runs:
         _MID_STAGE_OVERRIDE.update(

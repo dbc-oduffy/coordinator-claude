@@ -119,7 +119,7 @@ esac
 
 Without this contract, a reader that cannot answer (e.g. an MCP daemon launched under a stripped `PATH=/usr/bin:/bin` running the wrapper against a guard-failing system Python) exits `1`, indistinguishable from "key absent" — the daemon then degrades to `None` instead of failing loud. The write commands `set` / `array-*` have no "absent" concept and keep the simpler `0` = success / non-zero = refused-or-failed convention. `unset` (§5b.1) is the exception — an already-absent key is a legitimate no-op — so it adopts this section's 0/1/2 contract.
 
-**Wrapper interpreter resolution.** The `machine-local` shell wrapper does **not** blindly take the first `python3` on `PATH` — under a stripped PATH that can be a guard-failing system Python. It probes candidates (`python3.14`…`python3.11`, then the generics) and execs the first that satisfies the `>=3.11` guard, self-healing for any caller whose PATH carries a good interpreter even when it isn't first. When the only reachable interpreter is older than 3.11 (nothing the wrapper can fix), it still execs it so the impl emits its actionable guard message and the operational `2`. Defense-in-depth with the contract above; cross-repo memo `2026-06-24-daemon-machine-local-readpath-rootcause-correction.md`.
+**Wrapper interpreter resolution.** The wrapper probes `python3.14`…`python3.11`, then the generics, and execs the first meeting the `>=3.11` guard; when none does, it execs the older one so the impl emits its guard message and rc `2`.
 
 ### 4.2 Reading more than one key — `dump`, not a `get` loop
 
@@ -225,32 +225,11 @@ plugins_dir=$(claude-home plugins)
 
 **`claude-home machine-local` delegation note.** `claude-home machine-local` is a **working delegation alias** — it exec-forwards to the `machine-local dir` subcommand (settings-home seam, §4e) rather than returning `<claude-dir>/machine-local` directly. This keeps existing `claude-home machine-local` callers working through the compat window. Removal is gated on the 5 consumer confirmations, same as the phase-2 compat tail. `claude-home dir` continues to return the genuine `~/.claude` directory.
 
-Python callers can import the module instead of shelling out (it sits at `<settings-home>/bin/_claude_home.py` after install — §4e; nothing is minted at `~/.claude/bin/_claude_home.py`):
-
-```python
-import os
-import sys
-from pathlib import Path
-
-# Resolve the bin/ location using the same precedence as the module itself.
-# CLAUDE_HOME wins over HOME; do NOT use Path.home() unconditionally because it
-# ignores CLAUDE_HOME and risks importing the wrong copy under test sandboxes.
-_base = Path(os.environ.get("CLAUDE_HOME") or os.environ.get("HOME") or Path.home())
-sys.path.insert(0, str(_base / ".claude" / "bin"))
-
-from _claude_home import (
-    claude_home_dir, claude_config_path, machine_local_dir,
-    read_config, write_config,
-)
-```
-
-The shell-out form is preferred for cross-language portability AND avoids the dual-identity hazard (§8(a)) — if anything else also imports `_claude_home` via a different `sys.path` insertion, two module copies live in `sys.modules` with separate state. The import form is fine for Python-only callers that want to avoid subprocess startup cost (~50ms cold-start on Windows) AND are confident they are the only importer in their process.
+Python callers may import `_claude_home` from `<settings-home>/bin/` (§4e); the shell-out form is preferred, since a second `sys.path` insertion creates a dual-identity module copy (§8(a)).
 
 **Generic JSON I/O surface.** `_claude_home.py` ships the two generic primitives any install script touching `~/.claude.json` needs: `read_config()` (BOM-tolerant, returns `{}` for absent files, enriches `JSONDecodeError` with the file path) and `write_config()` (atomic tempfile + `os.replace`, creates parent dir, cleans up tmp files on failure). Higher-level shape-specific helpers — e.g., "update a single `mcpServers` entry under global vs `projects.<root>.mcpServers`" — stay with their consumer; those carry policy decisions (key-collision rules, project-key normalization) that don't generalize.
 
 **Cross-repo alignment — coordinator is canonical.** `claude-home` (path resolver) plus the JSON I/O primitives ship with `/coordinator:install`. Peer repos that inline a CLAUDE_HOME precedence chain (notably `plugins/project-rag/scripts/_claude_config.py`) should consume this surface and retire their local copies; the only thing that stays peer-side is the *shape-specific* layer (e.g., project-rag's `update_mcp_entry()`). Test coverage lives at the engine repo's `coordinator/lib/claude-home/tests/test_claude_home.py` plus `coordinator/tests/test_claude_home_contract.py` (stdlib-only `unittest`, no pytest dep).
-
-**What this unblocks.** §4a is formalized, `claude-home` is installed by coordinator setup, and the JSON I/O primitives ship alongside it — the pattern is coordinator doctrine with a first-class resolver. Peer repos adopt by shelling out to `claude-home {home|path|dir|machine-local|plugins}` or importing the Python helpers — no precedence chain re-derivation, no duplicate test surface to maintain.
 
 **Out of scope.** `CLAUDE_HOME` resolves *where the directory lives*, not *what is inside it*. Values inside (sibling-repo roots, vendor SDK paths, etc.) continue to resolve through the machine-local registry chain (§4). The two chains are orthogonal and compose cleanly: `CLAUDE_HOME` feeds into the settings-home ladder (§4e) that selects which `<settings-home>/machine-local/registry.toml` the reader opens; the reader's own precedence chain then resolves keys within it.
 
@@ -350,14 +329,7 @@ project_rag_toml=$(machine-local dir)/project_rag.local.toml
 
 ## 4d. `.claude.json` `projects` map — EM last-resort repo-discovery hint (advisory)
 
-The registry chains above (§4/§4c) resolve a **known** repo slug to a path. A different question — *which repos of note even exist on this machine?* — is normally answered by the curated sources (the `repos.*` namespace, `working-repos.yaml`, the sibling-repo enumeration in `the (now-removed) meta-repo local-doctrine file`). When those are absent, thin, or you are in doubt, `~/.claude.json`'s top-level `projects` map is a **fallback hint an EM may consult** — Claude Code auto-maintains it as the set of directories it has been invoked in, so it needs no coordinator upkeep.
-
-Treat hits as **candidates to confirm, never registry entries**. The map is a lossy proxy for "repos of note" in both directions:
-
-- **False positives (noise):** it records every cwd ever used — junk one-off folders, scratch dirs, and subdirectories deep inside a repo, none of which are projects. Confirm a hit is a repo root (`.git` present) and is significant before acting on it.
-- **False negatives (gaps):** a repo worked in only via `gh` / subagents / dispatch — never as a Claude Code cwd — will not appear at all. Several sibling repos on non-primary machines are exactly this shape (see `the (now-removed) meta-repo local-doctrine file`). Absence from the map is **not** evidence a repo doesn't exist.
-
-Because of both, `.claude.json` is a discovery *hint*, not a source of truth: it never overrides the curated registry, and it is per-machine and Anthropic-owned (undocumented, unversioned schema) — read it opportunistically, do not build tooling that depends on its shape. Resolve its path via `claude-home path` (§4a), not a hardcoded `~/.claude.json`. New repos worthy of a registry entry surface rarely enough that this stays a doctrinal pointer, not a system.
+To ask which repos exist on this machine, the curated `repos.*` namespace answers first. When it is thin, `~/.claude.json`'s `projects` map (path via `claude-home path`, §4a) is a hint to confirm — never a registry entry: it lists every cwd ever used (noise) and omits repos never opened as a cwd (gaps), and its schema is Anthropic-owned and undocumented.
 
 ## 5. Relationship to `plugin-extraction-and-distribution.md` and `cross-repo-citation-conventions.md`
 
@@ -417,6 +389,12 @@ Removes a string-scalar key from ONE file — `registry.local.toml` by default, 
 | `2` | operational failure: malformed target TOML, array-valued key (use `array-set`), non-string scalar, an unhandled shape (inline table, array-of-tables), round-trip failure, write failure, or `--concern` |
 
 **Negative-specs.** An emptied `[table]` header is left in place (a generic sweep is unsafe; an empty table resolves to nothing) — `unset` prints a note instead. `--concern` is accepted then refused at runtime, so the operator gets a reason rather than "unrecognized arguments": leaf removal would strand `_cmd_set_concern`'s `[provenance.<key>]` table, so hand-edit `<NAME>.local.toml`. Unlike `set`, there is no concern-namespace guard — removing a stale concern-namespace key from a registry file is this verb's cleanup case.
+
+## 5b.2. Key references — a value names another key's root
+
+A value `${other.key}` or `${other.key}/rel/tail` names another key's root, so a moved repo changes one `repos.*` row. `get`, `require` and `dump` expand it on every OS; a cycle or an unset reference is rc 2 (§4.1). `repos.*` roots stay absolute.
+
+**Refusal.** `set`, `array-set`, `array-append` and `set --concern` refuse a non-root value spelling a bare drive root or a path under a `repos.*` root, and print the form to store: `machine-local set <key> '${repos.<slug>}/<tail>'`. The PreToolUse hook `pretooluse-config-abs-path-guard.py` refuses the same in registry and `*.local.toml` writes. Tripwire: [`machine-local-refuses-absolute-paths-under-a-key-root`](../coordinator-tripwires/tripwire-registry/machine-local-refuses-absolute-paths-under-a-key-root.md).
 
 ## 5c.1. `repos.*` — Sibling-Repo Discovery, Not Publish Mirrors
 

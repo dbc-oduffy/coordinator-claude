@@ -404,7 +404,9 @@ def verified_members(home, run=subprocess.run):
 # ---- events and notification --------------------------------------------------------------------
 
 def _desktop_notify(title, message, run=subprocess.run):
-    """Best-effort platform notification; any failure or missing notifier is silent (the log is the record)."""
+    """Best-effort platform notification; any failure, SSH/headless session, or missing notifier is silent (the log is the record)."""
+    if os.environ.get("SSH_CONNECTION") or os.environ.get("COORDINATOR_NO_DESKTOP_NOTIFY"):
+        return False
     try:
         if sys.platform == "darwin" and shutil.which("osascript"):
             script = "on run argv\ndisplay notification (item 2 of argv) with title (item 1 of argv)\nend run"

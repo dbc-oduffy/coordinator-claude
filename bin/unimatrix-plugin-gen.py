@@ -594,6 +594,22 @@ def _hooks(plan, plugin_root) -> None:
         plan.put(SHIM_REL, SHIM_SOURCE.encode("utf-8"), "hooks", "hooks/hooks.json")
 
 
+AGY_TOOL_SURFACE_MAPPING = """## Agy Tool & Surface Mapping
+
+Coordinator skills and agents are authored against Claude Code tool names; use the corresponding Agy native tools and routes:
+
+- `Read` -> `read_file`
+- `Write` -> `write_file`
+- `Edit` / `MultiEdit` -> `edit_file`
+- `Bash` -> `run_command`
+- `Glob` / `Grep` -> `project-rag` MCP tools first, else `run_command` with `rg` / `git grep`
+- `Agent` -> `invoke_subagent`
+- `AskUserQuestion` -> `ask_question`
+- `SendMessage` -> `unimatrix-send.py` (`--to <peer> "<msg>"`)
+- `Workflow` -> write `.coordinator-local/em-submit.json` and run `coordinator-invoke engine_ask.submit` + `workflow.fire_wait`
+"""
+
+
 def _rules(plan, plugin_root) -> None:
     text = _doctrine_text(plugin_root)
     if text is None:
@@ -607,6 +623,8 @@ def _rules(plan, plugin_root) -> None:
         head.insert(0, line)
     else:
         head[i] = line
+    if getattr(plan, "host", None) == "agy":
+        body = body.rstrip() + "\n\n" + AGY_TOOL_SURFACE_MAPPING
     data = _join_frontmatter(head, body).encode("utf-8")
     cap = plan.cfg["max_text_bytes"]
     if len(data) > cap:
@@ -693,6 +711,7 @@ def generate(plugin_root, out_dir, host: str = "agy"):
     if not plugin_root.is_dir():
         raise ValueError(f"plugin root {plugin_root} is not a directory")
     plan = _Plan(cfg, cfg.get("token_suffixes", ()))
+    plan.host = host
     plan.out_dir = out_dir.resolve().as_posix()
     if not cfg:
         for kind, source in _inventory(plugin_root):

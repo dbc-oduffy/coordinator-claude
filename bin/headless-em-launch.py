@@ -4,6 +4,7 @@
 Usage: headless-em-launch.py <codex|agy|grok|claude> [--session-id ID] [--prepare-only] [--native-executable PATH]
        [--name NAME] [--resume ID] [--cwd DIR] [-- cli args...]
        headless-em-launch.py --exit-check --session-id ID [--cwd DIR]
+       headless-em-launch.py --resume-mint SUBMIT_REPLY --expected SHA256 --cwd DIR
        (--help prints this text)
 
 Without --native-executable the CLI is resolved from PATH (on Windows a .exe as-is, or codex's npm shim
@@ -19,6 +20,8 @@ codex, agy and grok run as a supervised child (POSIX): when it exits 0 while a r
 neither landed nor halted, one stderr line per run names its fire_wait command and the launcher exits 3;
 a non-zero child code is returned as is (a signal death as 128+signum). Codex exec --json also
 propagates a failed engine_ask.submit command reported by the native child. A check that itself fails exits 3.
+--resume-mint uses the current registered host EM to fire a saved submit reply once, pinned by the
+operator-supplied digest. It prints the workflow.fire reply, including the fire ID for workflow.fire_wait.
 --exit-check runs only that check (0 clean, 3 open runs or an unchecked exit): the Windows path, whose
 --prepare-only JSON names its argv as "exit_check".
 
@@ -124,6 +127,13 @@ def _grok_launch_args(extra, environ, platform) -> list[str]:
     for rule in rules:
         if rule not in extra:
             head += ["--allow", rule]
+    from coordinator_core.agent_pipe.model_tiers import GROK_EM_EFFORT, model_for_role
+
+    if not any(a in ("--model", "-m") or a.startswith("--model=") for a in extra):
+        head += ["--model", model_for_role("grok", "em")]
+    if not any(a in ("--reasoning-effort", "--effort") or a.startswith("--reasoning-effort=")
+               or a.startswith("--effort=") for a in extra):
+        head += ["--reasoning-effort", GROK_EM_EFFORT]
     return [*head, *extra]
 
 
@@ -131,8 +141,8 @@ def _agy_launch_args(extra, cwd, environ=None) -> list[str]:
     """`extra` led by one `--add-dir` per workspace root and `--mode accept-edits`.
 
     agy's workspace is its add-dirs, not `--cwd`, and a `read_file` outside it is auto-denied headless.
-    Roots: the launch cwd, `~/.coordinator`, and `agy_grant_guard.grant_dirs` (the generated plugin skills,
-    the only outside subtree a stage was measured reading). Never the settings home or engine root whole.
+    Roots: the launch cwd, `~/.coordinator`, `<machine lock root>`, and `agy_grant_guard.grant_dirs`
+    (the generated plugin skills). Never the settings home or engine root whole.
     `--dangerously-skip-permissions` is dropped; a caller's own `--mode` and any dir it already granted are
     kept, never doubled.
 
@@ -140,16 +150,22 @@ def _agy_launch_args(extra, cwd, environ=None) -> list[str]:
     the stage (`agy_grant_tamper`). When agy ships read-only grants, switch to them and drop the hash guard.
     """
     from coordinator_core import agy_grant_guard
+    from coordinator_core.locked_write import _machine_lock_dir
 
     rest = [a for a in extra if a != "--dangerously-skip-permissions"]
     head = []
     granted = {rest[i + 1] for i, a in enumerate(rest[:-1]) if a == "--add-dir"}
-    roots = [cwd or os.getcwd(), str(Path.home() / ".coordinator"),
-             *map(str, agy_grant_guard.grant_dirs(environ))]
+    roots = [
+        cwd or os.getcwd(),
+        str(Path.home() / ".coordinator"),
+        str(_machine_lock_dir().parent),
+        *map(str, agy_grant_guard.grant_dirs(environ)),
+    ]
     for d in roots:
         if d not in granted:
             granted.add(d)
             head += ["--add-dir", d]
+            granted.add(d)
     if not any(a == "--mode" or a.startswith("--mode=") for a in rest):
         head += ["--mode", "accept-edits"]
     return [*head, *rest]
@@ -411,6 +427,15 @@ def launch(family, extra, *, session_id=None, which=shutil.which, spawn=_spawn, 
     else:
         cmd = [cli, *extra]
     child = {SESSION_ENV: sid, HEADLESS_EM_TOKEN_ENV: token, PROVIDER_ENV: family}
+    if family == "codex":
+        # A restricted child can read the physical engine but lack traversal of its launcher-side alias.
+        for key in ("COORDINATOR_ENGINE_ROOT", "COORDINATOR_DOOR_ENGINE_ROOT"):
+            root = environ.get(key)
+            if root and os.path.isabs(root):
+                try:
+                    child[key] = os.path.realpath(root, strict=True)
+                except OSError:
+                    pass  # Preserve the configured override for normal discovery diagnostics.
     if family == "codex" and platform == "win32":
         from coordinator_core.codex_runner.codex_spawn_env import place_installed_pwsh
         path_key = next((k for k in environ if k.upper() == "PATH"), None)
@@ -440,6 +465,71 @@ def launch(family, extra, *, session_id=None, which=shutil.which, spawn=_spawn, 
     return gate if code == 0 else code
 
 
+def resume_mint(receipt: Path, expected: str, cwd: Path) -> int:
+    """Resume a saved Codex submit from an existing EM. The caller supplies the trusted digest."""
+    from coordinator_core.invoke.__main__ import _dispatch_argv
+    from coordinator_core.ops._path_guard import safe_id
+    from coordinator_core.ops.dispatch_emit.op import guard_against_fired_drift
+    from coordinator_core.ops.workflow_fire.authority import require_fire_authority
+
+    try:
+        marker = _worker_marker(os.environ)
+        if marker:
+            raise ValueError(f"worker cannot resume a host EM mint ({marker})")
+        # getcwd already identifies the physical working directory. Rewalking
+        # its ancestors can require metadata access outside the issued workspace.
+        current = Path.cwd()
+        in_workspace = cwd.absolute() == current
+        repo = current if in_workspace else cwd.resolve(strict=True)
+        reply = json.loads(receipt.read_bytes())
+        mint = reply.get("result")
+        if reply.get("jsonrpc") != "2.0" or not isinstance(mint, dict) or "error" in reply:
+            raise ValueError("expected the original JSON-RPC submit reply")
+        if mint.get("fire") is not None or mint.get("refused"):
+            raise ValueError("submit already has a fire disposition; reconcile the original request")
+        error = mint.get("fire_error")
+        if error is not None and not (isinstance(error, str) and error.startswith("SandboxedSpawnRefused:")):
+            raise ValueError("submit dispatch is unconfirmed; reconcile before starting")
+        run_id = mint.get("run_id")
+        if not isinstance(run_id, str) or not safe_id(run_id):
+            raise ValueError("invalid minted run ID")
+        relative_script = Path("scratch", "warp", run_id + ".workflow.mjs")
+        script = (relative_script if in_workspace else repo / relative_script).resolve(strict=True)
+        if not script.is_relative_to(repo) or str(script) != mint.get("script_path"):
+            raise ValueError("script differs from the selected repository and run")
+        if not re.fullmatch(r"[0-9a-f]{64}", expected) or mint.get("sha256") != expected:
+            raise ValueError("submit digest differs from the selected digest")
+        guard_against_fired_drift(script, expected)
+        stage = json.loads((repo / "state" / "warp" / run_id / "run-stage.json").read_bytes())
+        if stage.get("stage") != "minted":
+            raise ValueError("run has advanced; reconcile the original fire")
+        args = mint.get("fire_args", {})
+        if not isinstance(args, dict) or args.get("repoRoot", str(repo)) != str(repo):
+            raise ValueError("minted workflow arguments name a different repository")
+        principal = require_fire_authority(str(script), expected, cwd=str(repo), native=True, backend="codex")
+        if principal.role != "em" or not principal.session_id:
+            raise ValueError("resume requires a registered host EM")
+    except (OSError, ValueError, RuntimeError, AttributeError) as exc:
+        print(f"headless-em-launch: {exc}", file=sys.stderr)
+        return REFUSED
+
+    params = dict(run_id=run_id, script_path=str(script), expected=expected, args=args,
+                  backend="codex", executor="headless", caller_session_id=principal.session_id)
+    stdout, stderr, code = _dispatch_argv(["workflow.fire", json.dumps(params), "--repo", str(repo)], str(repo))
+    sys.stdout.write(stdout)
+    sys.stderr.write(stderr)
+    if code:
+        return code
+    try:
+        fire = json.loads(stdout)["result"]
+        if isinstance(fire, dict) and re.fullmatch(r"[0-9a-f]{32}", str(fire.get("fire_id", ""))):
+            return 0
+    except (KeyError, TypeError, ValueError):
+        pass
+    print("headless-em-launch: workflow.fire returned no fire ID; reconcile the saved run", file=sys.stderr)
+    return REFUSED
+
+
 def main(argv=None, **kw):
     import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import ensure_engine_on_path, place_engine_root_on_path
@@ -455,6 +545,15 @@ def main(argv=None, **kw):
         args, extra = args[:i], args[i + 1:]
     else:
         extra = []
+    if "--resume-mint" in args:
+        parser = argparse.ArgumentParser(prog="headless-em-launch")
+        parser.add_argument("--resume-mint", required=True, type=Path)
+        parser.add_argument("--expected", required=True)
+        parser.add_argument("--cwd", required=True, type=Path)
+        ns = parser.parse_args(args)
+        if extra:
+            parser.error("--resume-mint takes no child command")
+        return resume_mint(ns.resume_mint, ns.expected, ns.cwd)
     if "--exit-check" in args:
         ck = argparse.ArgumentParser(prog="headless-em-launch", add_help=False)
         ck.add_argument("--exit-check", action="store_true")

@@ -54,7 +54,7 @@
       "Grep": "grep_search",
       "MultiEdit": "multi_replace_file_content",
       "NotebookEdit": "notebook_edit",
-      "Read": "view_file",
+      "Read": "read_file",
       "Write": "write_file"
     },
     "valid_tiers": [

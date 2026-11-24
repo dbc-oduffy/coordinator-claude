@@ -4,6 +4,12 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.29] — 2026-11-24
+
+- **Agy:** SessionStart auto-loads repo `CLAUDE.md` standing conventions; `permissions.allow` ships all 7 default entries (engine ops, safe-commit, `unimatrix-send.py`); generated `coordinator-doctrine.md` includes the Agy tool & surface mapping; bash-write guard carves out `unimatrix-send.py` read shapes.
+- **Unimatrix:** peer-router authenticates against the configured sessions directory and `router_closure_digest` covers `lib/*.py`.
+- **Doctrine & hooks:** synced `project-rag` non-UE fallback preamble across planning/brainstorming/enrich-and-review surfaces; no-absolute-paths guard and cross-box memo updates.
+
 ## [4.6.28] — 2026-11-24
 
 - **Group EM:** a Group EM manages box resources and air-traffic only and makes no rulings; the execute-plan turn stays with the PM. The delegated-approval judge, its reversibility checker and calibration CLI are retired.

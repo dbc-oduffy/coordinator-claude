@@ -1,23 +1,9 @@
-"""PreToolUse hook (matcher: Bash|PowerShell): deny a recursive grep over a repo root.
+"""PreToolUse Bash|PowerShell guard for box-degrading recursive searches.
 
-Box-poison class: concurrent `grep -rn X .` calls read whole repo trees, .git packs
-included, and fill the file cache until the warm engine wedges. Tripwire
-DENY-RECURSIVE-GREP-REPO-ROOT; there is no override, the alternatives are cheaper.
-
-Denied, per pipeline segment (`|`, `||`, `&&`, `;`, `&`, newline; `bash -c`/`eval` bodies
-are parsed too):
-  - grep/egrep/fgrep with a recursive flag (-r, -R, inside a cluster such as -rn, --recursive,
-    --dereference-recursive, -d recurse) whose target is `.`/`..`, no target, a drive or
-    filesystem root, `~`/$HOME, a `*` glob inside a repo root, or a directory holding `.git`.
-    --exclude-dir=.git does not save it; untracked scratch/archive/build trees are the cost.
-  - The same recursive grep over 3+ existing directories at once, or over any target named
-    like a known-large tree (corpus, node_modules, .venv, Intermediate, Saved, Binaries, ...).
-  - `find <root>` with `-exec grep` or piped into `xargs grep`, unless -maxdepth is 0..2.
-Allowed: a recursive grep scoped to one or two subdirectories holding no `.git`, non-recursive grep,
-`git grep`, `rg`, a grep reading stdin. One stat per target; no walk.
-
-Contract: stdin is the PreToolUse JSON; a deny is the hookSpecificOutput envelope on stdout,
-exit 0. Fails open (silent exit 0) on anything unparseable or unresolvable.
+Deny root/large-tree grep storms and non-scoped rg/ripgrep/embedded
+`claude.exe -n` searches. Ignore-bypass flags are denied even on scoped rg paths.
+Scoped searches, git grep and stdin filtering remain available. No tree walks.
+Contract: stdin JSON; deny via hookSpecificOutput, exit 0; malformed input fails open.
 """
 
 from __future__ import annotations
@@ -26,6 +12,8 @@ import json
 import os
 import re
 import sys
+
+from _runaway_patterns import classify_search_target
 
 TRIPWIRE = "DENY-RECURSIVE-GREP-REPO-ROOT"
 _GREPS = {"grep", "egrep", "fgrep", "ggrep"}
@@ -36,6 +24,13 @@ _SHORT_ARG = set("efmABCdD")
 _LONG_ARG = {"include", "exclude", "exclude-from", "exclude-dir", "file", "regexp", "max-count",
              "after-context", "before-context", "context", "label", "directories", "devices",
              "binary-files", "group-separator"}
+_RG_SHORT_ARG = set("efgtTrmABCjEM")
+_RG_LONG_ARG = {"regexp", "file", "glob", "iglob", "type", "type-not", "type-add", "type-clear",
+                "max-count", "after-context", "before-context", "context", "context-separator",
+                "threads", "encoding", "engine", "replace", "max-depth", "max-filesize",
+                "ignore-file", "pre", "pre-glob", "sort", "sortr", "color", "colors",
+                "max-columns", "path-separator", "hostname-bin", "hyperlink-format", "field-match-separator",
+                "field-context-separator", "regex-size-limit", "dfa-size-limit"}
 _XARGS_ARG = set("IniPLdEsaJ")
 _MAX_DIR_TARGETS = 3
 _LARGE_TREES = {"corpus", "node_modules", ".venv", "venv", "intermediate", "deriveddatacache",
@@ -166,8 +161,8 @@ def _drop_redirects(args: list[str]) -> list[str]:
     return out
 
 
-def _grep_parse(args: list[str]) -> tuple[bool, list[str]]:
-    """(recursive?, targets) for grep argv. Targets exclude the pattern and flag values."""
+def _grep_parse(args: list[str], ripgrep: bool = False) -> tuple[bool, list[str]]:
+    """Return recursion (ignore bypass for rg) and targets, excluding option values."""
     recursive = False
     pattern_given = False
     positionals: list[str] = []
@@ -182,29 +177,32 @@ def _grep_parse(args: list[str]) -> tuple[bool, list[str]]:
             only_pos = True
         elif t.startswith("--"):
             name, eq, val = t[2:].partition("=")
-            if name in ("recursive", "dereference-recursive"):
+            if (ripgrep and (name == "no-ignore" or name.startswith("no-ignore-"))
+                    or not ripgrep and name in ("recursive", "dereference-recursive")):
                 recursive = True
             if name in ("regexp", "file"):
                 pattern_given = True
-            if name in _LONG_ARG and not eq:
+            if ripgrep and name == "files":
+                pattern_given = True
+            if name in (_RG_LONG_ARG if ripgrep else _LONG_ARG) and not eq:
                 val = args[i] if i < len(args) else ""
                 i += 1
-            if name == "directories" and val == "recurse":
+            if not ripgrep and name == "directories" and val == "recurse":
                 recursive = True
         else:
             j = 1
             while j < len(t):
                 ch = t[j]
-                if ch in "rR":
+                if ch in ("u" if ripgrep else "rR"):
                     recursive = True
-                elif ch in _SHORT_ARG:
+                elif ch in (_RG_SHORT_ARG if ripgrep else _SHORT_ARG):
                     val = t[j + 1:]
                     if not val:
                         val = args[i] if i < len(args) else ""
                         i += 1
                     if ch in "ef":
                         pattern_given = True
-                    if ch == "d" and val == "recurse":
+                    if not ripgrep and ch == "d" and val == "recurse":
                         recursive = True
                     break
                 j += 1
@@ -314,6 +312,15 @@ def _walks_root(args: list[str], cwd: str | None) -> bool:
 def _check_argv(name: str, args: list[str], cwd: str | None, prev: tuple[str, str, list[str]],
                 depth: int) -> str | None:
     """Deny label for one command, or None. `prev` = (separator, name, args) of the prior segment."""
+    if name in {"rg", "ripgrep"} or name == "claude" and "-n" in args:
+        bypass, targets = _grep_parse(_drop_redirects(args), ripgrep=True)
+        if bypass:
+            return "ripgrep with ignore rules disabled"
+        if not targets and prev[0] == "|" and "--files" not in args:
+            return None
+        if any(classify_search_target(t, cwd) != "scoped" for t in targets or ["."]):
+            return "ripgrep over a non-scoped search target"
+        return _storm_label(targets, cwd)
     if name in _GREPS:
         recursive, targets = _grep_parse(_drop_redirects(args))
         if recursive and (not targets or any(_root_target(t, cwd) for t in targets)):
@@ -375,7 +382,8 @@ def _deny_reason(label: str, command: str) -> str:
         f"[guard] {TRIPWIRE}: {label} is denied. Grep storms (many `grep -r` reading whole repo "
         f"trees, .git packs included) fill the file cache and wedge the box; this is a standing "
         f"box-poison class, not a style note. Command: {snippet}\n"
-        "Use instead: `git grep <pattern> -- <pathspec>` (tracked files only; works in every session "
+        "Use instead: project-rag (`project_symbol`, `project_semantic_search`, `project_referencers`); "
+        "or `git grep <pattern> -- <pathspec>` (tracked files only; works in every session "
         "and every dispatched subagent); or `rg <pattern> <subpath>` (honours .gitignore). Sessions "
         "that hold the Grep tool (not all dispatched subagents do) may use it too. A recursive grep "
         "scoped to one or two small subdirectories that hold no .git still runs, e.g. `grep -rn X coordinator/hooks`. "
@@ -389,7 +397,7 @@ def main() -> int:
         if not isinstance(payload, dict):
             return 0
         command = (payload.get("tool_input") or {}).get("command")
-        if not isinstance(command, str) or "grep" not in command:
+        if not isinstance(command, str) or not re.search(r"grep|rg|claude", command, re.IGNORECASE):
             return 0
         cwd = payload.get("cwd")
         cwd = cwd if isinstance(cwd, str) and cwd else os.getcwd()

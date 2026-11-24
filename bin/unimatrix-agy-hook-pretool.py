@@ -288,17 +288,18 @@ def agy_print_mode(agy_pid, read=None) -> bool:
     return any(_is_print_line(read(c)) for c in child_pids(agy_pid))
 
 
+def _core_module(subname):
+    bin_dir = os.path.dirname(os.path.abspath(__file__))
+    if "_unimatrix" not in sys.modules and os.path.isdir(os.path.join(bin_dir, "_unimatrix")):
+        if bin_dir not in sys.path:
+            sys.path.insert(0, bin_dir)
+    import importlib
+    return importlib.import_module(f"_unimatrix.{subname}")
+
+
 def pid_alive(pid):
-    """True while `pid` runs. os.kill(pid, 0) means CTRL_C_EVENT on Windows, so ask the roster helper there."""
-    if os.name == "nt":
-        return bool(load_sibling("unimatrix-roster").pid_alive(pid))
-    try:
-        os.kill(pid, 0)
-    except PermissionError:
-        return True
-    except OSError:
-        return False
-    return True
+    """True while `pid` runs (delegated to spawn-free _unimatrix.proc.pid_alive)."""
+    return _core_module("proc").pid_alive(pid)
 
 
 def ls_reachable(addr):
@@ -320,6 +321,9 @@ def leg_current(conv, agy_pid, state=None):
         return False
     if rec.get("mode", "live") != "live":
         return False  # a pending leg only queues; the first run_command relaunches it live
+    ep = rec.get("endpoint")
+    if os.name != "nt" and isinstance(ep, str) and os.path.isabs(ep) and not os.path.exists(ep):
+        return False
     return agy_pid is not None and rec.get("agy_pid") == agy_pid and ls_reachable(rec.get("ls_address"))
 
 
@@ -533,6 +537,69 @@ def pre_invocation_reply(payload) -> dict:
     return {"injectSteps": [{"systemMessage": {"systemMessage": t}} for t in texts]} if texts else {}
 
 
+def _lifecycle_reply(event: str, payload, engine_root=None) -> dict:
+    """Adapt an agy PostToolUse/Stop payload onto `codex_lifecycle.handle`, stashing advisories for PreInvocation."""
+    if not isinstance(payload, dict):
+        return {}
+    conv = payload.get("conversationId") or os.environ.get("ANTIGRAVITY_CONVERSATION_ID") or ""
+    root = None
+    if engine_root:
+        cand = Path(engine_root)
+        if cand.is_absolute():
+            root = cand
+    if root is None:
+        env_root = os.environ.get("COORDINATOR_ENGINE_ROOT")
+        if env_root and Path(env_root).is_absolute():
+            root = Path(env_root)
+    if root is None or not (root / "coordinator_core").is_dir():
+        return {}
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    try:
+        from coordinator_core.host_hooks.agy_adapter import AgyAdapter, stash_advisory
+        from coordinator_core.host_hooks.codex_lifecycle import handle
+
+        host_event = AgyAdapter().adapt_event(payload, event=event)
+        engine_payload = {
+            **dict(host_event.metadata),
+            "hook_event_name": event,
+            "session_id": host_event.session_id or conv or None,
+            "cwd": host_event.cwd or None,
+            "tool_name": host_event.tool_name,
+            "tool_input": dict(host_event.tool_input),
+        }
+        if event == "Stop":
+            for key in ("last_assistant_message", "lastAssistantMessage", "response", "text"):
+                val = payload.get(key)
+                if isinstance(val, str) and val.strip():
+                    engine_payload["last_assistant_message"] = val
+                    break
+            if payload.get("stop_hook_active") or payload.get("stopHookActive"):
+                engine_payload["stop_hook_active"] = True
+        verdict = handle(engine_payload, dict(os.environ))
+        if not isinstance(verdict, dict) or not verdict:
+            return {}
+        if event == "Stop" and verdict.get("decision") == "block" and verdict.get("reason"):
+            return {"decision": "block", "reason": str(verdict["reason"])}
+        nested = verdict.get("hookSpecificOutput") if isinstance(verdict.get("hookSpecificOutput"), dict) else {}
+        text = nested.get("additionalContext") or verdict.get("additionalContext") or verdict.get("systemMessage") or ""
+        if isinstance(text, str) and text.strip() and isinstance(conv, str) and CONV_RE.match(conv):
+            stash_advisory(conv, text.strip())
+    except Exception:
+        return {}
+    return {}
+
+
+def _lifecycle_main(event: str, argv) -> int:
+    try:
+        out = _lifecycle_reply(event, json.loads(sys.stdin.read()), engine_root_arg(argv))
+    except Exception:
+        out = {}
+    print(json.dumps(out))
+    sys.stdout.flush()
+    return 0
+
+
 def _pre_invocation_main() -> int:
     try:
         out = pre_invocation_reply(json.loads(sys.stdin.read()))
@@ -570,6 +637,8 @@ def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv[:2] == ["--event", "PreInvocation"]:
         return _pre_invocation_main()
+    if len(argv) >= 2 and argv[0] == "--event" and argv[1] in ("PostToolUse", "Stop"):
+        return _lifecycle_main(argv[1], argv)
     result = {}
     worker = threading.Thread(target=_answer, args=(argv, result), daemon=True)
     worker.start()

@@ -9,7 +9,8 @@ and nothing depends on the id staying put.
 Versioned addresses are allocated only by the engine's external session registry and projected
 unchanged here. Older sessions keep the checkout/suffix fallback. A default refresh cannot replace
 an owned address, and a name belonging to another target is refused. Prints a systemMessage so
-registration shows in the TUI. Never fails the session: every path exits 0.
+registration shows in the TUI. Standard-launch model verification failures exit nonzero;
+peer-registration failures remain advisory.
 
 register_peer() is the shared registration helper: it takes the vendor and target, so another
 vendor's SessionStart hook differs only in payload field names and vendor.
@@ -264,15 +265,66 @@ def allocate_engine_address(payload, engine_root) -> None:
         pass
 
 
+class StartupModelError(RuntimeError):
+    """Native startup metadata did not verify the standard launch's selected model."""
+
+
+def verify_startup_model(payload):
+    """Verify native current-turn evidence; defer when the hook precedes that evidence."""
+    expected = os.environ.get("COORDINATOR_CODEX_EXPECTED_MODEL")
+    if payload.get("agent_id"):
+        return None
+    observed = payload.get("model")
+    transcript = payload.get("transcript_path")
+    turn_id = payload.get("turn_id")
+    session_id = payload.get("session_id")
+    if not expected and not session_id and not observed:
+        return None
+    if not observed and transcript and turn_id and session_id:
+        try:
+            with open(transcript, "rb") as stream:
+                limit = 1024 * 1024
+                header = json.loads(stream.readline(limit))
+                if header.get("type") == "session_meta" and header.get("payload", {}).get("id") == session_id:
+                    end = stream.seek(0, os.SEEK_END)
+                    start = max(0, end - limit)
+                    stream.seek(start)
+                    if start:
+                        stream.readline(limit)  # discard a partial row at the tail boundary
+                    tail = stream.read(limit)
+                    # An in-progress final row is not native evidence yet.
+                    for line in tail.split(b"\n")[:-1]:
+                        try:
+                            row = json.loads(line)
+                        except ValueError:
+                            continue
+                        metadata = row.get("payload", {})
+                        if row.get("type") == "turn_context" and metadata.get("turn_id") == turn_id:
+                            observed = metadata.get("model") or observed
+        except (OSError, ValueError, AttributeError, TypeError):
+            pass
+    if not observed:
+        return "unimatrix: startup model verification deferred; awaiting native current-turn model metadata"
+    if not expected:
+        return f"unimatrix: observed {observed} in native startup metadata; launch expectation unavailable"
+    if observed != expected:
+        raise StartupModelError(f"startup model {observed or 'unknown'}; required {expected}; "
+                           "run `codex login`, then relaunch with `unimatrix-codex-launch.py`")
+    return f"unimatrix: observed {observed} in native startup metadata"
+
+
 def run(payload, peers_file=None, registry_dir=None, engine_root=None) -> "dict | None":
     """Register the payload's thread; return the hook's stdout object, or None when nothing applies.
 
     A set worker env marker adds the doctrine pointer as hookSpecificOutput.additionalContext.
     With engine_root the engine allocates the thread's address first, so publishing is never unbound.
     """
+    model_status = verify_startup_model(payload)
     if engine_root and isinstance(payload, dict):
         allocate_engine_address(payload, engine_root)
     out = _register(payload, peers_file, registry_dir)
+    if model_status:
+        out = {**(out or {}), "systemMessage": "\n".join(filter(None, [(out or {}).get("systemMessage"), model_status]))}
     pointer = worker_pointer()
     if pointer:
         out = {**(out or {}), "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": pointer}}
@@ -315,6 +367,9 @@ def main() -> int:
         out = run(payload, engine_root=root)
         if out:
             print(json.dumps(out))
+    except StartupModelError as exc:
+        print(json.dumps({"systemMessage": f"unimatrix: setup failed: {exc}"}))
+        return 1
     except BaseException as exc:  # a hook must never break the session
         try:
             print(json.dumps({"systemMessage": f"{HOOK}: degraded: {type(exc).__name__}: {exc}"}))

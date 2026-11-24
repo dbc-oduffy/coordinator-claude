@@ -176,7 +176,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Collection, Dict, List, NamedTuple, Optional, Sequence, Tuple
+from typing import Any, Collection, Dict, Iterator, List, NamedTuple, Optional, Sequence, Tuple
 
 _BIN_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _BIN_DIR.parent.parent
@@ -4741,7 +4741,11 @@ def _reap_dead_round_tempdirs() -> None:
         layout = _temp_layout()
         roots = (layout.managed_tempdir(), layout.legacy_top_level_path(_ROUND_TMP_PREFIX).parent)
         entries = [e for root in roots for e in root.glob(_ROUND_TMP_PREFIX + "*")]
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - the reaper never ends a round, but it names why it cannot run
+        print(
+            f"percolate-round: advisory: temp-dir reaper skipped: {type(exc).__name__}: {exc}",
+            file=sys.stderr, flush=True,
+        )
         return
     now = time.time()
     for entry in entries:
@@ -4760,7 +4764,7 @@ def _reap_dead_round_tempdirs() -> None:
 
 
 @contextlib.contextmanager
-def _round_tempdir():
+def _round_tempdir() -> Iterator[Path]:
     """Yield a pid-stamped scratch dir removed on every exit, SIGTERM/SIGHUP included.
 
     The signal handlers raise SystemExit so the `finally` unwinds; a SIGKILL
@@ -4780,15 +4784,26 @@ def _round_tempdir():
             saved[signum] = signal.signal(signum, _unwind)
         except (ValueError, OSError):
             continue
+    keep = False
     try:
         yield Path(tmpdir)
+    except subprocess.TimeoutExpired:
+        # A timed-out publish leg leaves its progress file as the only evidence of where it stalled.
+        keep = True
+        print(
+            f"percolate-round: publish leg timed out; kept {tmpdir} "
+            f"(progress: {Path(tmpdir) / 'publish-progress.json'})",
+            file=sys.stderr, flush=True,
+        )
+        raise
     finally:
         for signum, prior in saved.items():
             try:
                 signal.signal(signum, prior)
             except (ValueError, OSError):
                 pass
-        shutil.rmtree(tmpdir, ignore_errors=True)
+        if not keep:
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 def _cmd_round(args: argparse.Namespace) -> int:
@@ -4992,7 +5007,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         parser.error("--open-only and --no-publish are mutually exclusive")
 
     # Before `_bootstrap_engine`: the round's code and chain run from a commit clone, never the live tree.
-    source_ref = args.source_ref
+    source_ref = getattr(args, "source_ref", None)
     if source_ref and "/" in source_ref and (
         not source_ref.startswith("refs/") or source_ref.startswith("refs/remotes/")
     ):
@@ -5008,11 +5023,12 @@ def main(argv: Optional[List[str]] = None) -> int:
             return _EXIT_FAIL
     if not _commit_clone_module().is_commit_clone(_REPO_ROOT):
         forwarded = list(sys.argv[1:] if argv is None else argv)
-        if args.source_ref != source_ref:
+        pinned_ref = getattr(args, "source_ref", None)
+        if pinned_ref != source_ref:
             # The last option wins, so place the verified pin after the original options.
             end = forwarded.index("--") if "--" in forwarded else len(forwarded)
-            forwarded[end:end] = ["--source-ref", args.source_ref]
-        return _delegate_to_commit_clone(forwarded, args.source_ref)
+            forwarded[end:end] = ["--source-ref", pinned_ref]
+        return _delegate_to_commit_clone(forwarded, pinned_ref)
     _bootstrap_engine()
 
     # A round once sat idle after its commit (0 CPU, no children) holding the

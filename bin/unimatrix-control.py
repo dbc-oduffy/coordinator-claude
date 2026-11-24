@@ -40,8 +40,17 @@ DEFAULT_LAUNCH_FAMILY = "claude"
 HERE = Path(__file__).resolve().parent
 
 
+def _core_module(subname):
+    bin_dir = os.path.dirname(os.path.abspath(__file__))
+    if "_unimatrix" not in sys.modules and os.path.isdir(os.path.join(bin_dir, "_unimatrix")):
+        if bin_dir not in sys.path:
+            sys.path.insert(0, bin_dir)
+    import importlib
+    return importlib.import_module(f"_unimatrix.{subname}")
+
+
 def settings_home():
-    return Path(os.environ.get("COORDINATOR_SETTINGS_HOME") or Path.home() / ".coordinator-claude-settings")
+    return _core_module("paths").settings_home()
 
 
 def _load_sibling(filename, modname):
@@ -124,7 +133,7 @@ def named_session_entries(name):
             continue
         if (isinstance(d, dict) and d.get("name") == name and isinstance(d.get("sessionId"), str)
                 and SESSION_ID_RE.fullmatch(d["sessionId"])):
-            liveness = liveness or _load_sibling("unimatrix-liveness.py", "unimatrix_control_liveness")
+            liveness = liveness or _core_module("proc")
             found.append((d, bool(d.get("pid") == int(m.group(1)) and liveness.entry_live(d))))
     return found
 

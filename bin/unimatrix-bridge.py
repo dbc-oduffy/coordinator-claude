@@ -325,6 +325,16 @@ def notify_misdelivered(line, target, reached, reached_box):
     _tell_sender(line, f"Misdelivered: your message to {target} was written to {reached} on {reached_box or 'the far box'}, not the addressed session.")
 
 
+def _format_delivery_ts(row):
+    ts = row.get("ts")
+    if isinstance(ts, str) and ts:
+        return ts
+    at = row.get("at")
+    if isinstance(at, (int, float)) and not isinstance(at, bool):
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(at))
+    return "?"
+
+
 def delivery_status(limit=10):
     """Lines describing the most recent relay sends, newest last."""
     try:
@@ -333,8 +343,16 @@ def delivery_status(limit=10):
         rows = []
     if not rows:
         return ["no cross-box sends recorded"]
-    return [f"{'delivered' if r['ok'] else 'FAILED   '} {r['ts']} {r.get('ref') or r['target']}" + ("" if r["ok"] else f": {r['error']}")
-            for r in rows[-limit:]]
+    lines = []
+    for r in rows[-limit:]:
+        if not isinstance(r, dict):
+            continue
+        ok = bool(r.get("ok"))
+        ts = _format_delivery_ts(r)
+        who = r.get("ref") or r.get("target") or r.get("name") or "?"
+        err = "" if ok else f": {r.get('error') or 'failed'}"
+        lines.append(f"{'delivered' if ok else 'FAILED   '} {ts} {who}{err}")
+    return lines or ["no cross-box sends recorded"]
 
 
 def _roster_wrote_name(addressed, far_name, remote, entry_box=None):
@@ -347,11 +365,12 @@ def _roster_wrote_name(addressed, far_name, remote, entry_box=None):
     if not isinstance(addressed, str):
         return False
     box = str(remote).rpartition("@")[2]
+    boxes = {box, box[:-len(".local")] if box.lower().endswith(".local") else box}  # roster stable_label
     base = far_name
-    if "." in base and not base.endswith("." + box):
+    if "." in base and not any(base.endswith("." + b) for b in boxes):
         base = base.replace(".", "-")
     bare = base.partition(".")[0]
-    if addressed in {far_name, base, bare, f"{bare}.{box}"}:
+    if addressed in {far_name, base, bare, *(f"{bare}.{b}" for b in boxes)}:
         return True
     legacy = re.fullmatch(r"(codex|agy)-([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})", far_name, re.I)
     if not legacy:
@@ -380,7 +399,15 @@ def _target_of(mine) -> tuple:
     return far_pid, far_sid, f"{mine.get('name') or far_pid} (pid {far_pid}, session {far_sid})"
 
 
-_verdict = threading.local()
+_VERDICT = None
+
+
+def _verdict():
+    global _VERDICT
+    if _VERDICT is None:
+        _VERDICT = threading.local()
+    return _VERDICT
+
 
 #: Win32 pipe errors for a client that left before the verdict: broken pipe, no process on the other end, pipe closing.
 _PIPE_GONE_WINERRORS = (109, 232, 233)
@@ -405,15 +432,16 @@ def relay_send(conn) -> None:
     buf = b""
     while chunk := conn.read():
         buf += chunk
-    _verdict.errors = []
-    _verdict.answered = False
+    v = _verdict()
+    v.errors = []
+    v.answered = False
 
     def accept() -> None:
-        _verdict.answered = True
+        v.answered = True
         conn.close()
 
     def answer(reply) -> None:
-        _verdict.answered = True
+        v.answered = True
         try:
             conn.write(json.dumps(reply).encode() + b"\n")
         except Exception as e:  # pywintypes.error is not an OSError subclass
@@ -423,16 +451,16 @@ def relay_send(conn) -> None:
 
     try:
         _relay_deliver(buf, on_custody=accept)
-        if not _verdict.answered:
-            errors = [e for e in _verdict.errors if e]
+        if not v.answered:
+            errors = [e for e in v.errors if e]
             answer({"ok": False, "error": (errors[0] if errors else "nothing to send")[-300:]})
     except Exception as e:  # a local fault before custody is still a failed send to the client
-        if _verdict.answered:
+        if v.answered:
             log.write(f"relay: far leg fault after custody: {type(e).__name__}: {e}\n")
         else:
             answer({"ok": False, "error": f"{LOCAL_FAULT}: {type(e).__name__}: {e}"[-300:]})
     finally:
-        _verdict.errors = None
+        v.errors = None
 
 
 def _relay_deliver(buf, on_custody=None) -> None:
@@ -646,8 +674,9 @@ def _record_outcome(line, target, ts, ms, error, box="unknown", transport="none"
     `reached`/`reached_box` name the far session the relay wrote to. `acked` is a far-confirmed write: with no
     error the sender gets a delivery ack; with `misdelivered` it gets the wrong-session notice, not the not-delivered one.
     `queued` is a far-accepted line parked for a slow reader: an ok row marked `queued`, acked as `queued`, never a failure."""
-    if getattr(_verdict, "errors", None) is not None:
-        _verdict.errors.append(error)
+    v = _verdict()
+    if getattr(v, "errors", None) is not None:
+        v.errors.append(error)
     row = {"ts": ts, "at": time.time(), "target": target, "ok": not error, "ms": ms, "box": box, "transport": transport,
            "digest": hashlib.sha256(line.rstrip(b"\n")).hexdigest()}
     if ref:
@@ -803,9 +832,9 @@ def _reply_mirror(msg, entries) -> "dict | None":
     mirrors = _roster().remote_mirrors(entries, remote)
     if found:
         name, label = found.group(1), _roster().box_label(remote) if remote else None
-        want = f"{name}.{label}" if label else name
+        wants = {f"{name}.{label}", f"{name}.{_roster().stable_label(remote)}"} if label else {name}
         named = [d for d in mirrors if d.get(FAR_SOCKET_FIELD) and d.get("messagingSocketPath")
-                 and (d.get("name") == want or d.get("unimatrixFarName") == name)]
+                 and (d.get("name") in wants or d.get("unimatrixFarName") == name)]
         if len(named) == 1:
             return named[0]
     if remote:

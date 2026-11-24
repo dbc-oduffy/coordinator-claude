@@ -6,7 +6,14 @@ import sys
 SOURCEREF_KEYS = frozenset({"url", "fetch_date", "platform", "comment_id"})
 VALID_TIERS = frozenset({"source_read", "artifact_forensic"})
 
-PERMALINK_RE = re.compile(r"^https?://[^/\s]+/.*/blob/[0-9a-f]{7,40}/.+#L\d+-L\d+$")
+_SPAN_FRAGMENT = (
+    r"(?:L\d+(?:C\d+)?(?:-L?\d+(?:C\d+)?)?"  # GitHub/GitLab: L10, L10-L20, L10C2-L20C8, L10-20
+    r"|lines-\d+(?::\d+)?)"  # Bitbucket: lines-10, lines-10:20
+)
+PERMALINK_RE = re.compile(
+    r"^https?://[^/\s]+/.*/blob/[0-9a-f]{7,40}/[^#\s]+#" + _SPAN_FRAGMENT + r"$"
+)
+SPANLESS_BLOB_RE = re.compile(r"^https?://[^/\s]+/.*/blob/[0-9a-f]{7,40}/[^#\s]+$")
 LOCAL_FRAGMENT_RE = re.compile(r"^[^:\s]+#L\d+-L\d+$")
 BARE_BLOB_RE = re.compile(r"/?blob/[0-9a-f]{7,40}/")
 
@@ -119,6 +126,14 @@ def check_record(record, label: str = "") -> list[str]:
                 else ""
             )
             if PERMALINK_RE.match(stripped_url):
+                continue
+            if SPANLESS_BLOB_RE.match(stripped_url):
+                require(
+                    side_obj.get("evidence_tier") == "artifact_forensic",
+                    f"observation.{side}.evidence[{i}].url{whitespace_note} is a blob link "
+                    f"with no line span: {url!r} — only artifact_forensic evidence may omit "
+                    "the #Lx-Ly span; source_read evidence needs one",
+                )
                 continue
             if BARE_BLOB_RE.search(stripped_url):
                 require(

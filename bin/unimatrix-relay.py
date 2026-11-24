@@ -239,19 +239,18 @@ def alive(pid):
         return False
 
 
-_LIVENESS = []
+def _core_module(subname):
+    bin_dir = os.path.dirname(os.path.abspath(__file__))
+    if "_unimatrix" not in sys.modules and os.path.isdir(os.path.join(bin_dir, "_unimatrix")):
+        if bin_dir not in sys.path:
+            sys.path.insert(0, bin_dir)
+    import importlib
+    return importlib.import_module(f"_unimatrix.{subname}")
 
 
 def _liveness():
-    """The spawn-free liveness module beside this script, loaded by path on first use."""
-    if not _LIVENESS:
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "unimatrix_liveness", Path(__file__).resolve().parent / "unimatrix-liveness.py")
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        _LIVENESS.append(mod)
-    return _LIVENESS[0]
+    """The spawn-free liveness module, loaded via _unimatrix.proc."""
+    return _core_module("proc")
 
 
 def mirror_orphaned(d):
@@ -775,8 +774,14 @@ def _confirm_server(server_pid):
             + (f" (session {addressed})" if addressed else ""))
 
 
-def _write_line(path, line):
-    """Deliver one message line to the session endpoint `path` (pipe on Windows, unix socket elsewhere)."""
+FLUSH_UNCONFIRMED = "flush-unconfirmed"
+
+
+def _write_line(path, line) -> "str | None":
+    """Deliver one message line to the session endpoint `path` (pipe on Windows, unix socket elsewhere).
+
+    Returns FLUSH_UNCONFIRMED when the write completed but the reader had not drained within the flush
+    deadline (delivered, unconfirmed); None otherwise. A failed write raises."""
     line = local_reply_address(line)
     if endpoint_kind() == "pipe":
         import win32file
@@ -786,10 +791,14 @@ def _write_line(path, line):
         try:
             _confirm_server(_pipe_server_pid(h))
             win32file.WriteFile(h, line)
-            _flush_bounded(lambda: win32file.FlushFileBuffers(h))
+            try:
+                _flush_bounded(lambda: win32file.FlushFileBuffers(h))
+            except TimeoutError:
+                # The write completed; a busy reader just has not drained. Failing here invites a duplicate resend.
+                return FLUSH_UNCONFIRMED
         finally:
             win32file.CloseHandle(h)
-        return
+        return None
     s = socket.socket(socket.AF_UNIX)
     try:
         s.connect(path)
@@ -797,6 +806,7 @@ def _write_line(path, line):
         s.sendall(line)
     finally:
         s.close()
+    return None
 
 
 def _own_box():
@@ -826,8 +836,10 @@ def send_batch(pid, expected_digest=None, expected_name_digest=None, expected_se
         try:
             if not line.strip():
                 raise ValueError("empty message line")
-            _write_line(path, line)
+            advisory = _write_line(path, line)
             reply = {"ok": True, "written": True}
+            if advisory == FLUSH_UNCONFIRMED:
+                reply["advisory"] = "delivered-unconfirmed: write completed, reader had not drained within the flush deadline"
             if expected_session_id:
                 if reached:
                     reply.update(reached=reached["name"], reached_session=reached["session"], reached_pid=pid,
@@ -1068,7 +1080,10 @@ def client_box(client):
         if d.get("unimatrixMirror") or not _row_is_from(d, client):
             continue
         box = d.get("unimatrixBox") or None
-        label = re.sub(r"[^A-Za-z0-9_-]+", "-", str(d.get("unimatrixRemote") or box or "").rpartition("@")[2]).strip("-")
+        host = str(d.get("unimatrixRemote") or box or "").rpartition("@")[2]
+        # Trap: strip the mDNS `.local` before sanitising (roster `stable_label`), else `machine-a.local` becomes `machine-a-local`.
+        host = host[:-len(".local")] if host.lower().endswith(".local") and len(host) > len(".local") else host
+        label = re.sub(r"[^A-Za-z0-9_-]+", "-", host).strip("-")
         if label:
             return box, label
     return None, re.sub(r"[^A-Za-z0-9_-]+", "-", client).strip("-") or None

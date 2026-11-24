@@ -111,6 +111,10 @@ The severity scale from the injected `review-findings-body-contract` block appli
 **"Strictly safer" spec-deviation needs checking on every correctness axis (P1 if asymmetric).**
 Skip this section if no spec is named; don't infer one.
 
+## Runaway-spawn lens (always-on)
+
+Diff touches `*.py`: run `runaway-pattern-scan.py --pattern 'Pool\(\s*\)|ProcessPoolExecutor\(\s*\)|cpu_count\(' --pattern '^\s*(for|while)\b.*:|subprocess\.(Popen|run)\(' --pattern '^\s*(import|from)\s+(numpy|scipy|torch)\b' <touched *.py>` (resolve via the engine bin; a hit is a candidate). Confirm in context, then flag **P1** at file:line: uncapped `Pool()`/`ProcessPoolExecutor()`, `cpu_count()` worker sizing, numpy/scipy/torch entry script with no `*_NUM_THREADS` cap, unbounded `Popen`/`run` in a loop; explicit `processes=N` and engine workers pass. Report peak cores for any pool or loop the diff adds: run the pool under a bounded benign fixture and sample `peak-cores.py --json` (resolve via the engine bin) alongside it.
+
 ## Improvement-queue-add lens (always-on)
 
 If the diff adds improvement-queue entries (`state/improvement-queue/*.yaml`), classify each *opportunistic* vs *load-bearing* (the diff's feature is inert until it lands). A load-bearing enabler queued instead of shipped is **≥P2**.

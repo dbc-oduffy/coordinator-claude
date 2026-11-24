@@ -1372,15 +1372,24 @@ def _is_source_twin(report: "ProvenanceReport") -> bool:
     """
     if not report.imported_file:
         return False
+    # `COORDINATOR_ENGINE_SOURCE_ROOT` is the locator answer a spawner hands a
+    # child (`_locator_axis_export`; publish.py's gate spawn). A published CLI's
+    # own locator root is the mirror, so a child run from it would otherwise read
+    # the authoring checkout that bound coordinator_core as a third tree.
+    roots = [os.environ.get("COORDINATOR_ENGINE_SOURCE_ROOT", "")]
     try:
-        source_root = resolve_engine_root(__file__)
+        roots.append(resolve_engine_root(__file__))
     except (RuntimeError, OSError):
-        return False
-    try:
-        Path(report.imported_file).resolve().relative_to(Path(source_root).resolve())
-    except (ValueError, OSError):
-        return False
-    return True
+        pass
+    for source_root in roots:
+        if not source_root:
+            continue
+        try:
+            Path(report.imported_file).resolve().relative_to(Path(source_root).resolve())
+        except (ValueError, OSError):
+            continue
+        return True
+    return False
 
 
 _REPINNED_TWIN_ANNOUNCED = False

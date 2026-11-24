@@ -137,10 +137,52 @@ def bind_peer(conv, record):
         return None
 
 
-def reply(registered, worker_pointer=None, failure=None) -> dict:
+def _repo_claude_md(cwd, max_bytes=24000):
+    """Collect standing repo conventions (CLAUDE.md) from nearest .git root down to cwd, capped cleanly at max_bytes."""
+    if not isinstance(cwd, str) or not cwd:
+        return None
+    cur = Path(cwd).resolve()
+    if not cur.is_dir():
+        return None
+    chain = [cur, *cur.parents]
+    git_idx = next((i for i, p in enumerate(chain) if (p / ".git").exists()), None)
+    dirs = list(reversed(chain[: git_idx + 1])) if git_idx is not None else [cur]
+    seen = set()
+    sections = []
+    for d in dirs:
+        candidate = d / "CLAUDE.md"
+        if not candidate.is_file():
+            continue
+        resolved = candidate.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        content = candidate.read_text(encoding="utf-8", errors="replace").strip()
+        if content:
+            sections.append(f"[Project standing conventions: {resolved}]\n{content}")
+    if not sections:
+        return None
+    text = "\n\n".join(sections)
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+    kept = []
+    used = 0
+    for line in text.splitlines(keepends=True):
+        line_bytes = len(line.encode("utf-8"))
+        if used + line_bytes > max_bytes:
+            break
+        kept.append(line)
+        used += line_bytes
+    if kept:
+        return "".join(kept).rstrip("\r\n")
+    return encoded[:max_bytes].decode("utf-8", errors="ignore").rstrip("\r\n") or None
+
+
+def reply(registered, worker_pointer=None, failure=None, repo_doctrine=None) -> dict:
     # Trap: agy (observed 2026-11-04) panics "cannot convert string to message" on a SessionStart
     # systemMessage carrying metadata.user_markdown, despite its own docs; notes go as plain text.
-    notes = ([NOTE] if registered else []) + [n for n in (worker_pointer, failure) if n]
+    notes = ([NOTE] if registered else []) + [n for n in (worker_pointer, failure, repo_doctrine) if n]
     return {"injectSteps": [{"systemMessage": {"systemMessage": n}} for n in notes]} if notes else {}
 
 
@@ -156,11 +198,16 @@ def main(argv=None) -> int:
             pointer = None
         failure = None
         try:
+            repo_doctrine = _repo_claude_md(payload_cwd(payload))
+        except Exception:
+            repo_doctrine = None
+        failure = None
+        try:
             agy_pid = load_sibling("unimatrix-agy-hook-pretool").agy_ancestor_pid()
             registered = register(payload, agy_pid, root) if root is not None else register(payload, agy_pid)
         except Exception as exc:  # the session still starts; the cause rides as a note, as the Codex hook does
             registered, failure = False, f"unimatrix: peer registration failed: {exc}"
-        out = reply(registered, pointer, failure)
+        out = reply(registered, pointer, failure, repo_doctrine)
     except Exception:
         out = {}
     print(json.dumps(out))

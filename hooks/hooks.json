@@ -104,6 +104,23 @@
             ]
           }
         ]
+      },
+      {
+        "matcher": "startup|resume|clear|compact|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 5,
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-start-thread-caps.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
       }
     ],
     "Stop": [
@@ -337,6 +354,40 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-recursive-grep-repo-root.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 5,
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-runaway-spawn.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 5,
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-grep-tool-scope.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -685,6 +736,22 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-write-dispatch.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/pretooluse-config-abs-path-guard.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }

@@ -66,6 +66,7 @@ if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 
 from _guard_runner_contract import (  # noqa: E402
+    ABS_PATH_LITERAL_SCOPE_DESCRIPTOR,
     CHANNEL_ADDITIONAL_CONTEXT,
     CHANNEL_DENY,
     CHECK_CLAUDE_MD_SIZE_SCOPE_DESCRIPTOR,
@@ -391,6 +392,7 @@ _GUARD_AUTONOMOUS_SENTINEL_WRITE = "guard-autonomous-sentinel-write.py"
 _GUARD_ENGINE_MIRROR_WRITE = "guard-engine-mirror-write.py"
 _GUARD_CANVAS_CITATION_NEEDS_HARVEST = "guard-canvas-citation-needs-harvest.py"
 _GUARD_RESEARCH_LAYOUT_WRITE = "guard-research-layout-write.py"
+_GUARD_ABS_PATH_LITERAL_ON_WRITE = "guard-abs-path-literal-on-write.py"
 
 def _external_workspace_dir_substrings() -> Tuple[str, ...]:
     """`/<basename>/` of every rostered external workspace root (raw and realpath
@@ -577,6 +579,11 @@ REAL_GUARD_REGISTRY: Tuple[RegisteredGuard, ...] = (
             # predicate and layout classification decide.
             directory_substrings=("docs/research/",),
         ),
+    ),
+    RegisteredGuard(
+        module_key="guard_abs_path_literal_on_write",
+        module_path=str(Path(_HOOKS_DIR) / _GUARD_ABS_PATH_LITERAL_ON_WRITE),
+        descriptor=ABS_PATH_LITERAL_SCOPE_DESCRIPTOR,
     ),
 )
 

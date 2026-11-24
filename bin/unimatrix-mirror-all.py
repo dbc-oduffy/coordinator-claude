@@ -531,9 +531,7 @@ def spawn_router_logged(err_path):
     cmd = [_roster().console_python(), str(HERE / "unimatrix-peer-router.py")]
     err = open(err_path, "wb")
     try:
-        if sys.platform == "win32":
-            return subprocess.Popen(cmd, stderr=err, creationflags=_roster().no_window())
-        return subprocess.Popen(cmd, stderr=err, start_new_session=True)
+        return _roster().spawn(cmd, stderr=err)
     finally:
         err.close()
 
@@ -582,11 +580,13 @@ def ensure_router(say, wait: float = 3.0) -> bool:
             else:
                 p = err_path = None
             deadline = time.time() + wait
-            while time.time() < deadline and not router_answers(ctl):
+            answered = router_answers(ctl)
+            while time.time() < deadline and not answered:
                 if p is not None and p.poll() is not None:
                     break
                 time.sleep(0.2)
-            if p is not None and not router_answers(ctl):
+                answered = router_answers(ctl)
+            if p is not None and not answered:
                 say(router_spawn_verdict(p, err_path))
             return True
         finally:

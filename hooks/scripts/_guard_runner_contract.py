@@ -320,6 +320,7 @@ ENROLLED_GUARD_MODULES: Tuple[str, ...] = (
     "guard-engine-mirror-write.py",
     "guard-canvas-citation-needs-harvest.py",
     "guard-research-layout-write.py",
+    "guard-abs-path-literal-on-write.py",
 )
 
 #: `guard-doctrine-changelog-prose.py`'s `GuardScopeDescriptor` (C3b). Lives
@@ -466,5 +467,23 @@ CHECK_CLAUDE_MD_SIZE_SCOPE_DESCRIPTOR = GuardScopeDescriptor(
     guard_module="check-claude-md-size.py",
     path_suffixes=frozenset(
         {"CLAUDE.md", "em-operating-doctrine.md", "agent-role-dispatched.md"}
+    ),
+)
+
+
+#: `guard-abs-path-literal-on-write.py`'s `GuardScopeDescriptor`: every text
+#: target in any directory (briefs, scripts, configs, docs, `.mcp.json`),
+#: suffix-gated so a binary write never pays the guard import. The guard's own
+#: `is_in_scope` additionally skips `archive/`.
+ABS_PATH_LITERAL_SCOPE_DESCRIPTOR = GuardScopeDescriptor(
+    guard_module="guard-abs-path-literal-on-write.py",
+    path_suffixes=frozenset(
+        {
+            ".md", ".mdx", ".txt", ".py", ".pyi", ".sh", ".bash", ".zsh", ".ps1",
+            ".psm1", ".cmd", ".bat", ".json", ".jsonc", ".yaml", ".yml", ".toml",
+            ".ini", ".cfg", ".conf", ".env", ".js", ".mjs", ".cjs", ".ts", ".tsx",
+            ".jsx", ".cs", ".cpp", ".h", ".hpp", ".c", ".go", ".rs", ".rb", ".xml",
+            ".html", ".tmpl", ".ipynb", ".plist", ".service", ".mcp",
+        }
     ),
 )

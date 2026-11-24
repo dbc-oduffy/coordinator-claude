@@ -10,6 +10,7 @@ import base64
 import importlib.util
 import json
 import os
+import platform
 import struct
 import subprocess
 import shutil
@@ -225,16 +226,33 @@ def record_binary(registry_dir=None):
 def codex_binary():
     """Resolve codex: CODEX_BIN, then PATH, then the hook-recorded absolute path, then bare "codex".
 
-    A Windows npm shell wrapper is swapped for the native executable (message text must not pass through it)."""
+    npm wrappers are swapped for their package's native executable."""
     configured = os.environ.get("CODEX_BIN")
     found = shutil.which(configured or "codex") or configured or recorded_binary() or "codex"
-    if os.name == "nt" and Path(found).suffix.lower() in (".cmd", ".ps1", ".bat"):
+    resolved = Path(found).resolve()
+    windows_wrapper = sys.platform == "win32" and Path(found).suffix.lower() in (".cmd", ".ps1", ".bat")
+    if windows_wrapper:
         root = Path(found).parent / "node_modules" / "@openai" / "codex"
-        candidates = sorted(root.glob("node_modules/@openai/codex-win32-*/vendor/*/*/codex.exe"))
+    elif resolved.name == "codex.js" and resolved.parent.name == "bin" and resolved.parent.parent.name == "codex":
+        root = resolved.parent.parent
+    else:
+        return found
+    arch = {"arm64": "aarch64", "aarch64": "aarch64", "amd64": "x86_64", "x86_64": "x86_64"}.get(platform.machine().lower())
+    suffix = {"darwin": "apple-darwin", "linux": "unknown-linux-musl", "win32": "pc-windows-msvc"}.get(sys.platform)
+    if arch and suffix:
+        triple = f"{arch}-{suffix}"
+        package_arch = "arm64" if arch == "aarch64" else "x64"
+        executable = "codex.exe" if sys.platform == "win32" else "codex"
+        candidates = [root / "vendor" / triple / "bin" / executable]
+        candidates += [root / "node_modules" / "@openai" / f"codex-{sys.platform}-{package_arch}" / "vendor" / triple / "bin" / executable]
+        candidates += [root.parent / f"codex-{sys.platform}-{package_arch}" / "vendor" / triple / "bin" / executable]
+        candidates = [p for p in candidates if p.is_file()]
         if len(candidates) != 1:
-            raise RuntimeError("set CODEX_BIN to the native codex.exe path")
+            raise RuntimeError(f"missing or ambiguous native Codex in {root}; repair the npm installation or set CODEX_BIN to the native executable")
+        if sys.platform != "win32" and not os.access(candidates[0], os.X_OK):
+            raise RuntimeError(f"native Codex is not executable: {candidates[0]}; repair the npm installation or set CODEX_BIN to the native executable")
         return str(candidates[0])
-    return found
+    raise RuntimeError("unsupported Codex package platform; set CODEX_BIN to the native executable")
 
 
 def rollout_path(thread_id, home=None):

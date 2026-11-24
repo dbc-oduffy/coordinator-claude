@@ -6,7 +6,9 @@ reached by explicit path insertion (coordinator/lib is not a package). Wiki: out
 """
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 from pathlib import Path
 from typing import Callable
 
@@ -16,6 +18,9 @@ REDIRECTS_NAME = "REDIRECTS.md"
 # Names that legitimately sit at a tree root next to the shards.
 ROOT_EXEMPT_NAMES = (REDIRECTS_NAME, "INDEX.md", ".gitkeep")
 ROOT_EXEMPT_PREFIXES = ("README",)
+
+# Immutable membership boundary; advancing it would silently admit new flat leaves.
+PLAN_LEAF_BASE = "8e9b38b0e462e0d018631f0e5a33cab1ad93c795"
 
 _LEADING_DATE = re.compile(r"^(\d{4})-(\d{2})-\d{2}(?!\d)")
 _ASK_STAMP = re.compile(r"^ask-(\d{4})(\d{2})\d{2}T\d{6}")
@@ -175,3 +180,64 @@ def stray_entries(repo_root: str | Path) -> list[str]:
             if child.is_file() and not _is_exempt(child.name):
                 out.append(f"{tree}/{child.name}")
     return sorted(out)
+
+
+class LayoutCheckError(ValueError):
+    """The checked worktree or pinned membership cannot be verified; enforcement must fail."""
+
+
+def _git_output(root: Path, *args: str) -> bytes:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), *args], capture_output=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except OSError as exc:
+        raise LayoutCheckError(f"cannot launch Git: {exc}") from exc
+    if result.returncode:
+        raise LayoutCheckError(
+            f"Git {' '.join(args)} failed (exit {result.returncode}): "
+            f"{os.fsdecode(result.stderr).strip()}"
+        )
+    return result.stdout
+
+
+def _plan_leaf_membership(root: Path) -> set[bytes]:
+    top = _git_output(root, "rev-parse", "--show-toplevel").rstrip(b"\r\n")
+    if not top or Path(os.fsdecode(top)).resolve() != root:
+        raise LayoutCheckError("--repo-root must equal the Git worktree root, not a subdirectory")
+    if _git_output(root, "cat-file", "-t", PLAN_LEAF_BASE) != b"commit\n":
+        raise LayoutCheckError("the pinned object is not a commit")
+    raw = _git_output(root, "ls-tree", "-z", f"{PLAN_LEAF_BASE}:docs/plans")
+    if raw and not raw.endswith(b"\0"):
+        raise LayoutCheckError("truncated pinned docs/plans tree output")
+    leaves: set[bytes] = set()
+    for record in raw.split(b"\0")[:-1]:
+        match = re.fullmatch(
+            rb"(100644 blob|100755 blob|120000 blob|040000 tree|160000 commit) "
+            rb"([0-9a-f]{40}|[0-9a-f]{64})\t([^/\0]+)", record,
+        )
+        if match is None or match[3] in (b".", b".."):
+            raise LayoutCheckError("malformed pinned docs/plans tree output")
+        if match[1].endswith(b" blob"):
+            leaves.add(b"docs/plans/" + match[3])
+    return leaves
+
+
+def layout_violations(repo_root: str | Path) -> list[str]:
+    """Return strict strays except docs/plans leaf paths present at PLAN_LEAF_BASE.
+
+    Raise LayoutCheckError if Git, the exact worktree root, or pinned tree cannot be verified.
+    Membership uses exact Git path bytes, including case, independently of content and status.
+    """
+    try:
+        root = Path(repo_root).resolve()
+        legacy = _plan_leaf_membership(root)
+        return [p for p in stray_entries(root)
+                if not p.startswith("docs/plans/") or os.fsencode(p) not in legacy]
+    except (LayoutCheckError, OSError, UnicodeError) as exc:
+        raise LayoutCheckError(
+            f"layout check unavailable for {repo_root}: {exc}. "
+            f"Use the exact Git worktree root; restore Git and pinned commit {PLAN_LEAF_BASE} "
+            "with its docs/plans tree from repository history; do not advance the pin."
+        ) from exc

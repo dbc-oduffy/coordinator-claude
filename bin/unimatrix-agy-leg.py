@@ -208,18 +208,17 @@ _STARTED = None  # time.time() at main() entry: the session's age origin, never 
 
 
 def _liveness() -> "types.ModuleType":
-    """The unimatrix-liveness module, loaded on first use; $AGY_LEG_GRACE_SECS overrides its session grace."""
-    lv = sys.modules.get("unimatrix_liveness")
-    if lv is None:
-        spec = importlib.util.spec_from_file_location(
-            "unimatrix_liveness", os.path.join(os.path.dirname(os.path.abspath(__file__)), "unimatrix-liveness.py"))
-        lv = importlib.util.module_from_spec(spec)
-        sys.modules["unimatrix_liveness"] = lv
-        spec.loader.exec_module(lv)
-        try:
-            lv.AGY_SESSION_GRACE_SECONDS = float(os.environ["AGY_LEG_GRACE_SECS"])
-        except (KeyError, ValueError):
-            pass
+    """The liveness module, loaded via _unimatrix.proc; $AGY_LEG_GRACE_SECS overrides its session grace."""
+    bin_dir = os.path.dirname(os.path.abspath(__file__))
+    if "_unimatrix" not in sys.modules and os.path.isdir(os.path.join(bin_dir, "_unimatrix")):
+        if bin_dir not in sys.path:
+            sys.path.insert(0, bin_dir)
+    import importlib
+    lv = importlib.import_module("_unimatrix.proc")
+    try:
+        lv.AGY_SESSION_GRACE_SECONDS = float(os.environ["AGY_LEG_GRACE_SECS"])
+    except (KeyError, ValueError):
+        pass
     return lv
 
 
@@ -365,6 +364,37 @@ def serve_pipe(endpoint, pending):
     return t
 
 
+def _sock_inode(sock):
+    try:
+        return os.stat(sock).st_ino
+    except OSError:
+        return None
+
+
+def _socket_live(sock) -> bool:
+    s = socket.socket(socket.AF_UNIX)
+    s.settimeout(0.2)
+    try:
+        s.connect(sock)
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+def _bind_unix(sock):
+    os.makedirs(os.path.dirname(os.path.abspath(sock)), exist_ok=True)
+    if os.path.exists(sock):
+        os.unlink(sock)
+    srv = socket.socket(socket.AF_UNIX)
+    srv.bind(sock)
+    os.chmod(sock, 0o600)
+    srv.listen(4)
+    srv.settimeout(PARENT_POLL_SECS)
+    return srv, _sock_inode(sock)
+
+
 def main(sock) -> None:
     global _STARTED
     _STARTED = time.time()
@@ -387,16 +417,9 @@ def main(sock) -> None:
                 log("exit", {"reason": "agy parent gone"})
                 return
         return
-    os.makedirs(os.path.dirname(os.path.abspath(sock)), exist_ok=True)
-    if os.path.exists(sock):
-        os.unlink(sock)
-    srv = socket.socket(socket.AF_UNIX)
-    srv.bind(sock)
-    os.chmod(sock, 0o600)
-    srv.listen(4)
+    srv, sock_ino = _bind_unix(sock)
     if not pending:
         drain()  # a pending leg SIGTERMed mid-append can land a line after the first drain
-    srv.settimeout(PARENT_POLL_SECS)
     while True:
         try:
             c, _ = srv.accept()
@@ -405,8 +428,24 @@ def main(sock) -> None:
             if session_gone():
                 log("exit", {"reason": "agy parent gone"})
                 srv.close()
-                os.unlink(sock)
+                if sock_ino is None or _sock_inode(sock) == sock_ino:
+                    try:
+                        os.unlink(sock)
+                    except FileNotFoundError:
+                        pass
                 return
+            if sock_ino is not None and _sock_inode(sock) != sock_ino:
+                if os.path.exists(sock) and _socket_live(sock):
+                    log("exit", {"reason": "endpoint replaced by live listener"})
+                    srv.close()
+                    return
+                log("socket-lost", {"sock": sock})
+                srv.close()
+                try:
+                    srv, sock_ino = _bind_unix(sock)
+                except OSError as exc:
+                    log("exit", {"reason": f"socket rebind failed: {exc}"})
+                    return
             continue
         c.setblocking(True)
         with c:
@@ -420,7 +459,10 @@ def main(sock) -> None:
                     buf += chunk
             except OSError:
                 continue
-            c.sendall(respond(buf, pending))
+            try:
+                c.sendall(respond(buf, pending))
+            except OSError:
+                pass
 
 
 if __name__ == "__main__":

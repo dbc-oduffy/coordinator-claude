@@ -162,16 +162,17 @@ def agent_state(key, run=subprocess.run):
         return "loaded"
 
 
-_LIVENESS = []
+def _core_module(subname):
+    bin_dir = os.path.dirname(os.path.abspath(__file__))
+    if "_unimatrix" not in sys.modules and os.path.isdir(os.path.join(bin_dir, "_unimatrix")):
+        if bin_dir not in sys.path:
+            sys.path.insert(0, bin_dir)
+    import importlib
+    return importlib.import_module(f"_unimatrix.{subname}")
 
 
 def _liveness():
-    if not _LIVENESS:
-        spec = importlib.util.spec_from_file_location("unimatrix_liveness", HERE / "unimatrix-liveness.py")
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        _LIVENESS.append(mod)
-    return _LIVENESS[0]
+    return _core_module("proc")
 
 
 _MEMBERSHIP = []
@@ -921,7 +922,7 @@ def ssh_identity_file(roster, alias, run=subprocess.run):
         if name.lower() != "identityfile":
             continue
         path = Path(os.path.expanduser(val.strip()))
-        if path.name not in SSH_DEFAULT_IDENTITIES and not hands_on_key(path) and path.is_file():
+        if path.name not in SSH_DEFAULT_IDENTITIES and path.suffix.lower() != ".pub" and not hands_on_key(path) and path.is_file():
             return str(path)
     return None
 
@@ -934,17 +935,21 @@ def hands_on_key(key):
 def resolve_key(roster, alias, local_fn=None, ssh_fn=None, via=None) -> str:
     """The relay key for one alias: machine-local, else ssh-config IdentityFile, else the shared default.
 
-    `via` is a callable giving other aliases of the same box (`matching_aliases`); their machine-local keys are
-    tried after `alias`'s own and before the ssh config, so a key set under any matching alias is found.
+    `via` is a callable giving other aliases of the same box (`matching_aliases`); their machine-local keys
+    and ssh-config IdentityFiles are tried after `alias`'s own and before the shared default, so a key set
+    under any matching alias (e.g. `macmini-lan` for `oduffy@Mac-mini.local`) is found.
     A source that names the hands-on `unimatrix-01` key is skipped for the next one."""
     local = local_fn or machine_local_key
+    ssh_lookup = ssh_fn or ssh_identity_file
+    others = [other for other in (via() if via else ()) if other != alias]
 
     def sources() -> Iterator[tuple]:
         yield local, alias
-        for other in (via() if via else ()):
-            if other != alias:
-                yield local, other
-        yield ssh_fn or ssh_identity_file, alias
+        for other in others:
+            yield local, other
+        yield ssh_lookup, alias
+        for other in others:
+            yield ssh_lookup, other
     for fn, name in sources():
         key = fn(roster, name)
         if key and not hands_on_key(key):
@@ -1319,9 +1324,7 @@ def router_lock_held(sdir):
     """True while a router process holds `<state>/router/router.lock` (its lifetime lease), however it was started."""
     path = sdir / "router" / "router.lock"
     try:
-        spec = importlib.util.spec_from_file_location("unimatrix_local_transport", HERE / "unimatrix-local-transport.py")
-        transport = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(transport)
+        transport = _core_module("transport")
         with open(path, "r+b" if sys.platform == "win32" else "rb") as fh:
             if not transport.lock_file(fh):
                 return True
