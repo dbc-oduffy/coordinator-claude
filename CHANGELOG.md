@@ -4,6 +4,11 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.31] — 2026-11-25
+
+- **Agy:** generated agy agents carry Agy's native tool names, so their tool lists resolve on an Agy host.
+- **Percolate:** an uncommitted working tree no longer blocks a publish; the round reads the source from the pushed commit and names the dirty paths as an advisory. Unpushed commits still refuse.
+
 ## [4.6.30] — 2026-11-25
 
 - **Research runs:** a project-rag-first guard blocks Grep for gated research roles until they have queried project-rag, keeps a call ledger, and records-and-continues on a miss; every research-run role is covered, and the coverage auditor gets project-rag tools.

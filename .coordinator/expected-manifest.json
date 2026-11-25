@@ -1,7 +1,7 @@
 {
   "paths": {
-    ".claude-plugin/marketplace.json": "a2e9f400673332c3eabec43a3a5fa85db2d17614",
-    ".claude-plugin/plugin.json": "433f5b0556c1ccfc0eb8778bd173a87bbd157dc6",
+    ".claude-plugin/marketplace.json": "7016e2d7d47ee055ee13954d6df22b1d016eaa1b",
+    ".claude-plugin/plugin.json": "80086d6c00a3c1cf362eb59fc1b7024cb459b85f",
     ".gitattributes": "e601e3b4831fbad8558b4cf33c1d891e51bb4732",
     ".github/.persona-names-allowlist": "b192e993696d101230ee10c2cbe29faed29ea61f",
     ".github/ISSUE_TEMPLATE/bug_report.md": "0f541423ae94a7dd28b550bee94ce2babb50be4a",
@@ -34,7 +34,7 @@
     ".gitignore": "31886db36fd93b3817544f094188345777a5e87c",
     ".python-version": "e4fba2183587225f216eeada4c78dfab6b2e65f5",
     "AGENTS.md": "371699a67c251eedf6cde4f8ad7c9d13c0b435f0",
-    "CHANGELOG.md": "8ce780f6357baf8f38a24af89fe5d94c43ad0e28",
+    "CHANGELOG.md": "6ee12fae8ac7600f13741fdb599c442095d6b548",
     "CODE_OF_CONDUCT.md": "ba00a30d3950eb141f7ba5c969661e60c2f5c97a",
     "COMMERCIAL.md": "a8701144cfb16aedda57ec490159cafe170ff1d1",
     "CONTRIBUTING.md": "b0db3c04182459734d8871e93ab8a8165e2783a1",
