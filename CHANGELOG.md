@@ -4,6 +4,12 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.34] — 2026-11-25
+
+- **Group EM home:** `group-em-home ensure --refresh` uses the newer of the DoE checkout and installed-plugin templates, says when they differ, and refuses when they have diverged.
+- **Agy:** the generated agy plugin carries `snippets/`. Agy peer-message delivery on Windows is still being fixed.
+- **Publish:** fixes a payload-gate false refusal on `publish.py`. Ships with claude-klabauter 621046ad70.
+
 ## [4.6.33] — 2026-11-25
 
 - **Agy:** every coordinator agy launch (interactive, headless EM, worker) passes `--dangerously-skip-permissions` by default; an explicit `--mode` or `--sandbox` still wins. Read-only reviewers keep plan mode with the sandbox. Ships with claude-klabauter 48a15e07dc.

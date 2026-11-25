@@ -1,7 +1,7 @@
 {
   "paths": {
-    ".claude-plugin/marketplace.json": "62b4ae1875f85e402fcc83bfeac35587b910f447",
-    ".claude-plugin/plugin.json": "5984c40d5c6b83b83f6c7ae50989b415393cca04",
+    ".claude-plugin/marketplace.json": "0734c106dcb9201c687f6927c4b997c227e18fe6",
+    ".claude-plugin/plugin.json": "6dec1f769100d7f421f8473eefbde98c01a30a24",
     ".gitattributes": "e601e3b4831fbad8558b4cf33c1d891e51bb4732",
     ".github/.persona-names-allowlist": "b192e993696d101230ee10c2cbe29faed29ea61f",
     ".github/ISSUE_TEMPLATE/bug_report.md": "0f541423ae94a7dd28b550bee94ce2babb50be4a",
@@ -34,7 +34,7 @@
     ".gitignore": "31886db36fd93b3817544f094188345777a5e87c",
     ".python-version": "e4fba2183587225f216eeada4c78dfab6b2e65f5",
     "AGENTS.md": "371699a67c251eedf6cde4f8ad7c9d13c0b435f0",
-    "CHANGELOG.md": "5195556286a532d630e259977694bbdec189f0a2",
+    "CHANGELOG.md": "4ba14fae0d883a7d9734f80cb3221b156e3ba41a",
     "CODE_OF_CONDUCT.md": "ba00a30d3950eb141f7ba5c969661e60c2f5c97a",
     "COMMERCIAL.md": "a8701144cfb16aedda57ec490159cafe170ff1d1",
     "CONTRIBUTING.md": "b0db3c04182459734d8871e93ab8a8165e2783a1",
@@ -703,7 +703,7 @@
     "bin/group-em-enter.py": "e617d88088f2ac7192925ecc123672d3bf6a07b5",
     "bin/group-em-home.cmd": "59d59235d95db65f9365beab23f88659e5981099",
     "bin/group-em-home.ps1": "a9128a23f4ccbf5882eefbafcad7e35ca6720f3c",
-    "bin/group-em-home.py": "8581915d9a5df088dd55c4b7f2e58e6461c894d3",
+    "bin/group-em-home.py": "8a1310ce2412f1786c32f6606740a50d09083bd3",
     "bin/group-em-memory-governor-wait.cmd": "b4cd2873c8db07d50580296a16fe9a16b6a1c041",
     "bin/group-em-memory-governor-wait.ps1": "dc53d73a2049df386ad7a732be84b0c65ee85de6",
     "bin/group-em-memory-governor-wait.py": "ec7bd4fa9ee5e52f3370d30bccef08381538e18d",
@@ -845,6 +845,7 @@
     "bin/lib/machine_local_resolve.py": "0ce10f87ca080caa833763e903a96a394f5bf5e9",
     "bin/lib/memo_compose.py": "54a45f717150b8ddd36b52a8b3613a04b3cd1d4a",
     "bin/lib/op_trampoline.py": "39e837d5d8947a143e84ccf1cfd06a4e47670df2",
+    "bin/lib/phase_accounting.py": "6ce93df6fbdb2afa0c8bffe083fff93e9e7227e7",
     "bin/lib/plan_completeness.py": "f4ccf8fa8869ed6503e9e73db63069fcf7394c7b",
     "bin/lib/pm_brief.py": "77aeb364ba14bc2debae64b21822bfda4d458d08",
     "bin/lib/provenance.py": "d99aa2d6b2692d7088872196bb79b25cf3609c14",
@@ -1049,7 +1050,7 @@
     "bin/publish-time-transform-py.ps1": "b69ed0344990ae5375acf0c91ef170c3c15be790",
     "bin/publish-time-transform-py.py": "f43c2b0a170a16cabf80a9ebc89eba5c54e32765",
     "bin/publish.cmd": "ddccc4669169251ebdb46f6fe34504ae28535588",
-    "bin/publish.py": "91fbf3710bda0a69998e22b4c467b76e78538ee7",
+    "bin/publish.py": "7af907d4a0fd09ad31b9d44f730715acbab0f06d",
     "bin/push-hold.cmd": "7c295de7e219b2475216dab124bc306bacd64025",
     "bin/push-hold.py": "bd67283afe94b1381853652adfe0f0e3164361f9",
     "bin/query-commit-closures.cmd": "2284445c76886198e1bc9a9bf05e85d618fc2dd6",
@@ -1336,7 +1337,7 @@
     "bin/unimatrix-agy-hook-launch.py": "b7e886b11f47488a6084797dc73b646f6df6a9d6",
     "bin/unimatrix-agy-hook-pretool.cmd": "1ae754881a7d4f7acc7d2278ec2a750782638272",
     "bin/unimatrix-agy-hook-pretool.ps1": "8c6a0a5c293c4618fbd8eaa407618e8ca24e75f8",
-    "bin/unimatrix-agy-hook-pretool.py": "e46aa6af1b93828faeecf68f0ff62015217b5c6f",
+    "bin/unimatrix-agy-hook-pretool.py": "b837d08df42effff748dc7dbec054c4549e5766e",
     "bin/unimatrix-agy-hook-sessionstart.cmd": "0c6db68a9de5778b422b85405209a54508c5c238",
     "bin/unimatrix-agy-hook-sessionstart.ps1": "493446e6bffaee0672716564250ca56c97534c70",
     "bin/unimatrix-agy-hook-sessionstart.py": "fc83850021cefa0367ad80a942f6185413511cd0",
@@ -1381,7 +1382,7 @@
     "bin/unimatrix-host-guard.cmd": "0b48b5224365e769f85bc8a046fae22464cadf40",
     "bin/unimatrix-host-guard.ps1": "676a783a90a7580c8ef4097749702d767dc45e19",
     "bin/unimatrix-host-guard.py": "7e92e2b86dd3ac3bebe061d8ff7bb399dc223aef",
-    "bin/unimatrix-host-map.json": "afcbeedd251d2dab92d76b3f67e96304f7561b89",
+    "bin/unimatrix-host-map.json": "2ec1c46d4759783c8b67651404112e092c5c2f32",
     "bin/unimatrix-inbound-gate.py": "6e719e30f19027b4ccfaf30c84fb7e12f54aa4aa",
     "bin/unimatrix-inbox.cmd": "184a7642495b3144a788fd792b6f4afe3aaed4cc",
     "bin/unimatrix-inbox.ps1": "3f525240f2b40f38edef471756fa4f00f9b92b39",
@@ -2790,5 +2791,5 @@
     "workflows/workday-start.mjs": "845bf8cdea87f0069619ce3cb3056b63687ceb91"
   },
   "schema": 1,
-  "source_head": "4e841412f657d544016126de7612748a4c5abdc4"
+  "source_head": "7232378d26845823ad0c323cd1ad2399e1052c2e"
 }

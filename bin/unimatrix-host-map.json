@@ -4,7 +4,8 @@
     "copy_dirs": [
       "bin",
       "hooks",
-      "scripts"
+      "scripts",
+      "snippets"
     ],
     "hook_drop_fields": [
       "description"

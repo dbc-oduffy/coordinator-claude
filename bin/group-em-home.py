@@ -3,7 +3,8 @@
 
 Verbs: `path`, `ensure`, `holder`, `migrate`, `sync [--push]`, `prune`; `--json` on each. Exit 3 on a
 refused home (prints the conflicting checkout), exit 4 when `migrate` cannot move the legacy home,
-exit 5 on `sync: conflict` (paths on stderr). No remote is exit 0 with a warning. Authored in
+exit 5 on `sync: conflict` (paths on stderr), exit 6 when the content-root and plugin templates have
+diverged (neither hash in the other's manifest; nothing written). No remote is exit 0 with a warning. Authored in
 Claude-klabauter; DoE consumes it.
 """
 import argparse
@@ -14,6 +15,7 @@ import sys
 _HOLDER_FIELDS = ("session_id", "peer_name", "repo_root", "nominated_at", "live")
 _REFUSAL_TOKEN = "A-GROUP-EM-HOME-INSIDE-A-CHECKOUT-IS-REFUSED-NOT-MOVED"
 _SYNC_CONFLICT_EXIT = 5
+_TEMPLATE_DIVERGED_EXIT = 6
 _OK_OUTCOMES = ("moved", "no-legacy", "configured")
 
 
@@ -177,6 +179,9 @@ def main(argv=None) -> int:
         print(f"group-em-home: refused: {exc.home} is inside a checkout ({_REFUSAL_TOKEN})", file=sys.stderr)
         print(exc.checkout)
         return 3
+    except _gem_home.TemplateDiverged as exc:
+        print(f"group-em-home: refused: {exc}; CLAUDE.md left untouched", file=sys.stderr)
+        return _TEMPLATE_DIVERGED_EXIT
     if seed == "no-template":
         print("group-em-home: no CLAUDE.md seed template resolved; set CLAUDE_PLUGIN_ROOT or "
               "machine-local repos.content_root", file=sys.stderr)

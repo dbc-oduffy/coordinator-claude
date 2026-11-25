@@ -1070,11 +1070,13 @@ def dispatch_percolate_post_rsync(
     except Exception as exc:  # noqa: BLE001 - AC15 phase-raise fail-closed path
         raise EngineUnavailableError(f"{target.name}: post_rsync phase raised: {exc}") from exc
 
+    _sweep_visited = len(wire.get("visited_files", []))
+    _phase_accounting().count_files(_sweep_visited)
     print(
         f"  [timing] {target.name}: content_transform_sweep: "
         f"{time.perf_counter() - _sweep_wall_start:.3f}s wall / "
-        f"{time.process_time() - _sweep_cpu_start:.3f}s cpu (driver only, excludes subprocesses); "
-        f"files={len(wire.get('visited_files', []))}",
+        f"{time.process_time() - _sweep_cpu_start:.3f}s cpu (driver only); "
+        f"files={_sweep_visited}",
         file=sys.stdout,
     )
     _assert_no_guard_failures(wire.get("guard_results", []), target.name, "post_rsync")
@@ -1643,6 +1645,7 @@ def dispatch_percolate_pre_ci(
         extra_kwargs["scope"] = scope
 
     _run_percolate_start = time.perf_counter()
+    _run_percolate_mark = _phase_accounting().get_account().mark()
     try:
         wire = engine_claude_klabauter.run_percolate(
             str(store_path),
@@ -1659,7 +1662,8 @@ def dispatch_percolate_pre_ci(
     finally:
         print(
             f"  [timing] {target.name}: dispatch_percolate_pre_ci: run_percolate: "
-            f"{time.perf_counter() - _run_percolate_start:.3f}s",
+            f"{time.perf_counter() - _run_percolate_start:.3f}s "
+            f"{_phase_accounting().get_account().cost_since(_run_percolate_mark).fields()}",
             file=sys.stdout,
         )
 
@@ -1739,6 +1743,7 @@ def dispatch_percolate_pre_ci(
         print(f"  {target.name}: identity checker currency: {currency_note}", file=sys.stderr)
 
         _identity_check_start = time.perf_counter()
+        _identity_check_mark = _phase_accounting().get_account().mark()
         try:
             identity_result = engine_claude_klabauter.run_identity_check(str(scan_dest))
         except Exception as exc:  # noqa: BLE001 - AC15 fail-closed path, same as any phase raise
@@ -1747,6 +1752,7 @@ def dispatch_percolate_pre_ci(
             print(
                 f"  [timing] {target.name}: dispatch_percolate_pre_ci: run_identity_check: "
                 f"{time.perf_counter() - _identity_check_start:.3f}s "
+                f"{_phase_accounting().get_account().cost_since(_identity_check_mark).fields()} "
                 f"(scan_dest={scan_dest})",
                 file=sys.stdout,
             )
@@ -3582,12 +3588,15 @@ def _row_payload_files(target, rkl) -> "list[tuple[str, Path]]":
     A source that is not a git work tree falls back to the walk."""
     listing = _git_capture(target.source_dir, "ls-files", "--cached", "-z")
     if listing is None:
-        return _row_published_payload(target, rkl.list_files(target.source_dir))
+        walked = _row_published_payload(target, rkl.list_files(target.source_dir))
+        _phase_accounting().count_files(len(walked))
+        return walked
     files = sorted(
         (rel, target.source_dir / rel)
         for rel in listing.split("\0")
         if rel and (target.source_dir / rel).is_file()
     )
+    _phase_accounting().count_files(len(files))
     if getattr(target, "allowlist", ""):
         withheld = _paths_the_row_allowlist_denies(target, [rel for rel, _ in files])
         files = [f for f in files if f[0] not in withheld]
@@ -7431,19 +7440,40 @@ def _time_phase(
     sink: "Optional[List[tuple[str, str, float, float]]]",
     row_label: str,
     phase_label: str,
-):
+) -> Iterator[None]:
     start = time.perf_counter()
     cpu_start = time.process_time()
+    acct = _phase_accounting().get_account() if sink is not None else None
+    mark = acct.mark() if acct is not None else None
     try:
         yield
     finally:
         if sink is not None:
+            cost = acct.cost_since(mark)
             sink.append((
                 row_label,
                 phase_label,
                 time.perf_counter() - start,
                 time.process_time() - cpu_start,
+                cost,
             ))
+
+
+def _phase_accounting() -> Any:
+    """`bin/lib/phase_accounting`: stdlib-only, loaded on first use.
+
+    Trap: loaded by file path, never via sys.path.insert of `bin/lib` — a static `lib` insert makes
+    the end-of-run plugin-payload gate (`percolate.doc_path_refs.find_unresolved_imports`) grade this
+    file's imports, and it cannot resolve the dynamically pinned `percolate` package (AC15 fatal)."""
+    mod = sys.modules.get("phase_accounting")
+    if mod is None:
+        spec = importlib.util.spec_from_file_location(
+            "phase_accounting", Path(__file__).resolve().parent / "lib" / "phase_accounting.py"
+        )
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["phase_accounting"] = mod
+        spec.loader.exec_module(mod)
+    return mod
 
 
 def _print_round_timing_summary(
@@ -7473,26 +7503,42 @@ def _print_round_timing_summary(
     sized against numbers that could not gate anything
     (§ docs/plans/2026-08-23-a-percolate-round-costs-417s-for-25s-of-work.md).
 
-    `cpu` IS THIS DRIVER PROCESS'S OWN CPU AND EXCLUDES SUBPROCESS CPU
-    ENTIRELY. `time.process_time()` does not count children, and
-    `os.times().children_*` is always 0.0 on Windows, so there is no cheap
-    in-process way to fold them in (§ coordinator_core/benchmarks/
-    process_time.py, which uses a Windows job object precisely because of
-    this). A leg that mostly SPAWNS therefore reports a small `cpu` and a
-    large `wall` -- that gap is the spawn-amplification signal, not a
-    measurement error, and it is read that way. For a whole-tree figure that
-    does include children, run the round itself under
-    `batched_process_time_ms`.
+    `cpu` IS THIS DRIVER PROCESS'S OWN CPU AND EXCLUDES SUBPROCESS CPU.
+    The appended `cpu_total= spawns= files= engine=` fields are the whole
+    tree (driver + children, from `lib/phase_accounting.PhaseAccount`), the
+    process count, files the walking helpers counted, and the warm-engine CPU
+    served to this session; an unreadable figure prints `unavailable`.
+    `round total` / `unattributed` close the books: whole-process cost minus
+    the listed phases.
     """
+    pa = _phase_accounting()
+    acct = pa.get_account()
+    costs = [t[4] if len(t) > 4 else None for t in timings]
+    measured = [c for c in costs if c is not None]
+    filled = iter(pa.attach_engine(measured, acct.session_id))
     print("  [timing] per-phase elapsed:", file=out)
-    for row_label, phase_label, elapsed, cpu in timings:
+    parts_cpu, parts_spawns, parts_ok = 0.0, 0, True
+    for (row_label, phase_label, elapsed, cpu, *_rest), cost in zip(timings, costs):
+        tail = ""
+        if cost is not None:
+            cost = next(filled)
+            tail = " " + cost.fields()
+            if cost.cpu_total is None:
+                parts_ok = False
+            else:
+                parts_cpu += cost.cpu_total
+                parts_spawns += cost.spawns or 0
         print(
             f"  [timing]   {row_label}: {phase_label}: "
-            f"{elapsed:.3f}s wall / {cpu:.3f}s cpu (driver only, excludes subprocesses)",
+            f"{elapsed:.3f}s wall / {cpu:.3f}s cpu{tail}",
             file=out,
         )
-    attributed = sum(elapsed for _, _, elapsed, _ in timings)
-    attributed_cpu = sum(cpu for _, _, _, cpu in timings)
+    whole = acct.cost_since(acct.t0)
+    whole = pa.attach_engine([whole], acct.session_id)[0]
+    print(f"  [timing] round total: {whole.wall:.3f}s wall / {whole.cpu_own:.3f}s cpu {whole.fields()}", file=out)
+    print(pa.unattributed_line("round", whole, parts_cpu, parts_spawns, parts_ok), file=out)
+    attributed = sum(t[2] for t in timings)
+    attributed_cpu = sum(t[3] for t in timings)
     wall_elapsed = time.perf_counter() - wall_start
     unattributed = wall_elapsed - attributed
     print(
@@ -7502,8 +7548,7 @@ def _print_round_timing_summary(
     )
     print(
         f"  [timing] round driver cpu: {time.process_time():.3f}s; "
-        f"attributed to phases: {attributed_cpu:.3f}s "
-        "(subprocess cpu is in neither -- see this function's docstring)",
+        f"attributed to phases: {attributed_cpu:.3f}s (driver only; children are in cpu_total=)",
         file=out,
     )
 
@@ -10092,11 +10137,12 @@ def _seed_staging_from_cache(
     if info is None and dropped:
         _empty_dir(staging)
         return None, "pinned commit unreadable"
+    lookup = _cached_tree_lookup()
     for rel in dropped:
         if rel.rsplit("/", 1)[-1] in renamed_dsts:
             _empty_dir(staging)
             return None, f"seed file {rel} was rewritten and is a rename target"
-        found = None if info is None else publish_delta._lookup(common, info.tree, f"{prefix}/{rel}" if prefix else rel)
+        found = None if info is None else lookup(common, info.tree, f"{prefix}/{rel}" if prefix else rel)
         if found is not None and found[0] != _GIT_TREE_MODE:
             only.add(rel)
     if target.source_dir.name == _CLOSURE_PACKAGE_NAME:
@@ -10127,8 +10173,6 @@ def _snapshot_staging_seed(
     """Hardlink the row's post-sweep staging into the seed cache under the round's pinned source sha.
     A staged file whose stat equals its carried manifest entry keeps that entry; any other is read
     and hashed once. Returns `(manifest, "")`, or `(None, reason)` when nothing was cached."""
-    from percolate import publish_delta  # type: ignore[import-not-found]  # noqa: PLC0415
-
     repo_root = _dest_repo_root(target.dest_dir)
     top = _resolve_show_toplevel(str(target.source_dir))
     if repo_root is None or top is None or signature is None:
@@ -10146,6 +10190,7 @@ def _snapshot_staging_seed(
     if info is None:
         return None, "pinned commit unreadable"
     carry = carry or {}
+    lookup = _cached_tree_lookup()
     manifest: "dict[str, list]" = {}
     for root, _dirs, names in os.walk(staging):
         for name in names:
@@ -10162,7 +10207,7 @@ def _snapshot_staging_seed(
             src_blob = ""
             mode = _GIT_EXEC_MODE if data.startswith(b"#!") else _GIT_FILE_MODE
             if name not in renamed_dsts:
-                found = publish_delta._lookup(common, info.tree, f"{prefix}/{rel}" if prefix else rel)
+                found = lookup(common, info.tree, f"{prefix}/{rel}" if prefix else rel)
                 if found is not None and found[0] != _GIT_TREE_MODE:
                     src_blob = found[1]
                     if found[0] in (_GIT_FILE_MODE, _GIT_EXEC_MODE):
@@ -10729,6 +10774,157 @@ def _top_level_import_closure(entry: Path, engine_root: Path) -> "list[Path]":
     return sorted(seen)
 
 
+#: Top-level defs whose bodies can change published BYTES: copy/fence-strip, mirror sync, staging
+#: seed/materialise, withheld overlay, mode normalisation, and the percolate phase dispatchers
+#: that run a transform (pre_rsync backup, post_rsync sweep, inject) plus the identity-checker
+#: refresh that writes into the destination. `main`, round orchestrators, `dispatch_end_of_run_*`
+#: and `dispatch_preswap_*` gates, `run_pre_sync_gates` and `dispatch_percolate_pre_ci` are
+#: NEVER roots: their closure reaches every gate, which would keep every gate edit cold.
+#: Trap: a new byte-shaping function must be reachable from a root or be listed here, or an
+#: edit to it reads warm.
+_TRANSFORM_ROOTS: "tuple[str, ...]" = (
+    "_publish_copy_file",
+    "_atomic_mirror_write",
+    "strip_fleet_only_fences",
+    "sync_manifest",
+    "dispatch_mirror_like",
+    "_materialize_tree_paths",
+    "_snapshot_staging_seed",
+    "_seed_staging_from_cache",
+    "_seed_export_from_cache",
+    "_seed_shadow_from_store",
+    "_extract_git_archive",
+    "_git_materialize_ref",
+    "_overlay_withheld",
+    "_normalize_dest_exec_bits",
+    "dispatch_percolate_pre_rsync",
+    "dispatch_percolate_post_rsync",
+    "dispatch_percolate_inject",
+    "_materialize_inject_srcs",
+    "_refresh_identity_checker_at_dest",
+)
+
+
+def _is_main_guard(node: "Any") -> bool:
+    """True for a module-level `if __name__ == ...:` block. It is hashed like any unconditional
+    statement but never seeds the closure: its `main()` call would reach every gate."""
+    import ast
+
+    return (
+        isinstance(node, ast.If)
+        and isinstance(node.test, ast.Compare)
+        and isinstance(node.test.left, ast.Name)
+        and node.test.left.id == "__name__"
+    )
+
+
+def _transform_closure_nodes(
+    tree: "Any", roots: "Sequence[str]"
+) -> "Optional[tuple[list[Any], dict[str, list[Any]], list[str]]]":
+    """`(unconditional statements, name -> nodes, sorted reached names)` for a parsed module, or
+    `None` when a root does not resolve to a top-level def.
+
+    Reached = roots plus every top-level def/class/assignment named by a `Name` (or `Attribute`
+    attr) inside an already-reached node or an unconditional statement."""
+    import ast
+
+    index: "dict[str, list[Any]]" = {}
+    unconditional: "list[Any]" = []
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bound = [node.name]
+        elif isinstance(node, ast.Assign):
+            bound = [n.id for t in node.targets for n in ast.walk(t) if isinstance(n, ast.Name)]
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)) and isinstance(node.target, ast.Name):
+            bound = [node.target.id]
+        else:
+            bound = []
+        if not bound:
+            unconditional.append(node)
+        for name in bound:
+            index.setdefault(name, []).append(node)
+
+    def_names = {
+        n.name
+        for nodes in index.values()
+        for n in nodes
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    }
+    if any(root not in def_names for root in roots):
+        return None
+
+    def refs(node: "Any") -> "Iterator[str]":
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Name):
+                yield sub.id
+            elif isinstance(sub, ast.Attribute):
+                yield sub.attr
+
+    reached: "set[str]" = set()
+    stack: "list[str]" = list(roots)
+    for node in unconditional:
+        if not _is_main_guard(node):
+            stack.extend(refs(node))
+    while stack:
+        name = stack.pop()
+        if name in reached or name not in index:
+            continue
+        reached.add(name)
+        for node in index[name]:
+            stack.extend(refs(node))
+    return unconditional, index, sorted(reached)
+
+
+def _strip_docstrings(tree: "Any") -> None:
+    """Drops the leading docstring statement of the module and of every def/class, in place."""
+    import ast
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            body = node.body
+            if (
+                body
+                and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)
+            ):
+                node.body = body[1:] or [ast.Pass()]
+
+
+def _hash_transform_closure(path: Path, roots: "Sequence[str]" = _TRANSFORM_ROOTS) -> str:
+    """sha256 over the part of `path` that can shape published bytes: every module-level
+    statement that binds no indexable name (imports, bare expressions, `if`/`try`/`with`), plus
+    each top-level def/class/assignment reachable from `roots` (see `_transform_closure_nodes`),
+    as docstring-stripped `ast.dump` sorted by name. A gate-only edit, or a new module constant
+    read only by gates, leaves it unchanged; a comment/whitespace edit does too.
+
+    Fails cold -- returns the whole-file hash -- on an unreadable file, a `SyntaxError`, or a
+    root that no longer resolves to a top-level def: never warm on what cannot be attributed."""
+    import ast
+    import hashlib
+
+    try:
+        tree = ast.parse(path.read_bytes())
+    except (OSError, SyntaxError, ValueError):
+        return _hash_bytes_of(path)
+    _strip_docstrings(tree)
+    closure = _transform_closure_nodes(tree, roots)
+    if closure is None:
+        return _hash_bytes_of(path)
+    unconditional, index, reached = closure
+    h = hashlib.sha256()
+    h.update(b"transform-closure-v1\0")
+    for node in unconditional:
+        h.update(ast.dump(node).encode("utf-8"))
+        h.update(b"\0")
+    for name in reached:
+        h.update(b"\1" + name.encode("utf-8") + b"\0")
+        for node in index[name]:
+            h.update(ast.dump(node).encode("utf-8"))
+            h.update(b"\0")
+    return h.hexdigest()
+
+
 def compute_delta_invalidation_signature(
     percolate_store_path: Path,
     engine_ctx: "PercolateEngineContext",
@@ -10750,7 +10946,7 @@ def compute_delta_invalidation_signature(
 
     h = hashlib.sha256()
     h.update(_hash_bytes_of(percolate_store_path).encode("ascii"))
-    h.update(_hash_bytes_of(Path(__file__).resolve()).encode("ascii"))
+    h.update(_hash_transform_closure(Path(__file__).resolve()).encode("ascii"))
     h.update(_hash_py_tree(_COORDINATOR_LIB / "percolate").encode("ascii"))
     if engine_ctx.engine_claude_klabauter is None:
         h.update(b"<engine-unavailable>")
@@ -14757,6 +14953,42 @@ def _blob_sha1(data: bytes) -> str:
     return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
 
 
+def _cached_tree_lookup() -> "Callable[[Path, str, str], Optional[tuple[int, str]]]":
+    """`publish_delta._lookup` that reads and parses each tree object once per returned callable.
+
+    The uncached lookup re-reads every tree on a path's way down per path, so a per-file loop over a
+    wide tree decompresses and parses its big directories once per file. Trap: the cache is only
+    valid inside one loop over one commit's trees, so build one callable per loop, never per module;
+    an unreadable tree raises exactly as the uncached lookup does and is never cached."""
+    from coordinator_core.git.git_objects import read_object  # noqa: PLC0415
+    from coordinator_core.git.git_state import _parse_tree_entries  # noqa: PLC0415
+
+    parsed: "dict[tuple[str, str], Optional[dict[str, tuple[int, str]]]]" = {}
+
+    def lookup(common: Path, tree_sha: str, rel: str) -> "Optional[tuple[int, str]]":
+        cur = tree_sha
+        parts = rel.split("/")
+        for i, name in enumerate(parts):
+            key = (str(common), cur)
+            if key not in parsed:
+                obj = read_object(common, cur)
+                if obj is None:
+                    raise RuntimeError(f"publish_delta: tree {cur} on the path to {rel} unreadable")
+                parsed[key] = _parse_tree_entries(obj[1]) if obj[0] == "tree" else None
+            entries = parsed[key]
+            entry = entries.get(name) if entries else None
+            if entry is None:
+                return None
+            if i == len(parts) - 1:
+                return entry
+            if entry[0] != _GIT_TREE_MODE:
+                return None
+            cur = entry[1]
+        return None
+
+    return lookup
+
+
 def _plan_round_for_root(
     repo_root: Path,
     targets: "Sequence[ResolvedTarget]",
@@ -14919,9 +15151,8 @@ def _source_declared_modes(
     root's path inside it are resolved once per root, never per entry."""
     from coordinator_core.git.git_dir import resolve_git_common_dir  # noqa: PLC0415
     from coordinator_core.git.git_state import read_commit  # noqa: PLC0415
-    from percolate.publish_delta import _lookup  # type: ignore[import-not-found]  # noqa: PLC0415
-
     _bootstrap_engine()
+    _lookup = _cached_tree_lookup()
     maps: "dict[str, dict[str, Path]]" = {}
     trees: "dict[str, Optional[tuple[Path, str, Path]]]" = {}
     root_tops: "dict[Path, Optional[tuple[str, str]]]" = {}
@@ -15321,6 +15552,7 @@ def _ignore_reaped_dest_rels(
         if head_paths is None and dest_tree is None:
             return frozenset()
 
+        dest_lookup = _cached_tree_lookup()
         reaped: "set[str]" = set()
         stack = [("", root_entry[1])]
         while stack:
@@ -15347,7 +15579,7 @@ def _ignore_reaped_dest_rels(
                 if head_paths is not None:
                     tracked = dest_rel in head_paths
                 else:
-                    found = _lookup(dest_common, dest_tree, dest_rel)
+                    found = dest_lookup(dest_common, dest_tree, dest_rel)
                     tracked = found is not None and found[0] != _GIT_TREE_MODE
                 if tracked:
                     reaped.add(dest_rel)
@@ -16893,7 +17125,8 @@ def _main(argv: Optional[List[str]] = None) -> int:
     # end-of-round "unattributed remainder" this chunk prints covers
     # everything `main()` itself does, not just the row loop.
     _round_wall_start = time.perf_counter()
-    round_timings: "List[tuple[str, str, float]]" = []
+    _phase_accounting().get_account()
+    round_timings: "List[tuple]" = []
 
     # Consume (pop, not just read) the inherited-
     # lock-roots token here, once, at the very top of `main()`, so it cannot

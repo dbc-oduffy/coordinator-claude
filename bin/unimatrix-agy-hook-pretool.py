@@ -41,10 +41,8 @@ import socket
 import subprocess
 import sys
 import threading
-import time
 from pathlib import Path
 
-SPAWN_DEBOUNCE_S = 30.0
 HOOK_WALL_SECS = 1.0
 _hard_exit = os._exit
 HERE = Path(__file__).resolve().parent
@@ -345,39 +343,24 @@ def launcher_argv(conv, agy_pid):
     return argv + ["--agy-pid", str(agy_pid)] if agy_pid is not None else argv
 
 
-def launch_prefix(conv, agy_pid):
-    """Shell text that starts the launcher detached and silent, for sh. None on Windows: agy runs
-    PowerShell there, which rejects cmd syntax, so bootstrap_rewrite spawns the launcher itself."""
-    if os.name == "nt":
-        return None
+def _ps_quote(arg) -> str:
+    """One PowerShell single-quoted literal; an arg with whitespace carries inner double quotes because
+    Start-Process joins -ArgumentList items with bare spaces."""
+    if not arg or any(c.isspace() for c in arg):
+        arg = f'"{arg}"'
+    return "'" + arg.replace("'", "''") + "'"
+
+
+def launch_prefix(conv, agy_pid) -> tuple:
+    """(start text, separator) that starts the launcher detached and silent. The start runs inside the
+    run_command shell, so the launcher inherits that shell's ANTIGRAVITY_CSRF_TOKEN; the hook process
+    itself has none. sh on posix, a hidden Start-Process on Windows (agy runs PowerShell there)."""
     argv = launcher_argv(conv, agy_pid)
+    if os.name == "nt":
+        rest = ",".join(_ps_quote(a) for a in argv[1:])
+        exe = argv[0].replace("'", "''")
+        return f"Start-Process -WindowStyle Hidden -FilePath '{exe}' -ArgumentList {rest}", "; "
     return f"(nohup {' '.join(shlex.quote(a) for a in argv)} >/dev/null 2>&1 &)", "; "
-
-
-def spawn_launcher(conv, agy_pid):
-    """Windows: start the launcher detached from this hook, since the command line cannot carry the
-    start (agy's PowerShell rejects cmd syntax). The hook's own environment lacks the language-server
-    token; the launcher is idempotent, so a failed or tokenless start only leaves the leg pending.
-    A start stamp (STATE/<conv>.spawned) debounces it: each hook is a fresh process, so a start within
-    SPAWN_DEBOUNCE_S of the stamp is skipped. An unwritable stamp never blocks the start."""
-    stamp = state_dir() / f"{conv}.spawned"
-    try:
-        if time.time() - stamp.stat().st_mtime < SPAWN_DEBOUNCE_S:
-            return
-    except OSError:
-        pass
-    try:
-        stamp.parent.mkdir(parents=True, exist_ok=True)
-        stamp.touch()
-    except OSError:
-        pass
-    flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    try:
-        subprocess.Popen(launcher_argv(conv, agy_pid),
-                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                         close_fds=True, creationflags=flags)
-    except OSError:
-        pass
 
 
 _SIBLINGS = {}
@@ -403,7 +386,7 @@ def run_guard(raw, engine_root) -> dict:
     return answer if isinstance(answer, dict) and isinstance(answer.get("decision"), str) else dict(PASS)
 
 
-def bootstrap_rewrite(payload, agy_pid):
+def bootstrap_rewrite(payload, agy_pid) -> dict | None:
     """{"reason", "overwrite"} when a run_command needs the leg started, else None."""
     conv = payload.get("conversationId")
     call = payload.get("toolCall")
@@ -415,11 +398,7 @@ def bootstrap_rewrite(payload, agy_pid):
         return None
     if agy_print_mode(agy_pid):
         return None  # a headless run keeps no leg; a rewrite would break the user's permissions.allow match
-    prefix = launch_prefix(conv, agy_pid)
-    if prefix is None:
-        spawn_launcher(conv, agy_pid)
-        return None
-    start, sep = prefix
+    start, sep = launch_prefix(conv, agy_pid)
     return {"reason": "PM-installed unimatrix hook: also (re)starts the agy leg for Claude/Codex peer messaging in the background.",
             "overwrite": {"CommandLine": f"{start}{sep}{cmd}"}}
 
