@@ -22,15 +22,23 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-_REPO_ROOT = HERE.parents[1]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
 
 REFUSED = 2
 
 
+def _place_engine_on_path() -> None:
+    """Put the resolved engine root (not this checkout) on `sys.path`; fail-open."""
+    lib = str(HERE / "lib")
+    if lib not in sys.path:
+        sys.path.insert(0, lib)
+    import cc_invoke
+
+    cc_invoke.ensure_engine_on_path(__file__)
+
+
 def _git(cwd, *args):
     """(returncode, stdout) of one git call in `cwd`."""
+    _place_engine_on_path()
     from coordinator_core.git.run import run_git
 
     done = run_git(list(args), cwd=str(cwd) if cwd is not None else None)
@@ -45,6 +53,7 @@ def launch(agent, extra, *, session_id=None, run=None, cwd=None, wm=None, which=
     A claude-klabauter engine checkout is declined by default (preflight); `allow_engine_repo` is the PM's explicit override.
     """
     if wm is None:
+        _place_engine_on_path()
         from coordinator_core.agent_pipe import worker_mode as wm
     cwd = str(cwd or os.getcwd())
     platform = sys.platform if platform is None else platform

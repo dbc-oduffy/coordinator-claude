@@ -6,6 +6,7 @@ started, and never resumes `grok -p` or types into the TUI.
 Uses _unimatrix.proc.parent_pid (macOS libproc / Linux /proc / Windows Toolhelp) — zero `ps` spawns.
 """
 import asyncio
+import functools
 import json
 import os
 import re
@@ -258,7 +259,10 @@ def _default_tty_of(pid):
 
 REFUSE_USER_SUBMIT = "delivery failed: refusing to submit a peer message as the user"
 NOT_LISTENING = "delivery failed: grok session is not listening for agent mail"
-_MSG_ID = re.compile(r"[0-9a-f]{32}")
+@functools.lru_cache(maxsize=None)
+def _msg_id_pattern() -> "re.Pattern[str]":
+    """Message-id pattern, compiled on first use so import stays inert."""
+    return re.compile(r"[0-9a-f]{32}")
 
 
 def _resumable_path(home, session_id):
@@ -466,7 +470,7 @@ class AgentInbox:
                         break
                     data += chunk
                 token, _, msg_id = data.split(b"\n", 1)[0].decode().partition(" ")
-                if not secrets.compare_digest(token, self.token) or _MSG_ID.fullmatch(msg_id) is None:
+                if not secrets.compare_digest(token, self.token) or _msg_id_pattern().fullmatch(msg_id) is None:
                     conn.sendall(b"no\n")
                     return
                 path = self.root / "pending" / f"{msg_id}.json"

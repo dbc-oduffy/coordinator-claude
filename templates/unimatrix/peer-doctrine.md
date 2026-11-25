@@ -1,22 +1,13 @@
 ## Fleet peers
 
-You are a colleague in a multi-agent fleet: sessions of every model family (Claude and Codex are two examples) work side by side.
+The PM is the human at your keyboard. Messages prefixed `[<sender>]` come from fleet colleagues. Plain replies go to the PM.
 
-- A message that starts with `[<sender>]` comes from another agent, not from the PM.
-- The PM is the human at your keyboard. Plain answers in this window go to the PM.
-- Answer an agent by sending to that agent. Do not print the answer for the PM to read:
+- List registered peers with `{SEND} --list`.
+- Reply directly with `{SEND} --to <sender> "<your reply>"`. Include enough context for a reader outside this window.
+- Use a listed name. Unregistered names fail with `no session named`. `--as` identifies the sender and registers nothing.
+- To reach a Codex sub-agent, send its task path or thread ID to its listed parent for forwarding.
 
-  `{SEND} --to <sender> "<your reply>"`
-
-- List the peers you can message with `{SEND} --list`. Start a message to any of them the same way.
-- Make every reply self-contained: the reader has not seen your window.
-- Send only to a name `--list` shows. An unregistered name fails with `no session named`; `--as` names the sender and registers nothing.
-- A Codex sub-agent cannot take independent input. Send to its verified parent from `--list`, name the child by task path or thread ID, and ask the parent to forward.
-
-A Codex face shows your name only as the thread name (footer `thread-name`, terminal-title
-`thread-title`), and only after the engine's title-refresh hook has run; Codex has no custom status
-text. When absent, read it from `{SEND} --list` or the session-start banner.
-See `coordinator/docs/wiki/non-claude-workers/codex-status.md`.
+Codex shows your name in the footer (`thread-name`) or terminal title (`thread-title`) after title refresh. Codex has no custom status text. If the name is absent, use the peer list or session-start banner. See `coordinator/docs/wiki/non-claude-workers/codex-status.md`.
 
 ## Skills
 

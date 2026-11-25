@@ -40,7 +40,8 @@ exhaustive.
 - Each repo's own `CLAUDE.md` says what it owns. Read it before routing an ask there.
 - `claude agents --json` shows which sessions are live, and in which repo.
 - Doctrine and the coordinator plugin source live in `repos.doe_claude`. The control-plane
-  engine is authored in `repos.claude_klabauter` and ships as `repos.claude_klabauter`.
+  engine ships as `repos.claude_klabauter`; route engine asks to the EM of
+  its authoring checkout, which `machine-local keys` lists.
 
 ## Route every ask fast
 
@@ -75,7 +76,8 @@ the group-em skill's `references/multibox.md` § Placement
   which names the tracked set versus the git-ignored box-specific state.
   `.coordinator-local/` (outbox copies, ledger) is git-ignored here; a send needs no commit.
   `group-em-home prune` runs at handoff and quick-wrap.
-- Addresses, the turn-intent triage fields and the relay stamp: `gem-cockpit-contract.md`.
+- Addresses, the turn-intent triage fields and the relay stamp: the G-EM contract wiki under
+  `repos.doe_claude`'s `coordinator/docs/wiki/cross-repo-communication/`.
 
 ## Cross-repo authority
 
@@ -83,7 +85,7 @@ Name repos through `machine-local get repos.<key>`, never a path.
 
 1. **The G-EM authors no fixes in fleet repos.** At its altitude it lacks each repo's
    particulars and does not go Rambo. Work in a repo goes to that repo's EM: message a live
-   session, or start one (Cockpit, or headless `claude -p`), else memo it; a crash-recovery baton
+   session, or start one (the fleet's session app, or headless `claude -p`), else memo it; a crash-recovery baton
    takes only the start-a-session route, never a memo. Only when the PM asks the G-EM directly
    to do such work does it act in the repo, and `coordinator.feature.gem_cross_repo_commit`
    (unset reads on) then decides whether it may commit there: scoped pathspec commits only, no

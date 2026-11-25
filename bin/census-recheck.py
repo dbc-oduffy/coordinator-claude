@@ -71,8 +71,6 @@ from pathlib import Path
 
 import yaml
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-
 #: Bound by `_bootstrap()` so importing this file touches neither `sys.path` nor the engine.
 census = None
 no_console_creationflags = None
@@ -81,8 +79,12 @@ no_console_creationflags = None
 def _bootstrap() -> None:
     """Put the repo root on `sys.path` and bind the engine names the rest of the file reads."""
     global census, no_console_creationflags
-    if str(_REPO_ROOT) not in sys.path:
-        sys.path.insert(0, str(_REPO_ROOT))
+    lib = str(Path(__file__).resolve().parent / "lib")
+    if lib not in sys.path:
+        sys.path.insert(0, lib)
+    import cc_invoke
+
+    cc_invoke.ensure_engine_on_path(__file__)
     from coordinator_core.roadmap import census as _census
     from coordinator_core.win_portability import no_console_creationflags as _flags
 

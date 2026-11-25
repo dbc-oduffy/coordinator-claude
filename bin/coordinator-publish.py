@@ -69,6 +69,21 @@ def _invoking_clone_bin(own_bin: Path) -> Path | None:
 _ALLOW_ROLLBACK_FLAG = "--allow-source-rollback"
 
 
+def _engine_root() -> str:
+    """The resolved engine checkout (never this file's own tree); raises when no rung resolves."""
+    lib = str(Path(__file__).resolve().parent / "lib")
+    sys.path.insert(0, lib)
+    try:
+        import cc_invoke
+
+        return cc_invoke.resolve_engine_root(__file__)
+    finally:
+        try:
+            sys.path.remove(lib)
+        except ValueError:
+            pass
+
+
 def _parse_guard_args(argv: list[str]) -> argparse.Namespace:
     """The few `publish.py` arguments the regression guard reads. Value-taking flags are
     declared so a flag's value is never mistaken for the target."""
@@ -92,10 +107,11 @@ def _regression_refusal(argv: list[str], source_root: Path) -> str | None:
     if args.dry_run or (args.target and "klabauter" not in args.target):
         return None
     preloaded = set(sys.modules)
-    own_root = str(Path(__file__).resolve().parents[2])
-    # `sys.path[0]` is `coordinator/bin`; without this the import fails off PYTHONPATH and the guard goes silent.
-    sys.path.insert(0, own_root)
+    own_root = ""
     try:
+        # `sys.path[0]` is `coordinator/bin`; the resolved engine root is what makes the import work off PYTHONPATH.
+        own_root = _engine_root()
+        sys.path.insert(0, own_root)
         # Dynamic on purpose: a static import would make the allowlist's import walk derive this
         # driver as shippable to a mirror that withholds `coordinator_core`.
         _settings_home = importlib.import_module("coordinator_core._settings_home")
@@ -124,7 +140,7 @@ def _regression_refusal(argv: list[str], source_root: Path) -> str | None:
         try:
             sys.path.remove(own_root)
         except ValueError:
-            pass
+            pass  # includes own_root == "" (resolution failed before the insert)
         # The invoking clone's driver must import its own coordinator_core, not this tree's.
         for name in [m for m in sys.modules if m not in preloaded and m.split(".")[0] == "coordinator_core"]:
             del sys.modules[name]

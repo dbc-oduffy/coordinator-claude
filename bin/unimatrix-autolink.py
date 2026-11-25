@@ -29,16 +29,25 @@ Independently of any alias, a dead per-box `unimatrix-peer-router.py` is started
 `autolink-router.json`; a router holding its own lease, e.g. started by hand, counts as live).
 `UNIMATRIX_AUTOLINK_NO_ROUTER=1` turns that step off.
 
+Each link pass first replays what an absent host CLI deferred: `<settings home>/unimatrix/deferred-hosts.json`
+names hosts staged without their CLI; a host whose CLI is now on PATH gets its Codex hook trust or agy plugin
+install run once and its entry cleared (`replay_deferred_hosts`). No marker or no arrived CLI means no import of
+unimatrix-install and no spawn.
+
 When no alias is listed (or the registry is unreadable) it appends one reason line to the log and exits 0:
 a receive-only box reads "no unimatrix.far_boxes configured; no supervisors started". An alias with no
 existing key appends one line to the log and is skipped; other aliases still link. A held per-peer lock
 logs its skip. An unreachable far box appends one line to `<settings home>/unimatrix/autolink.log`.
 Stdout carries one line per alias that had supervisors started: `spawned bridge+inbox pair for <alias>` (or
-`spawned bridge supervisor for ...`); nothing is printed when nothing was started. A pass that raises prints one
+`spawned bridge supervisor for ...`); a pass that started nothing prints one `no supervisors spawned: <alias>
+(<reason>), ...` line unless every alias is parked or the pair is already live. A pair whose pids are alive but whose
+link-state has read down for STALE_LINK_SECONDS is asked to stop (never killed) and relinks on the next pass. A
+far-address (stable fallback) answer is never handed to the supervisors as an IP: they keep the logical peer, so mirror names carry the box id. A pass that raises prints one
 stderr line `autolink failed: <Type>: <msg>` (plus `detached`'s nice-0 note) and the exit status is always 0
 (a refused `restart` is 1): a session start must not fail on it.
 """
 import base64
+import calendar
 import fnmatch
 import hashlib
 import hmac
@@ -69,6 +78,9 @@ PULL_STAMP_NAME = "pull-sources-stamp.json"
 LOCK_STALE_SECONDS = 60
 STAMP_GLOB = "supervisor-*.json"
 STOP_WAIT_SECONDS = 15  # covers a roster step in flight (link probe 3s + far-address budget 8s) plus one poll slice
+STALE_LINK_SECONDS = 300  # a supervisor this old whose link-state still reads down is deaf, not recovering
+HOST_KEY_FAILURE = "host key verification failed"
+UNLINKED_PREFIX = "no supervisors spawned: "
 KEYS_PREFIX = "unimatrix.keys."
 SSH_DEFAULT_IDENTITIES = {"id_rsa", "id_dsa", "id_ecdsa", "id_ecdsa_sk", "id_ed25519", "id_ed25519_sk", "id_xmss"}
 SUPERVISORS = (("bridge", "unimatrix-roster.py"), ("inbox", "unimatrix-mirror-all.py"))
@@ -750,6 +762,7 @@ def link_peer(roster, alias, key, say, spawn=detached, probe_fn=probe, stable_fn
     sdir = state_dir(roster)
     rec_path = record_path(sdir, alias)
     hosts = {} if hosts is None else hosts
+    stable_address = False
     box = box_key(roster, alias, hosts)
     lock = sdir / f"autolink-{slug(box)}.lock"
     if not acquire_lock(lock):
@@ -799,6 +812,7 @@ def link_peer(roster, alias, key, say, spawn=detached, probe_fn=probe, stable_fn
                 note = "; ".join(n for n in (first_note, note) if n) or None
             if why:
                 remote, why = stable_fallback(roster, alias, key, why, probe_fn, stable_fn)
+                stable_address = not why
         liveness.note_probe(sdir, alias, not why, now)
         if why:
             say(f"far box {alias} unreachable: {why}" + (f" ({note})" if note else ""))
@@ -811,11 +825,15 @@ def link_peer(roster, alias, key, say, spawn=detached, probe_fn=probe, stable_fn
                 pull_fn(roster, remote, key)
             except Exception as ex:  # a refused or malformed peer snapshot never blocks the link
                 say(f"far box {alias}: membership pull skipped: {type(ex).__name__}: {str(ex)[:100]}")
+        supervised = remote  # the roster names mirrors by its --remote host: an address there labels them by IP
+        if stable_address and ipaddress_literal(supervised.rpartition("@")[2].strip("[]")):  # the box mux re-resolves the box id to a listed address itself
+            say(f"far box {alias}: answered at {supervised}; supervisors keep {alias} so mirror names carry the box id")
+            supervised = alias
         tunnel = roster.default_tunnel()
         for role, script in SUPERVISORS:
             if role not in missing:
                 continue
-            p = spawn(supervisor_cmd(script, sdir / f"{role}-{slug(alias)}.log", remote, key, tunnel,
+            p = spawn(supervisor_cmd(script, sdir / f"{role}-{slug(alias)}.log", supervised, key, tunnel,
                                       pinned_python(roster)))
             try:
                 stamp = roster.proc_start(p.pid)
@@ -827,7 +845,7 @@ def link_peer(roster, alias, key, say, spawn=detached, probe_fn=probe, stable_fn
             if stamp is not None:  # the reaper's evidence of a supervisor, kept after a record loses its pid
                 try:
                     roster.write_json_atomic(str(sdir / f"supervisor-{p.pid}.json"),
-                                             {"pid": p.pid, "procStart": stamp, "remote": remote, "role": role})
+                                             {"pid": p.pid, "procStart": stamp, "remote": supervised, "role": role})
                 except OSError:
                     pass
             roster.write_json_atomic(str(rec_path), rec)  # per spawn: a later failure never orphans this one
@@ -1081,6 +1099,21 @@ def _pids(rec):
     return {(rec.get(role) or {}).get("pid") for role, _ in SUPERVISORS} - {None}
 
 
+def _spelling_lock_held(sdir, paths) -> bool:
+    """True when a fresh per-link lock named by the `link_key` of any record in `paths` exists (never taken or removed here)."""
+    wanted = {Path(p) for p in paths}
+    for alias, path in record_files(sdir):
+        if Path(path) not in wanted:
+            continue
+        lock = Path(sdir) / f"autolink-{slug(link_key(alias))}.lock"
+        try:
+            if time.time() - os.path.getmtime(lock) < LOCK_STALE_SECONDS:
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def stop_duplicate_pairs(roster, sdir, say, kill=None, hosts=None):
     """Keep one live supervisor pair per `box_key`; stop every other live supervisor and drop its record.
 
@@ -1091,7 +1124,7 @@ def stop_duplicate_pairs(roster, sdir, say, kill=None, hosts=None):
         if len(paths) < 2:
             continue
         lock = Path(sdir) / f"autolink-{slug(key)}.lock"
-        if not acquire_lock(lock):  # a link_peer for this box is mid-spawn; the next start cleans up
+        if _spelling_lock_held(sdir, paths) or not acquire_lock(lock):  # a link is mid-spawn; the next start cleans up
             continue
         try:
             recs = [(p, read_record(p)) for p in paths]
@@ -1211,6 +1244,71 @@ def reap_unrecorded(roster, sdir, say, kill=None, hosts=None):
                 os.remove(lock)
             except OSError:
                 pass
+
+
+def _link_down_since(roster, remote) -> float | None:
+    """Epoch seconds `remote`'s link-state record has read down; None when up or absent, 0.0 when its stamp is unreadable."""
+    rec = read_record(roster.link_state_path(remote))
+    if rec.get("state") != "down":
+        return None
+    try:
+        return float(calendar.timegm(time.strptime(rec.get("since"), "%Y-%m-%dT%H:%M:%SZ")))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def stop_stale_supervisors(roster, sdir, say, now) -> list:
+    """Ask every record's live supervisors to exit when the link-state reads down past STALE_LINK_SECONDS; the aliases asked.
+
+    Stale means alive yet deaf: the youngest live supervisor of the record is older than the window and its
+    link-state has read down at least as long, so a pair just started is never judged before it could recover.
+    The ask is a stop request, never a kill; the next pass finds the pids gone and relinks."""
+    asked = []
+    for alias, path in record_files(sdir):
+        rec = read_record(path)
+        live = [(role, rec[role]) for role, _ in SUPERVISORS if supervisor_live(roster, rec.get(role) or {})]
+        if not live:
+            continue
+        down, youngest, remote = None, 0.0, alias
+        for role, entry in live:
+            stamp_path = Path(sdir) / f"supervisor-{entry['pid']}.json"
+            seen = read_record(stamp_path).get("remote")
+            since = _link_down_since(roster, seen if isinstance(seen, str) and seen else alias)
+            if since is not None and down is None:
+                down, remote = since, seen if isinstance(seen, str) and seen else alias
+            try:
+                youngest = max(youngest, os.path.getmtime(stamp_path))
+            except OSError:
+                youngest = max(youngest, os.path.getmtime(path))
+        if down is None or now - down < STALE_LINK_SECONDS or now - youngest < STALE_LINK_SECONDS:
+            continue
+        for role, entry in live:
+            if not roster.stop_request_path(entry["pid"]).exists():
+                roster.request_stop(entry["pid"], entry.get("procStart"), role, remote)
+        say(f"far box {alias}: supervisors alive but link {remote} down {int(now - down)}s; asked to stop, relinks next pass")
+        asked.append(alias)
+    return asked
+
+
+def stop_supervisors(roster, sdir, say) -> list:
+    """Ask every record's live supervisors to exit; the aliases asked.
+
+    A supervisor keeps the code and environment it started with, so an install that replaced the roster or
+    bridge code calls this and the next link pass relinks on the new code. The ask is a stop request, never a kill."""
+    asked = []
+    for alias, path in record_files(sdir):
+        rec = read_record(path)
+        for role, _ in SUPERVISORS:
+            entry = rec.get(role) or {}
+            if not supervisor_live(roster, entry) or roster.stop_request_path(entry["pid"]).exists():
+                continue
+            seen = read_record(Path(sdir) / f"supervisor-{entry['pid']}.json").get("remote")
+            roster.request_stop(entry["pid"], entry.get("procStart"), role, seen if isinstance(seen, str) and seen else alias)
+            if alias not in asked:
+                asked.append(alias)
+        if alias in asked:
+            say(f"far box {alias}: supervisors asked to stop on replaced code; they relink on the next pass")
+    return asked
 
 
 def pull_due(liveness, sdir, now):
@@ -1555,6 +1653,10 @@ def spawn_lines(summary) -> list:
             out.append(f"spawned {'+'.join(roles)} pair for {item['alias']}")
         elif roles:
             out.append(f"spawned {'+'.join(roles)} supervisor for {item['alias']}")
+    if not out:
+        unlinked = [f"{i['alias']} ({i['reason']})" for i in summary if i["reason"] and i["reason"] != "parked"]
+        if unlinked:
+            out.append(UNLINKED_PREFIX + ", ".join(unlinked))
     return out
 
 
@@ -1599,7 +1701,14 @@ def run(roster=None, boxes=None, spawn=detached, probe_fn=probe, key_fn=None, st
     except Exception as ex:  # orphan cleanup must not stop the links or fail the session
         say(f"orphan supervisor cleanup failed: {type(ex).__name__}: {str(ex)[:120]}")
     clock = time.time() if now is None else now
-    healthy = liveness.healthy(sdir, now) and not _epoch_moved(sdir, liveness)
+    try:  # a pair alive but deaf is asked to exit before the health short-circuit can pass it as live
+        stale = stop_stale_supervisors(roster, sdir, say, clock)
+    except Exception as ex:  # stale cleanup must not stop the links or fail the session
+        stale = []
+        say(f"stale supervisor check failed: {type(ex).__name__}: {str(ex)[:120]}")
+    for alias in stale:
+        summary.add(alias, [], "stale link; supervisors asked to stop")
+    healthy = liveness.healthy(sdir, now) and not _epoch_moved(sdir, liveness) and not stale
     if boxes is None and pull_due(liveness, sdir, clock):
         try:
             adopted = pull_new_epoch(roster, sdir, liveness, say, key_fn, agent_fn, pull_fn or pull_membership,
@@ -1648,7 +1757,7 @@ def run(roster=None, boxes=None, spawn=detached, probe_fn=probe, key_fn=None, st
             write_cache([])
         return summary
     write_cache(boxes)
-    if not explicit:
+    if snapshot_mode:  # the registry fallback is a transition list, not authority to retire a box's live pair
         try:
             retire_non_targets(roster, sdir, say, boxes, kill, hosts)
         except Exception as ex:  # retirement must not fail the session
@@ -1679,6 +1788,9 @@ def run(roster=None, boxes=None, spawn=detached, probe_fn=probe, key_fn=None, st
                 seen.add(key)
                 if any(pair_live(roster, read_record(p)) for p in groups.get(key, [])):
                     continue
+                if liveness.is_parked(sdir, alias):  # a PM-held park outranks ignore_backoff; only release ends it
+                    summary.add(alias, [], "parked", retry=False)
+                    continue
                 if not ignore_backoff and liveness.backoff_until(sdir, alias) > clock:
                     summary.add(alias, [], "probe backoff")
                     continue
@@ -1707,6 +1819,7 @@ def run(roster=None, boxes=None, spawn=detached, probe_fn=probe, key_fn=None, st
                 if not Path(key).is_file():
                     # A configured alias with no key is a misconfiguration worth one line, not silence.
                     say(f"far box {alias}: no Unimatrix-Zero key (looked for {key}); not linked")
+                    liveness.note_keyless(sdir, alias, clock)
                     summary.add(alias, [], "no relay key", retry=False)
                     continue
                 verdict = agent_fn(key)
@@ -1742,10 +1855,79 @@ def run(roster=None, boxes=None, spawn=detached, probe_fn=probe, key_fn=None, st
     return summary
 
 
+DEFERRED_HOSTS_FILE = "deferred-hosts.json"  # mirrors unimatrix-install.py DEFERRED_HOSTS_FILE; read here without importing it
+HOST_REPLAYS = {"codex-hook-trust": "codex", "agy-plugin-install": "agy"}
+_REPLAY_TRIED = set()
+
+
+def _deferred_marker(sdir) -> dict:
+    """{host: {"actions": [...]}} from `<sdir>/deferred-hosts.json`; {} when absent or unreadable."""
+    hosts = read_record(Path(sdir) / DEFERRED_HOSTS_FILE).get("hosts")
+    return {h: v for h, v in hosts.items() if isinstance(v, dict)} if isinstance(hosts, dict) else {}
+
+
+def _load_install() -> object:
+    spec = importlib.util.spec_from_file_location("_al_unimatrix_install_replay", HERE / "unimatrix-install.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def replay_deferred_hosts(roster, which=None, load_install=None, clone_bin=_clone_bin, say=print) -> list:
+    """Run the install work a host's absent CLI deferred, once its CLI is on PATH; returns the hosts cleared.
+
+    The common path (no marker, or no deferred CLI arrived) is one file read and one `which` per deferred
+    host, never an import of unimatrix-install or a spawn. A host is tried at most once per process (a
+    `--boot` run repeats link passes). Codex replays `trust_codex_hook`; agy replays the strict agy
+    enrollment with consent given, since the install that staged it already had the operator's consent. A
+    failure leaves the marker entry for the next login and prints one stderr line. Never raises."""
+    import shutil
+    which = which or shutil.which
+    sdir = state_dir(roster)
+    try:
+        marker = _deferred_marker(sdir)
+        arrived = {}
+        for host, entry in marker.items():
+            acts = [a for a in entry.get("actions", []) if HOST_REPLAYS.get(a) == host]
+            if acts and host not in _REPLAY_TRIED and which(host):
+                arrived[host] = acts
+        if not arrived:
+            return []
+        _REPLAY_TRIED.update(arrived)
+        mod = (load_install or _load_install)()
+    except Exception as ex:
+        print(f"autolink: deferred-host replay failed: {type(ex).__name__}: {str(ex)[:200]}", file=sys.stderr)
+        return []
+    cleared = []
+    for host, acts in arrived.items():
+        try:
+            if "codex-hook-trust" in acts:
+                ok, note = mod.trust_codex_hook(mod.codex_hooks_path(), dest_dir=sdir)
+            else:
+                bin_dir = clone_bin(_home(roster))
+                if bin_dir is None:
+                    raise RuntimeError("no klabauter clone resolves for the agy plugin install")
+                import io
+                buf = io.StringIO()
+                ok = mod.enroll_agy_runtime(bin_dir.parent.parent, consent=True, dest_dir=sdir, out=buf) == 0
+                note = (buf.getvalue().strip().splitlines() or ["agy enrollment refused"])[-1]
+            if not ok:
+                raise RuntimeError(note)
+            mod.record_deferred_hosts(sdir, [], [host])
+            cleared.append(host)
+            say(f"autolink: {host} CLI arrived; deferred install replayed ({note})")
+        except Exception as ex:
+            print(f"autolink: {host} deferred install replay failed, retried next login: "
+                  f"{type(ex).__name__}: {str(ex)[:200]}", file=sys.stderr)
+    return cleared
+
+
 def link_pass(out=print, **kw) -> LinkSummary | None:
     """One `run()` with its spawn lines printed; a raised failure is one stderr line. The summary, else None."""
     try:
-        refresh_installed_copies(kw.get("roster") or _roster())
+        roster = kw.get("roster") or _roster()
+        refresh_installed_copies(roster)
+        replay_deferred_hosts(roster, say=out)
         summary = run(**kw)
     except Exception as ex:
         print(f"autolink failed: {type(ex).__name__}: {str(ex)[:200]}", file=sys.stderr)
@@ -1775,19 +1957,40 @@ def cmd_boot(sleep=time.sleep, clock=time.monotonic, out=print) -> int:
     A pass that raises is retried like an unreachable box. Backoff is bypassed on every pass: a failure
     charged before the network came up must not make the next pass skip that box."""
     start = clock()
+    held = []
+
+    def collect(line) -> None:  # an unlinked-summary line is held: a later poll may still link, so only the last pass speaks
+        if line.startswith(UNLINKED_PREFIX):
+            held.append(line)
+        else:
+            out(line)
     while True:
-        summary = link_pass(out, ignore_backoff=True)
+        held.clear()
+        summary = link_pass(collect, ignore_backoff=True)
         if summary is not None and not summary.pending:
+            for line in held:
+                out(line)
             return 0
         left = BOOT_WINDOW_SECONDS - (clock() - start)
         if left <= 0:
+            for line in held:
+                out(line)
             return 0
         sleep(min(BOOT_POLL_SECONDS, left))
 
 
+def _box_keys(roster, name, hosts) -> set:
+    """Every identity a box name can carry: its `box_key` and its own host spelling.
+
+    Trap: a bare alias resolves through the ssh config (HostName may be an IP), while `user@host.local` keys on
+    its own host; matching on `box_key` alone misses one spelling of the same box."""
+    host = _host_key(str(name).strip().rpartition("@")[2])
+    return {k for k in (box_key(roster, name, hosts), host) if k}
+
+
 def _box_supervisors(roster, sdir, alias, hosts, alive) -> list:
     """[{pid, procStart, role, remote}] of every live supervisor serving `alias`'s box, records first, then stamps."""
-    box = box_key(roster, alias, hosts)
+    keys = _box_keys(roster, alias, hosts)
     found, seen = [], set()
 
     def add(entry, role, remote) -> None:
@@ -1796,24 +1999,76 @@ def _box_supervisors(roster, sdir, alias, hosts, alive) -> list:
             return
         seen.add(pid)
         found.append({"pid": pid, "procStart": entry.get("procStart"), "role": role or "supervisor", "remote": remote})
-    for path in group_records(roster, sdir, hosts).get(box, []):
-        rec = read_record(path)
-        for role, _ in SUPERVISORS:
-            add(rec.get(role) or {}, role, alias)
+    groups = group_records(roster, sdir, hosts)
+    for key in sorted(keys):
+        for path in groups.get(key, []):
+            rec = read_record(path)
+            for role, _ in SUPERVISORS:
+                add(rec.get(role) or {}, role, alias)
     for path in sorted(Path(sdir).glob(STAMP_GLOB)):
         stamp = read_record(path)
         remote = stamp.get("remote")
-        if isinstance(remote, str) and remote and box_key(roster, remote, hosts) == box:
+        if isinstance(remote, str) and remote and _box_keys(roster, remote, hosts) & keys:
             add(stamp, stamp.get("role") if stamp.get("role") in dict(SUPERVISORS) else None, remote)
     return found
 
 
+def _links_mid_spawn(sdir, own_lock) -> list:
+    """Fresh per-box link locks other than `own_lock`: each is a link_peer mid-spawn through the machine-wide router."""
+    held = []
+    for path in Path(sdir).glob("autolink-*.lock"):
+        if path.name in (Path(own_lock).name if own_lock else "", "autolink-router.lock"):
+            continue
+        try:
+            if time.time() - path.stat().st_mtime < LOCK_STALE_SECONDS:
+                held.append(path)
+        except OSError:
+            continue
+    return held
+
+
+def refresh_installed_copy(sdir, say, installer=None, own_lock=None, **kw) -> bool:
+    """Bring the installed Unimatrix copy in `sdir` level with this copy's files and restart a router that runs
+    other code (its faces go with it). False, after one line, when the refresh failed; True otherwise.
+    A router restart waits while another box's link is mid-spawn (the next roll finds the router stale and restarts it);
+    the file copy does not wait, since only this box's lock (held by the caller) guards the install.
+    A copy with no installer beside it has nothing to refresh."""
+    mid = _links_mid_spawn(sdir, own_lock)
+    deferred = []
+    if mid and "restart_router" not in kw:
+        def defer(dest, say_) -> None:
+            deferred.append(dest)
+            say_(f"restart-box: router restart deferred: link mid-spawn ({', '.join(p.name for p in mid)})")
+        kw["restart_router"] = defer
+    try:
+        if installer is None:
+            path = HERE / "unimatrix-install.py"
+            if not path.is_file():
+                return True
+            spec = importlib.util.spec_from_file_location("unimatrix_install_for_roll", path)
+            installer = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(installer)
+        done = installer.refresh_installed_copy(HERE, sdir, say, **kw)
+    except Exception as exc:  # noqa: BLE001 - any refusal (pipe capability, missing scripts, router restart) is one named line
+        say(f"restart-box: installed copy not refreshed: {type(exc).__name__}: {exc}; run unimatrix-install.py --install")
+        return False
+    if done["copied"]:
+        say(f"restart-box: refreshed {len(done['copied'])} installed file(s) in {sdir}")
+    if done["router"] is not None and not deferred:
+        say(f"restart-box: router restarted: {done['router'].get('stopped')} old pid {done['router'].get('old_pid')} "
+            f"new pid {done['router'].get('new_pid')}")
+    return True
+
+
 def cmd_restart_box(alias, wait=STOP_WAIT_SECONDS, link=link_peer, spawn=detached, pid_alive=None, sleep=time.sleep,
-                    say=print, roster=None) -> int:
+                    say=print, roster=None, refresh=None) -> int:
     """Hand a box's supervisors over by stop request: ask each live one to exit, wait, then start one per role.
 
-    Never kills: a supervisor that ignores the request fails the verb with no replacement started. Returns 0
-    only when the box ends with exactly one live supervisor per role."""
+    Under the box lock, first refreshes the installed Unimatrix copy from this copy and restarts a stale router;
+    a held lock refreshes and restarts nothing. Another box's fresh link lock defers the router restart to the next roll,
+    and the router restart itself serializes on autolink-router.lock. Never kills a supervisor: one that ignores the request fails the
+    verb with no replacement started. Returns 0 only when the refresh held and the box ends with exactly one
+    live supervisor per role."""
     roster = roster or _roster()
     sdir = state_dir(roster)
     sdir.mkdir(parents=True, exist_ok=True)
@@ -1837,7 +2092,11 @@ def cmd_restart_box(alias, wait=STOP_WAIT_SECONDS, link=link_peer, spawn=detache
     targets = []
     written = []  # only requests this call created: a request already pending belongs to a peer
     try:
+        refreshed = refresh(sdir, say) if refresh else refresh_installed_copy(sdir, say, own_lock=lock)
         targets = _box_supervisors(roster, sdir, alias, hosts, alive)
+        if not targets:
+            say(f"restart-box: no live supervisors found for {alias}; nothing stopped or started")
+            return 1
         for t in targets:
             if roster.stop_request_path(t["pid"]).exists():
                 continue
@@ -1872,7 +2131,27 @@ def cmd_restart_box(alias, wait=STOP_WAIT_SECONDS, link=link_peer, spawn=detache
                 os.remove(lock)
             except OSError:
                 pass
-    link(roster, alias, resolve_key(roster, alias), say, spawn=spawn)
+    started = link(roster, alias, resolve_key(roster, alias), say, spawn=spawn)
+    if not started and HOST_KEY_FAILURE in str(getattr(started, "reason", None) or "").lower():
+        say(f"restart-box: {alias}: host key verification failed; nothing spawned (re-pin the host key for {alias})")
+        return 1
+    live = _box_supervisors(roster, sdir, alias, hosts, alive)
+    recorded = read_record(record_path(sdir, alias))
+    extras = []
+    for role, _ in SUPERVISORS:
+        mine = [t for t in live if t["role"] == role]
+        keep = next((t for t in mine if t["pid"] == (recorded.get(role) or {}).get("pid")), mine[0] if mine else None)
+        extras += [t for t in mine if t is not keep]
+    for t in extras:  # one per role, never two: the unrecorded twin is asked to exit, not killed
+        if not roster.stop_request_path(t["pid"]).exists():
+            roster.request_stop(t["pid"], t["procStart"], t["role"], t["remote"])
+    for _ in range(max(1, round(wait / roster.STOP_POLL_SECONDS)) + 1 if extras else 0):
+        if not any(alive(t) for t in extras):
+            break
+        sleep(roster.STOP_POLL_SECONDS)
+    for t in extras:
+        if not alive(t):
+            roster.clear_stop(t["pid"])
     counts = {}
     bad = False
     final = _box_supervisors(roster, sdir, alias, hosts, alive)
@@ -1887,7 +2166,7 @@ def cmd_restart_box(alias, wait=STOP_WAIT_SECONDS, link=link_peer, spawn=detache
         if counts.get(role, 0) != 1:
             say(f"restart-box: {alias} has {counts.get(role, 0)} live {role} supervisors after handover")
             bad = True
-    if bad:
+    if bad or not refreshed:
         return 1
     say(f"restart-box: {alias} handed over, one live supervisor per role")
     return 0

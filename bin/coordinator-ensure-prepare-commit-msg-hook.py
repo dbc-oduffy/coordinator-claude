@@ -24,7 +24,6 @@ import sys
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_BIN_DIR, "lib")
-_REPO_ROOT = os.path.dirname(os.path.dirname(_BIN_DIR))
 
 _BOOTSTRAP_DONE = False
 
@@ -33,8 +32,11 @@ def _bootstrap_engine() -> None:
     global _BOOTSTRAP_DONE
     if _BOOTSTRAP_DONE:
         return
-    if _REPO_ROOT not in sys.path:
-        sys.path.insert(0, _REPO_ROOT)
+    if _LIB_DIR not in sys.path:
+        sys.path.insert(0, _LIB_DIR)
+    import cc_invoke
+
+    cc_invoke.ensure_engine_on_path(__file__)
     _BOOTSTRAP_DONE = True
 
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Unimatrix key passphrases: the 1Password source, the no-argv/no-disk feed, the encrypted mint and the agent load.
 
-The passphrase lives in a 1Password item `unimatrix-<alias>` (field `password`) in the vault named by the
+The passphrase lives in one 1Password item per box install, `unimatrix-<box>` (field `password`, `<box>` from
+`unimatrix-peer-contract.py :: local_box`), shared by every link key minted on the box, in the vault named by the
 machine-local key `unimatrix.passphrase_vault`. It is read with `op read` and reaches a consumer only through
 a pipe or memory: never argv, never a file, never the environment of any process but the askpass child (which
 receives the item reference, not the value).
@@ -133,13 +134,30 @@ def _vault(run):
     return val
 
 
-def item_name(alias):
-    return f"{ITEM_PREFIX}{alias}"
+_CONTRACT = []
 
 
-def op_ref(alias, run=subprocess.run):
-    """`op://<vault>/unimatrix-<alias>/password`; PassphraseSourceMissing naming the key when the vault is unset."""
-    return f"op://{_vault(run)}/{item_name(alias)}/password"
+def _local_box() -> str:
+    """This box's id from the sibling peer contract, loaded once from beside this file."""
+    if not _CONTRACT:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("unimatrix_passphrase_peer_contract",
+                                                      Path(__file__).resolve().parent / "unimatrix-peer-contract.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _CONTRACT.append(mod)
+    return _CONTRACT[0].local_box()
+
+
+def item_name() -> str:
+    """The box's one passphrase item title, `unimatrix-<local_box()>`; every link key on the box reads it."""
+    return f"{ITEM_PREFIX}{_local_box()}"
+
+
+def op_ref(alias=None, run=subprocess.run) -> str:
+    """`op://<vault>/unimatrix-<box>/password`; PassphraseSourceMissing naming the key when the vault is unset.
+    `alias` is kept for caller compatibility and no longer selects the item."""
+    return f"op://{_vault(run)}/{item_name()}/password"
 
 
 def state(run=subprocess.run):
@@ -168,9 +186,11 @@ def read_passphrase(ref, run=subprocess.run):
     return out
 
 
-def ensure_item(alias, run=subprocess.run):
-    """The ref of the alias's passphrase item, created with a generated password when absent."""
+def ensure_item(alias=None, run=subprocess.run) -> str:
+    """The ref of the box's shared passphrase item, created with a generated password when absent.
+    `alias` is kept for caller compatibility and no longer selects the item."""
     ref = op_ref(alias, run)
+    title = item_name()
     r = _op(["read", "--no-newline", ref], run)
     if r.returncode == 0:
         return ref
@@ -178,24 +198,13 @@ def ensure_item(alias, run=subprocess.run):
         raise OnePasswordLocked(f"1password_locked: unlock 1Password to create {ref}")
     if not any(m in _tail(r).lower() for m in _ABSENT_MARKERS):
         raise RuntimeError(f"op read {ref} failed: {_tail(r)}")
-    c = _op(["item", "create", "--category=password", f"--title={item_name(alias)}",
+    c = _op(["item", "create", "--category=password", f"--title={title}",
              f"--vault={_vault(run)}", "--generate-password=40,letters,digits"], run)
     if c.returncode:
         if _locked(c):
             raise OnePasswordLocked(f"1password_locked: unlock 1Password to create {ref}")
-        raise RuntimeError(f"op item create {item_name(alias)} failed: {_tail(c)}")
+        raise RuntimeError(f"op item create {title} failed: {_tail(c)}")
     return ref
-
-
-def delete_item(alias, run=subprocess.run):
-    """Remove the alias's passphrase item; an item already absent is success."""
-    r = _op(["item", "delete", item_name(alias), f"--vault={_vault(run)}"], run)
-    if r.returncode == 0:
-        return
-    if _locked(r):
-        raise OnePasswordLocked(f"1password_locked: unlock 1Password to delete {item_name(alias)}")
-    if not any(m in _tail(r).lower() for m in _ABSENT_MARKERS):
-        raise RuntimeError(f"op item delete {item_name(alias)} failed: {_tail(r)}")
 
 
 def askpass_supported(platform=None):
@@ -327,9 +336,9 @@ def _in_agent(pub_path, run):
     return r.returncode == 0 and public_fingerprint(pub_path) in (r.stdout or "")
 
 
-def ensure_agent(key, run=subprocess.run):
+def ensure_agent(key, run=subprocess.run) -> str:
     """Make a minted key usable by a BatchMode dial: 'unencrypted' (nothing to load), 'loaded', 'locked'
-    (1Password locked; wait) or 'missing' (no op CLI or vault key). The alias is the key file name less `unimatrix-`."""
+    (1Password locked; wait) or 'missing' (no op CLI or vault key). The passphrase is the box's shared item."""
     key = Path(key)
     if not is_encrypted(key):
         return "unencrypted"
@@ -339,9 +348,8 @@ def ensure_agent(key, run=subprocess.run):
             return "loaded"
     except (OSError, subprocess.SubprocessError):
         pass
-    alias = key.name[len(ITEM_PREFIX):] if key.name.startswith(ITEM_PREFIX) else key.name
     try:
-        ref = op_ref(alias, run)
+        ref = op_ref(run=run)
         passphrase = read_passphrase(ref, run)
     except OnePasswordLocked:
         return "locked"

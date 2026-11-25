@@ -135,6 +135,33 @@ def _request_server_dump(wait_secs: float = _DUMP_WAIT_SECS) -> bool:
     return acked
 
 
+def _stop_other_root_servers(others) -> int:
+    """Stop the pair under every root in `others` (`(pid, root)` from
+    `find_servers_under_other_roots`); exit code 0 when none survives, else `_EXIT_COULD_NOT_STOP`.
+
+    Identity: the listed pid matched the exact `coordinator_core/warm/server.py` command line
+    under that root. The root's breadcrumb is read as well: a live breadcrumb pid that is not
+    the listed pid is another server of that root and is kept, never signalled.
+    """
+    from coordinator_core.warm import breadcrumb
+
+    rc = _EXIT_OK
+    for root in sorted({r for _pid, r in others}):
+        listed = {pid for pid, r in others if r == root}
+        crumb = pair_stop._record_pid(breadcrumb.read_breadcrumb(Path(root)))
+        keep = frozenset({crumb[0]} - listed) if crumb is not None else frozenset()
+        identity = "breadcrumb" if crumb is not None and crumb[0] in listed else "command-line"
+        print(
+            f"  stopping warm pair from {root} (pids {sorted(listed)}, identity={identity})",
+            file=sys.stderr,
+        )
+        result = pair_stop.stop_warm_pair(Path(root), keep_pids=keep)
+        if not result.ok():
+            print(result.render_survivors(), file=sys.stderr)
+            rc = _EXIT_COULD_NOT_STOP
+    return rc
+
+
 def main(argv=None) -> int:
     _bootstrap_engine()
     parser = argparse.ArgumentParser(
@@ -143,7 +170,15 @@ def main(argv=None) -> int:
             "lives in. No arguments: the engine root is this clone."
         )
     )
-    parser.parse_args(argv)
+    parser.add_argument(
+        "--stop-other-roots",
+        action="store_true",
+        help=(
+            "Also stop warm servers running from any other root (a publish clone, a moved "
+            "tree), each identified by its exact server.py command line and its breadcrumb."
+        ),
+    )
+    args = parser.parse_args(argv)
 
     from coordinator_core.warm import settings
 
@@ -166,8 +201,20 @@ def main(argv=None) -> int:
             print("stopped", file=sys.stderr)
         else:
             print(f"no warm engine running for {_REPO_ROOT}", file=sys.stderr)
-            for pid, root in pair_stop.find_servers_under_other_roots(_REPO_ROOT):
+        others = (
+            pair_stop.find_servers_under_other_roots(_REPO_ROOT)
+            if args.stop_other_roots or not result.stopped
+            else []
+        )
+        if args.stop_other_roots and others:
+            for pid, root in others:
                 print(f"  warm server pid={pid} is running from {root}", file=sys.stderr)
+            return _stop_other_root_servers(others)
+        if not result.stopped:
+            for pid, root in others:
+                print(f"  warm server pid={pid} is running from {root}", file=sys.stderr)
+            if others:
+                print("  stop them: warm-engine-stop.py --stop-other-roots", file=sys.stderr)
         return _EXIT_OK
 
     print(result.render_survivors(), file=sys.stderr)

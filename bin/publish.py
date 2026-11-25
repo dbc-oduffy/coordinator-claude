@@ -126,6 +126,11 @@ GENERATES = []  # writes land only under a tempfile.TemporaryDirectory() synthet
 #: by `coordinator/bin/tests/test_publish_engine_stamp.py`.
 _ENGINE_STAMP_FILENAME = "_engine_stamp"
 
+#: Sibling record of the round's pinned source head (`sha:<head>`), written
+#: beside the stamp on every engine-row round. Pinned equal to
+#: `skew.ENGINE_SOURCE_HEAD_FILENAME` by `test_publish_engine_stamp.py`.
+_ENGINE_SOURCE_HEAD_FILENAME = "_engine_source_head"
+
 #: The plugin-payload row (hooks/, skills/, bin/, lib/ + INSTALL.md/commands/ at the tree root).
 #: Any dest this row feeds is graded ONCE over its ASSEMBLED mirror (union of every sibling row,
 #: `dispatch_end_of_run_plugin_payload_gate`) by `percolate.doc_path_refs.check_payload`, fail-closed: doc `lib/`/`bin/` refs exist,
@@ -5475,6 +5480,9 @@ def _seed_published_engine_pin(
     return pin
 
 
+_DIRTY_ADVISORY_MAX_PATHS = 20
+
+
 def dispatch_end_of_run_plugin_provenance_gate(
     repo_roots: "List[Path]",
     *,
@@ -5484,10 +5492,12 @@ def dispatch_end_of_run_plugin_provenance_gate(
     published_engine_pin: "Optional[Any]" = None,
 ) -> bool:
     """Once per dest: refuse a round for the plugin dest when any contributing source root has HEAD
-    ahead of its upstream, no upstream, or a dirty TRACKED file under a path a row's allowlist
-    publishes. The public plugin must match pushed source. Fail-closed, no override.
+    ahead of its upstream or no upstream. The public plugin must match pushed source. Fail-closed,
+    no override. A dirty TRACKED file under a published path never refuses (DR-390): the round
+    materialises every root from its pinned commit, so the edit does not ship; one advisory line on
+    `out` names those paths.
 
-    A root under `published_engine_pin.engine_toplevel` skips those three checks: the round reads
+    A root under `published_engine_pin.engine_toplevel` skips these checks: the round reads
     that root from the stamped commit, not its working tree, so its branch push/dirty state cannot
     reach the plugin. The reproducibility anchor moves from "claude-klabauter HEAD is pushed" to "the stamped
     sha was published in a klabauter commit". Every other root is checked as before."""
@@ -5502,6 +5512,7 @@ def dispatch_end_of_run_plugin_provenance_gate(
         if not any(r.name == _PLUGIN_PAYLOAD_ROW for r in rows):
             continue
         problems: "List[str]" = []
+        skipped_dirty: "List[str]" = []
         by_root = _plugin_row_pathspecs_by_root(rows)
         for root in sorted(by_root, key=str):
             if pin_top is not None and _path_is_under(Path(root).resolve(), pin_top):
@@ -5526,9 +5537,14 @@ def dispatch_end_of_run_plugin_provenance_gate(
             if st.returncode != 0:
                 problems.append(f"{root}: git status failed: {st.stderr.strip()}")
             elif dirty:
-                problems.append(f"{root}: dirty tracked file(s) under published paths: {dirty}. "
-                                f"Remedy: commit (and push) them.")
+                skipped_dirty.extend(f"{root}: {p}" for p in dirty)
         print(f"  Plugin-provenance gate: {len(by_root)} source root(s), {len(problems)} problem(s).", file=out)
+        if skipped_dirty:
+            shown = skipped_dirty[:_DIRTY_ADVISORY_MAX_PATHS]
+            more = len(skipped_dirty) - len(shown)
+            tail = f"; ... and {more} more" if more else ""
+            print(f"  Advisory: {len(skipped_dirty)} dirty tracked file(s) under published paths do not "
+                  f"ship (the round reads the pushed commit): {'; '.join(shown)}{tail}", file=out)
         if problems:
             print(f"  Error: {_PUBLISH_REPRODUCIBLE_TRIPWIRE}: refusing the {_PLUGIN_PAYLOAD_ROW} round; "
                   f"the public plugin must match pushed source:", file=err)
@@ -6430,6 +6446,82 @@ def check_version_consistency(
     return True
 
 
+_VERSION_SURFACE_LINE_RE = re.compile(
+    r"^\s*(plugin\.json|marketplace\.json|CHANGELOG \(latest\))\s*:\s*(\S+)", re.MULTILINE
+)
+
+
+def _version_tuple(version: str) -> "Optional[tuple[int, ...]]":
+    try:
+        return tuple(int(part) for part in version.split("."))
+    except ValueError:
+        return None
+
+
+def describe_version_disagreement(gate_text: str) -> str:
+    """Names each surface that differs from plugin.json (the SSOT) in the version gate's
+    report, as `<surface> <ver> lags|is ahead of|differs from plugin.json <ver>`. Empty when
+    the text carries no per-surface lines."""
+    found = {surface: ver for surface, ver in _VERSION_SURFACE_LINE_RE.findall(gate_text)}
+    ssot = found.get("plugin.json")
+    if not ssot:
+        return ""
+    ssot_key = _version_tuple(ssot)
+    parts: "List[str]" = []
+    for surface, ver in found.items():
+        if surface == "plugin.json" or ver == ssot:
+            continue
+        key = _version_tuple(ver)
+        if key is None or ssot_key is None or key == ssot_key:
+            relation = "differs from"
+        else:
+            relation = "lags" if key < ssot_key else "is ahead of"
+        parts.append(f"{surface} {ver} {relation} plugin.json {ssot}")
+    return "; ".join(parts)
+
+
+def preflight_version_surfaces(
+    targets: "Sequence[ResolvedTarget]",
+    setup_dir: Path,
+    round_pinned_shas: "dict[str, str]",
+    shadow_sink: "List[Path]",
+    *,
+    err: IO[str] = sys.stderr,
+) -> Optional[str]:
+    """Runs `check_version_consistency` once per distinct committed source tree of `targets`,
+    before any row syncs. Returns the refusal text naming the lagging surface, or None when
+    every tree agrees (or cannot be materialized: the row's own gates report that).
+    Shadows it materialized are appended to `shadow_sink` for the caller to clean."""
+    coordinator_bin = coordinator_bin_default(setup_dir.parent)
+    cache_before = set(_MATERIALIZED_REF_CACHE.values())
+    seen: "set[Path]" = set()
+    refusal: Optional[str] = None
+    for target in targets:
+        root = target.source_dir
+        try:
+            sha = _round_pin_source_sha(root, round_pinned_shas, out=io.StringIO(), late=True)
+            shadow = _git_materialize_ref(root, ref=sha, withheld=_WITHHELD_PATHS if _withholds_root(root) else None)
+        except GitMaterializeError:
+            continue
+        if shadow in seen:
+            continue
+        seen.add(shadow)
+        gate_out, gate_err = io.StringIO(), io.StringIO()
+        if check_version_consistency(shadow, coordinator_bin, target.name, out=gate_out, err=gate_err):
+            continue
+        gate_text = gate_out.getvalue() + gate_err.getvalue()
+        print(gate_text, end="", file=err)
+        detail = describe_version_disagreement(gate_text) or "see the gate report above"
+        refusal = (
+            f"version surfaces disagree in the {target.name} source tree: {detail}. "
+            "Round refused before any row synced; no destination was touched. "
+            "Bring the lagging surface level with plugin.json (docs/wiki/versioning-convention.md)."
+        )
+        break
+    shadow_sink.extend(path for path in dict.fromkeys(_MATERIALIZED_REF_CACHE.values()) if path not in cache_before)
+    return refusal
+
+
 # ---------------------------------------------------------------------------
 # Machine-slug net — port of `setup/publish.sh`. WARN only, never
 # fatal, never causes a skip.
@@ -7222,6 +7314,10 @@ def run_pre_sync_gates(
             stamp_path = Path(restricted_tmp_src) / _ENGINE_STAMP_FILENAME
             stamp_path.write_text(f"sha:{stamp_sha}\n", encoding="utf-8", newline="\n")
             print(f"  Engine build stamp: {_ENGINE_STAMP_FILENAME} = sha:{stamp_sha}", file=out)
+            if round_pinned_sha != "unpinned":  # a non-sha record would read back as the engine identity
+                (Path(restricted_tmp_src) / _ENGINE_SOURCE_HEAD_FILENAME).write_text(
+                    f"sha:{round_pinned_sha}\n", encoding="utf-8", newline="\n"
+                )
             # The stamp's SIBLING vintage file (`_engine_published_at`), written
             # into the same restricted tree, in the same row guard, at the same
             # point — `coordinator_core/percolate/round.py::stamp_engine_row`
@@ -14602,7 +14698,7 @@ class _RoundGateResult:
 
 
 #: Stamp and door artifacts the round derives: they ride a commit only when something else survives.
-_ROUND_DERIVED_BASENAMES = frozenset({_ENGINE_STAMP_FILENAME, "_engine_published_at"})
+_ROUND_DERIVED_BASENAMES = frozenset({_ENGINE_STAMP_FILENAME, _ENGINE_SOURCE_HEAD_FILENAME, "_engine_published_at"})
 _DOOR_DIR_REL = "coordinator_core/warm/door"
 _DOOR_ARTIFACT_RELS = (f"{_DOOR_DIR_REL}/door.exe", f"{_DOOR_DIR_REL}/door.exe.provenance.json")
 _DOOR_INPUT_RELS = tuple(
@@ -14992,6 +15088,8 @@ def _engine_row_derived_writes(
     stamp = _round_engine_stamp(engine_target, round_pinned_shas)
     scratch.mkdir(parents=True, exist_ok=True)
     (scratch / _ENGINE_STAMP_FILENAME).write_text(f"{stamp}\n", encoding="utf-8", newline="\n")
+    pin = _round_pin_source_sha(engine_target.source_dir, round_pinned_shas, out=io.StringIO(), late=True)
+    (scratch / _ENGINE_SOURCE_HEAD_FILENAME).write_text(f"sha:{pin}\n", encoding="utf-8", newline="\n")
     _emit_engine_row_published_at(scratch)
     out: "dict[str, Path]" = {}
     for name in _ROUND_DERIVED_BASENAMES:
@@ -17318,6 +17416,20 @@ def _main(argv: Optional[List[str]] = None) -> int:
                     "failure) when its own gates run.",
                     file=sys.stderr,
                 )
+
+    _preflight_shadows: "List[Path]" = []
+    _version_refusal = preflight_version_surfaces(
+        [parsed_rows[r] for r in rows if not requested_names or parsed_rows[r].name in requested_names],
+        setup_dir,
+        round_pinned_shas,
+        _preflight_shadows,
+        err=sys.stderr,
+    )
+    if _version_refusal is not None:
+        _cleanup_shadow_roots(tuple(_preflight_shadows))
+        print(f"[publish.py] FAIL: {_version_refusal}", file=sys.stderr)
+        return 1
+    all_shadow_roots.extend(_preflight_shadows)
 
     lock_repo_roots: "List[Path]" = []
     dry_run_dest_roots: "List[Path]" = []

@@ -32,11 +32,13 @@ def strip_coordinator(argv: list[str]) -> list[str]:
 
 def _plan_flags(extra: list[str]) -> list[str]:
     """Plan-role model and effort, unless the caller already set them."""
-    root = Path(__file__).resolve().parents[2]
-    catalogue = root / "coordinator_core" / "agent_pipe" / "model_tiers.py"
-    if catalogue.is_file() and str(root) not in sys.path:
-        sys.path.insert(0, str(root))
     try:
+        lib = str(Path(__file__).resolve().parent / "lib")
+        if lib not in sys.path:
+            sys.path.insert(0, lib)
+        import cc_invoke
+
+        cc_invoke.ensure_engine_on_path(__file__)
         from coordinator_core.agent_pipe.model_tiers import AGY_EM_EFFORT, model_for_role
     except Exception:
         return []

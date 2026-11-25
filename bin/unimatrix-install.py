@@ -144,7 +144,6 @@ VENDORED_SCRIPTS = (
 
 AUTOLINK_SCRIPT = "unimatrix-autolink.py"
 PASSPHRASE_SCRIPT = "unimatrix-passphrase.py"
-STAGING_SUFFIX = ".new"
 _SCRIPT_REF = re.compile(r"unimatrix-[a-z0-9-]+\.py")
 
 AGY_HOOK_KEY = "unimatrix-agy-leg"
@@ -167,11 +166,52 @@ GROK_HOOKS_FILE = "coordinator.json"
 # (coordinator_core/host_hooks/agy_adapter.py `_EDIT_TOOLS`); a tool missing here never reaches the guard.
 AGY_TOOL_MATCHER = ("run_command|write_file|write_to_file|edit_file|replace_file_content|"
                     "multi_replace_file_content|sed_file|notebook_edit")
-HOST_NAMES = ("claude", "codex", "agy", "grok")
 
 _BIN_DIR = Path(__file__).resolve().parent
 PLUGIN_ROOT = _BIN_DIR.parent
 SKILLS_ROOT = PLUGIN_ROOT / "skills"
+
+HOST_REGISTRY_REL = ("coordinator_core", "install", "host_registry.py")
+DEFERRED_HOSTS_FILE = "deferred-hosts.json"
+# Per-host replay the CLI's arrival owes: the steps that need the CLI and so are never run while it is absent.
+DEFERRED_ACTIONS = {"codex": ["codex-hook-trust"], "agy": ["agy-plugin-install"], "grok": []}
+
+
+class HostRegistryUnavailable(RuntimeError):
+    """host_registry.py is beside neither this script (lib/) nor the engine source tree."""
+
+
+def _load_host_registry() -> types.ModuleType:
+    """The one host declaration, loaded by file path: the copy installed beside this script (lib/), else the engine
+    source tree, else the resolved engine root (an installed plugin copy carries neither beside it).
+    HostRegistryUnavailable naming the paths tried when none loads; there is no fallback host list."""
+    tried = [_BIN_DIR / "lib" / HOST_REGISTRY_REL[-1], _BIN_DIR.parent.parent.joinpath(*HOST_REGISTRY_REL)]
+    for path in tried + [None]:
+        if path is None:
+            engine, _ = resolve_engine_root()
+            if not engine:
+                break
+            path = Path(engine).joinpath(*HOST_REGISTRY_REL)
+            tried.append(path)
+        if path.is_file():
+            spec = importlib.util.spec_from_file_location("unimatrix_host_registry", path)
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = mod  # dataclass resolution needs the module registered
+            try:
+                spec.loader.exec_module(mod)
+            except Exception:
+                sys.modules.pop(spec.name, None)
+                raise
+            return mod
+    raise HostRegistryUnavailable(f"host_registry.py not found; looked in {', '.join(str(p) for p in tried)}")
+
+
+def __getattr__(name) -> tuple:
+    """`HOST_NAMES` is the registry's ids, read at first use: import (--help) never needs the registry."""
+    if name == "HOST_NAMES":
+        return tuple(_load_host_registry().ids())
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 # Copied when present beside this installer; the peer doctrine names its installed path.
 OPTIONAL_SCRIPTS = ("unimatrix-send.py",)
@@ -301,7 +341,8 @@ ROUTER_RESTART_REFUSED_RC = 8
 
 
 def router_closure_digest(src_dir):
-    """sha256 over the sorted (name, bytes) of the router's script closure and lib/*.py in src_dir; None without the router script."""
+    """sha256 over the sorted (name, bytes) of the router's script closure and lib/*.py in src_dir; None without the
+    router script. The router records the same digest of its own directory as `codeDigest` in router.pid.json."""
     root = Path(src_dir)
     if not (root / ROUTER_SCRIPT).is_file():
         return None
@@ -314,6 +355,18 @@ def router_closure_digest(src_dir):
             continue
         h.update(name.encode("utf-8") + b"\0" + data + b"\0")
     return h.hexdigest()
+
+
+def router_runs_stale_code(dest):
+    """True when the live router's recorded `codeDigest` is absent or differs from the installed closure digest."""
+    want = router_closure_digest(dest)
+    if want is None:
+        return False
+    try:
+        rec = json.loads((Path(dest) / "router" / "router.pid.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return True
+    return not isinstance(rec, dict) or rec.get("codeDigest") != want
 
 
 def _installed_autolink(dest):
@@ -352,6 +405,19 @@ def restart_installed_router(dest, say):
         return restart(mod._roster(), Path(dest), say)
     finally:
         sys.dont_write_bytecode = keep
+
+
+def refresh_installed_copy(src_dir, dest, say, router_live=None, restart_router=None) -> dict:
+    """Copy the changed vendored scripts into `dest`, then restart a live router that runs code other than the
+    installed closure: {"copied": [paths], "router": restart result or None}. Unchanged files are untouched.
+    Raises what install_scripts or the router restart raises; the caller owns the refusal line."""
+    digest_before = router_closure_digest(dest)
+    copied = []
+    install_scripts(src_dir, dest, copied.append)
+    router = None
+    if (router_live or router_is_live)(dest) and (digest_before != router_closure_digest(dest) or router_runs_stale_code(dest)):
+        router = (restart_router or restart_installed_router)(dest, say) or {}
+    return {"copied": copied, "router": router}
 
 
 class PipeCapabilityRefused(Exception):
@@ -396,6 +462,10 @@ def install_scripts(src_dir, dest_dir, on_copy=None):
         if (Path(src_dir) / "lib" / name).is_file():
             _mkdir_0755(dest / "lib")
             _copy_if_changed(Path(src_dir) / "lib" / name, dest / "lib" / name, on_copy)
+    registry_src = Path(src_dir).parent.parent.joinpath(*HOST_REGISTRY_REL)
+    if registry_src.is_file():  # the one host declaration ships beside the scripts; _load_host_registry reads dest/lib first
+        _mkdir_0755(dest / "lib")
+        _copy_if_changed(registry_src, dest / "lib" / HOST_REGISTRY_REL[-1], on_copy)
     core_pkg = Path(src_dir) / "_unimatrix"
     if core_pkg.is_dir():
         for src_py in sorted(core_pkg.rglob("*.py")):
@@ -579,32 +649,23 @@ def _pub_body(pub_path):
     return fields[1]
 
 
-def _item_alias(priv):
-    """The 1Password item alias of a key file: its name less `unimatrix-` (the rule ensure_agent applies)."""
-    name = Path(priv).name
-    return name[len("unimatrix-"):] if name.startswith("unimatrix-") else name
-
-
 def _mint(priv, comment, run, unencrypted, remint, on_mint=None):
-    """Mint the key at `priv`: passphrase-encrypted with the 1Password item's passphrase unless `unencrypted`
-    (then the plain `-N ""` ssh-keygen mint). A `remint` writes the new key (sibling path) and its item (staging
-    title) first, replaces the superseded files, then deletes the superseded item and retitles the new one; a failure
-    before the replace leaves the superseded key and item untouched. PassphraseSourceMissing / OnePasswordLocked
-    propagate."""
+    """Mint the key at `priv`: passphrase-encrypted with the box's shared 1Password item (`unimatrix-<box>`, created
+    when absent, never per key and never deleted or retitled here) unless `unencrypted` (then the plain `-N ""`
+    ssh-keygen mint). A `remint` writes the new key to a sibling path first and replaces the superseded files only
+    after it exists; a failure before the replace leaves the superseded key untouched. PassphraseSourceMissing /
+    OnePasswordLocked propagate."""
     roster = _sibling("unimatrix-roster.py")
-    alias = _item_alias(priv)
     mod = _sibling(PASSPHRASE_SCRIPT)
-    stage = alias + STAGING_SUFFIX if remint and not unencrypted else alias
     target = Path(str(priv) + ".new") if remint else priv
     side = [target, Path(str(target) + ".pub")]
     if remint:
         for stale in side:
             stale.unlink(missing_ok=True)
     priv.parent.mkdir(parents=True, exist_ok=True)
-    passphrase = None
     try:
         if not unencrypted:
-            passphrase = mod.read_passphrase(mod.ensure_item(stage, run), run)
+            passphrase = mod.read_passphrase(mod.ensure_item(None, run), run)
             try:
                 mod.mint_key(target, comment, passphrase)
             except Exception as exc:
@@ -624,47 +685,20 @@ def _mint(priv, comment, run, unencrypted, remint, on_mint=None):
         if remint:
             for stale in side:
                 stale.unlink(missing_ok=True)
-            if not unencrypted:
-                try:
-                    mod.delete_item(stage, run)
-                except RuntimeError:
-                    pass
         raise
     if remint:
         for part in reversed(side):
             os.replace(part, priv if part == side[0] else Path(str(priv) + ".pub"))
-        try:
-            mod.delete_item(alias, run)
-        except mod.PassphraseSourceMissing:
-            if not unencrypted:
-                raise
-        except RuntimeError as exc:
-            if not unencrypted:
-                raise RuntimeError(f"the new key is in place but its passphrase item {mod.item_name(stage)} is not "
-                                   f"yet titled {mod.item_name(alias)} (the superseded item could not be deleted: "
-                                   f"{exc}); re-run --remint") from exc
-        if not unencrypted:
-            _retitle_item(mod, stage, alias, run)
     if not unencrypted and on_mint:
-        on_mint(mod.op_ref(alias, run))
-
-
-def _retitle_item(mod, stage, alias, run):
-    """Rename the staging passphrase item to the alias's title; the new key is already in place, so a failure
-    names the item that holds its passphrase."""
-    r = mod._op(["item", "edit", mod.item_name(stage), f"--vault={mod._vault(run)}",
-                 f"--title={mod.item_name(alias)}"], run)
-    if r.returncode:
-        raise RuntimeError(f"the new key is in place but its passphrase item {mod.item_name(stage)} could not be "
-                           f"renamed to {mod.item_name(alias)}: {mod._tail(r)}")
+        on_mint(mod.op_ref(None, run))
 
 
 def pair_key(alias, run=subprocess.run, unencrypted=False, remint=False, on_mint=None, adopt_only=False):
     """Return (private key path, public key body) for this box's pair with `alias`. Reads the key autolink's
     resolve_key finds when it is alias-specific and present; otherwise mints (or adopts an unrecorded file at)
     <settings home>/.secrets/ssh/unimatrix-<alias> and records unimatrix.keys.<alias>. Never overwrites a key
-    except under `remint`, which deletes the old pair and its 1Password item first. The mint is passphrase-encrypted
-    with the item's passphrase (`on_mint(ref)` receives the op reference) unless `unencrypted`.
+    except under `remint`, which replaces the old pair and keeps the box's shared 1Password item.
+    The mint is passphrase-encrypted with the item's passphrase (`on_mint(ref)` receives the op reference) unless `unencrypted`.
     `adopt_only` returns the found key and otherwise raises RuntimeError naming the alias: it never mints, never
     writes the machine-local record, and refuses `remint` (ValueError).
     RuntimeError when the alias reduces to nothing, the mint fails, or the machine-local record cannot be made;
@@ -741,8 +775,8 @@ FILE_KEY_NAME = "unimatrix-file"
 
 def file_key(run=subprocess.run, unencrypted=False, remint=False, on_mint=None):
     """(private key path, public key line, fingerprint) of this box's file-transfer key, minted at
-    <settings home>/.secrets/ssh/unimatrix-file when absent; never overwrites (bar `remint`, which deletes the old
-    pair and its 1Password item first) and never touches the relay key. The mint is passphrase-encrypted unless
+    <settings home>/.secrets/ssh/unimatrix-file when absent; never overwrites (bar `remint`, which replaces the old
+    pair and keeps the box's shared 1Password item) and never touches the relay key. The mint is passphrase-encrypted unless
     `unencrypted` (`on_mint(ref)` receives the op reference).
     RuntimeError when the mint fails or the minted key does not read back as ssh-ed25519;
     PassphraseSourceMissing / OnePasswordLocked (RuntimeError) when the passphrase source cannot be reached."""
@@ -1468,6 +1502,98 @@ from _unimatrix.install_toml import (  # noqa: E402, F401
 )
 
 
+def _tui_field_edit(text, value, field) -> str:
+    """`text` with global tui.<field> set to `value` (removed when None); every other byte is kept."""
+    scope = ()
+    tui_header = None
+    for start, end, chunk, parsed in _toml_chunks(text):
+        if chunk.lstrip().startswith("["):
+            scope = ()
+            branch = parsed
+            while isinstance(branch, dict) and len(branch) == 1:
+                key, branch = next(iter(branch.items()))
+                scope += (key,)
+            if scope == ("tui",):
+                tui_header = end
+            continue
+        if scope == ("tui",) and field in parsed:
+            replacement = "" if value is None else field + " = " + _toml_inline(value) + "\n"
+            return text[:start] + replacement + text[end:]
+        if not scope and isinstance(parsed.get("tui"), dict):
+            fields = dict(parsed["tui"])
+            inline = chunk.split("=", 1)[0].strip() in ("tui", '"tui"', "'tui'")
+            if field in fields or inline:
+                if value is None:
+                    fields.pop(field, None)
+                else:
+                    fields[field] = value
+                prefix = "tui = " if inline else "tui." + field + " = "
+                replacement = (prefix + _toml_inline(fields if inline else value) + "\n") if fields else ""
+                return text[:start] + replacement + text[end:]
+    if value is None:
+        return text
+    assignment = field + " = " + _toml_inline(value) + "\n"
+    return text[:tui_header] + assignment + text[tui_header:] if tui_header is not None else "tui." + assignment + text
+
+
+def _title_profile(current) -> list:
+    """Terminal-title entries the user listed stay in order; thread-name is appended only when absent."""
+    if current is None:
+        return list(_STATUS_DEFAULT)
+    if not isinstance(current, list) or not all(isinstance(item, str) for item in current):
+        raise ValueError("tui.terminal_title must be a string array")
+    return list(current) if "thread-name" in current else [*current, "thread-name"]
+
+
+def seed_codex_terminal_title(config_path, *, uninstall=False) -> str:
+    """Own only tui.terminal_title; ownership record and restore rule match seed_codex_status_line.
+    Returns 'updated', 'present', 'restored', 'retained-customized' or 'absent'."""
+    field = "terminal_title"
+    path = Path(config_path)
+    state_path = path.with_name(".coordinator-terminal-title.json")
+    text = path.read_text(encoding="utf-8") if path.exists() else ""
+    tui = tomllib.loads(text).get("tui", {})
+    if not isinstance(tui, dict):
+        raise ValueError("tui must be a table")
+    present = field in tui
+    current = tui.get(field)
+    if uninstall:
+        if not state_path.exists():
+            return "absent"
+        state = _footer_state(state_path)
+        if current != state["managed"]:
+            return "retained-customized"
+        replacement = _tui_field_edit(text, state["original"] if state["present"] else None, field)
+        tomllib.loads(replacement)
+        _footer_write(path, replacement)
+        state_path.unlink()
+        return "restored"
+    prior = None
+    if state_path.exists():
+        try:
+            prior = _footer_state(state_path)
+        except ValueError:
+            prior = None
+    base = prior["original"] if prior is not None and current == prior["managed"] else current
+    if prior is not None and current != prior["managed"] and isinstance(current, list):
+        seeded = set(prior["managed"]) - set(prior["original"] or []) - set(_STATUS_DEFAULT)
+        base = [item for item in current if item not in seeded]
+    wanted = _title_profile(base)
+    if wanted == current:
+        return "present"
+    replacement = _tui_field_edit(text, wanted, field)
+    if tomllib.loads(replacement).get("tui", {}).get(field) != wanted:
+        raise ValueError(f"terminal title edit did not address global tui.{field}")
+    state = _footer_state(state_path) if state_path.exists() else None
+    if not isinstance(state, dict) or state.get("version") != 1 or current != state.get("managed"):
+        state = {"version": 1, "present": present, "original": base}
+    state["managed"] = wanted
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _footer_write(state_path, json.dumps(state, ensure_ascii=False) + "\n")
+    _footer_write(path, replacement)
+    return "updated"
+
+
 def agy_settings_path():
     """agy's user settings file, where the `statusLine` command lives."""
     return Path.home() / ".gemini" / "antigravity-cli" / "settings.json"
@@ -1545,7 +1671,8 @@ def _on_path(names):
 
 def host_present(host):
     """True when `host` is present: codex and grok only when on PATH (a leftover home directory is not presence), agy
-    on PATH or its home directory; the one predicate gating every hook, status line, doctrine and rules write."""
+    on PATH or its home directory. A presence predicate only: an absent host is still staged (see main), and what
+    needs its CLI is deferred."""
     if host == "grok":
         return grok_present()
     if host == "codex":
@@ -1553,6 +1680,49 @@ def host_present(host):
     if host == "agy":
         return _on_path(("agy", "agy.exe", "agy.cmd")) or agy_hooks_path().parent.parent.is_dir()
     return True
+
+
+def deferred_hosts_path(dest) -> Path:
+    """The marker naming hosts staged while their CLI was absent: <dest>/deferred-hosts.json (dest is
+    <settings home>/unimatrix by default)."""
+    return Path(dest) / DEFERRED_HOSTS_FILE
+
+
+def read_deferred_hosts(dest) -> dict:
+    """{host: {"actions": [...]}} from the marker; {} when absent or unreadable."""
+    try:
+        data = json.loads(deferred_hosts_path(dest).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    hosts = data.get("hosts") if isinstance(data, dict) else None
+    return {h: v for h, v in hosts.items() if isinstance(v, dict)} if isinstance(hosts, dict) else {}
+
+
+def write_deferred_hosts(dest, hosts) -> str:
+    """Write the marker atomically (deleted when `hosts` is empty); returns 'written', 'removed' or 'absent'."""
+    path = deferred_hosts_path(dest)
+    if not hosts:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            return "absent"
+        return "removed"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + f".{os.getpid()}.tmp")
+    tmp.write_text(json.dumps({"version": 1, "hosts": hosts}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+    return "written"
+
+
+def record_deferred_hosts(dest, deferred, cleared=()) -> str:
+    """Add each host in `deferred` (with its DEFERRED_ACTIONS) to the marker and drop each in `cleared`;
+    entries for other hosts are kept."""
+    current = read_deferred_hosts(dest)
+    for h in cleared:
+        current.pop(h, None)
+    for h in deferred:
+        current[h] = {"actions": list(DEFERRED_ACTIONS.get(h, []))}
+    return write_deferred_hosts(dest, current)
 
 
 def _is_windowsapps(path):
@@ -2809,6 +2979,28 @@ def resolve_doctrine(plugin_root=None):
                         f"also searched beside {base}")
 
 
+def resolve_skills_root(plugin_root=None) -> tuple:
+    """Return (skills dir or None, detail): the coordinator skills tree, resolved on the rungs `resolve_doctrine` uses.
+
+    A named `plugin_root` is an explicit override and always yields `<plugin_root>/skills`. Otherwise the
+    DoE content-root pointer's `skills/` comes first, then `skills/` beside this install (including
+    `templates/`). On a miss the dir is None and `detail` names every candidate searched.
+    """
+    if plugin_root:
+        return Path(plugin_root) / "skills", f"--plugin-root {plugin_root}"
+    pointer, pointer_files = _content_root_pointer()
+    candidates = [Path(pointer) / "skills"] if pointer else []
+    base = Path(SKILLS_ROOT).parent
+    candidates += [base / "skills", base.parent / "skills", base.parent / "templates" / "skills",
+                   base / "templates" / "skills"]
+    for cand in candidates:
+        if cand.is_dir():
+            return cand, str(cand)
+    state = f"pointer value '{pointer}'" if pointer else "no pointer value"
+    return None, (f"{state}; pointer files read: {', '.join(pointer_files)}; "
+                  f"searched: {', '.join(str(c) for c in candidates)}")
+
+
 def doctrine_root(plugin_root=None):
     """The directory holding global-doctrine/, or None when neither the DoE root pointer nor this install carries it."""
     return resolve_doctrine(plugin_root)[0]
@@ -2979,7 +3171,7 @@ def enroll_codex_runtime(engine_root, *, consent=False, check=False, dest_dir=No
             return 7
         plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
         template = Path(plugin_root) / "templates" / "unimatrix" / "peer-doctrine.md" if plugin_root else None
-        peer_block = render_peer_doctrine(dest, template, Path(plugin_root) / "skills" if plugin_root else None)
+        peer_block = render_peer_doctrine(dest, template, resolve_skills_root(plugin_root)[0])
         if check:
             print("Codex runtime: native trust not probed (read-only)", file=out)
             return 0
@@ -2998,6 +3190,7 @@ def enroll_codex_runtime(engine_root, *, consent=False, check=False, dest_dir=No
             return 5
         footer = seed_codex_status_line(config)
         print(f"Codex runtime: status line {footer}", file=out)
+        print(f"Codex runtime: terminal title {seed_codex_terminal_title(config)}", file=out)
         doctrine = seed_peer_doctrine(codex_rules_path(), peer_block)
         print(f"Codex runtime: peer doctrine {doctrine}", file=out)
         rule = seed_file(codex_exec_rule_path(), render_codex_exec_rule(dest))
@@ -3005,7 +3198,7 @@ def enroll_codex_runtime(engine_root, *, consent=False, check=False, dest_dir=No
         missing = _seed_standing_doctrine(
             out, True, False, codex_rules_path(), None,
             Path.home() / ".agents" / "skills", None,
-            plugin_root, Path(plugin_root) / "skills" if plugin_root else SKILLS_ROOT)
+            plugin_root, resolve_skills_root(plugin_root)[0])
         if missing:
             print(f"Codex runtime: incomplete: {', '.join(missing)}", file=out)
             return 7
@@ -3179,7 +3372,7 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
                     "without a passphrase (for boxes with no 1Password); the default mint is passphrase-encrypted, except "
                     "--control-key, which is always unencrypted (the launch path has no agent)")
     ap.add_argument("--remint", action="store_true", help="with --pair, --file-key or --control-key: delete the existing private "
-                    "key, its .pub and its 1Password passphrase item, then mint anew")
+                    "key and its .pub, then mint anew under the box's shared 1Password passphrase item")
     ap.add_argument("--plugin-root", metavar="DIR", help="seed Codex and agy doctrine and skills from this plugin "
                     "root (doctrine in DIR.parent or DIR, skills in DIR/skills) instead of this script's own location")
     ap.add_argument("--out", metavar="DIR", help="write the agy plugin tree (translated plugin source) into DIR; "
@@ -3205,7 +3398,7 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
                 print(f"Runtime enrollment: unsupported host {host!r} (expected codex or agy)", file=out)
                 return 2
         return rc
-    skills_root = Path(args.plugin_root) / "skills" if args.plugin_root else SKILLS_ROOT
+    skills_root = resolve_skills_root(args.plugin_root)[0] or SKILLS_ROOT
     if args.openssh_receive:
         if sys.platform != "win32":
             print("openssh receive side: Windows only; nothing to do", file=out)
@@ -3299,9 +3492,14 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
     hosts = None
     if args.hosts is not None:
         hosts = [h.strip() for h in args.hosts.split(",") if h.strip()]
-        bad = [h for h in hosts if h not in HOST_NAMES]
+        try:
+            known = _load_host_registry().ids()
+        except HostRegistryUnavailable as exc:
+            print(f"REFUSE: --hosts cannot be checked: {exc}", file=out)
+            return 2
+        bad = [h for h in hosts if h not in known]
         if bad or not hosts:
-            print(f"REFUSE: --hosts takes {','.join(HOST_NAMES)}; got {args.hosts!r}", file=out)
+            print(f"REFUSE: --hosts takes {','.join(known)}; got {args.hosts!r}", file=out)
             return 2
     want_codex = hosts is None or "codex" in hosts
     want_agy = hosts is None or "agy" in hosts
@@ -3338,6 +3536,7 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
             steps.append(("agy peer doctrine", agy_rp, lambda: unseed_peer_doctrine(agy_rp)))
         if want_codex:
             steps.append(("codex status footer", codex_hp.with_name("config.toml"), lambda: seed_codex_status_line(codex_hp.with_name("config.toml"), uninstall=True)))
+            steps.append(("codex terminal title", codex_hp.with_name("config.toml"), lambda: seed_codex_terminal_title(codex_hp.with_name("config.toml"), uninstall=True)))
             steps.append(("codex hook", codex_hp, lambda: unseed_codex_hook(codex_hp, dest_dir)))
             steps.append(("codex skills", codex_sd, lambda: ",".join(_seed().unseed_codex_skills(codex_sd)) or "absent"))
             steps.append(("codex coordinator doctrine", codex_rp, lambda: _seed().unseed_block(
@@ -3386,13 +3585,12 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
         return 0
 
     want_codex, want_agy, want_grok = (hosts is not None and h in hosts for h in ("codex", "agy", "grok"))
+    # Every named host is staged; what needs its CLI (codex hook trust, agy plugin install) is recorded in
+    # deferred-hosts.json for the login replay.
     absent = [h for h, wanted in (("codex", want_codex), ("agy", want_agy), ("grok", want_grok))
               if wanted and not host_present(h)]
     for h in absent:
-        why = f"no {h} home" if h == "agy" else "a leftover home does not count"
-        print(f"{h} hook skipped: {h} not on PATH and {why}; no {h} status line, doctrine or rules written", file=out)
-    want_codex, want_agy, want_grok = (want_codex and "codex" not in absent, want_agy and "agy" not in absent,
-                                       want_grok and "grok" not in absent)
+        print(f"{h}: CLI not on PATH; staged, deferred until it appears", file=out)
     print(NATIVE_RC_NOTICE, file=out)
     alias_warning = pwsh_alias_remedy()
     if alias_warning:
@@ -3433,8 +3631,7 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
         if repointed:
             print(f"authorized_keys: {repointed} forced-command relay path(s) rewritten to the installed copy in {dest}", file=out)
     router_live = router_live or router_is_live
-    if router_live(dest) and (digest_before != router_closure_digest(dest)
-                              or not (dest / "router" / "router.pid.json").is_file()):
+    if router_live(dest) and (digest_before != router_closure_digest(dest) or router_runs_stale_code(dest)):
         try:
             res = (restart_router or restart_installed_router)(dest, lambda s: print(s, file=out)) or {}
             print(f"router restarted: {res.get('stopped')} old pid {res.get('old_pid')} new pid {res.get('new_pid')}", file=out)
@@ -3483,7 +3680,7 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
         print(f"session lifecycle DEGRADED: {lifecycle_note}; transport hooks remain installed", file=out)
         rc = 7
     verified = None
-    if want_codex and codex_trust is not None:
+    if want_codex and "codex" not in absent and codex_trust is not None:
         ok, note = codex_trust(codex_hp)
         if ok:
             print(f"codex hook trust: {note}", file=out)
@@ -3493,12 +3690,14 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
             verified, rc = False, 5
     missing = []
     if want_codex:
-        try:
-            config = codex_hp.with_name("config.toml")
-            print(f"codex status footer {seed_codex_status_line(config)} in {config}", file=out)
-        except (OSError, ValueError) as exc:
-            missing.append("codex status footer")
-            print(f"WARN: codex status footer not installed: {exc}", file=out)
+        config = codex_hp.with_name("config.toml")
+        for label, seed in (("codex status footer", seed_codex_status_line),
+                            ("codex terminal title", seed_codex_terminal_title)):
+            try:
+                print(f"{label} {seed(config)} in {config}", file=out)
+            except (OSError, ValueError) as exc:
+                missing.append(label)
+                print(f"WARN: {label} not installed: {exc}", file=out)
     for label, host, config, wanted in (("agy", "agy", agy_status, want_agy), ("grok", "grok", grok_status, want_grok)):
         if not wanted:
             continue
@@ -3554,10 +3753,16 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
             missing.append("codex send rule")
             print(f"WARN: codex send rule not installed: {exc}", file=out)
     missing += _seed_standing_doctrine(out, want_codex, want_agy, codex_rp, agy_rp, codex_sd, agy_sj,
-                                       args.plugin_root, skills_root)
+                                       args.plugin_root, None)
     if missing:
         print(f"PARTIAL INSTALL: not installed: {', '.join(missing)}", file=out)
         rc = rc or 7
+    arrived = [h for h, done in (("codex", want_codex and "codex" not in absent and verified),
+                                 ("grok", want_grok and "grok" not in absent)) if done]
+    try:
+        record_deferred_hosts(dest, absent, arrived)
+    except OSError as exc:
+        print(f"WARN: deferred-host marker not written: {exc}", file=out)
     pinned = record_python_pin(agent_dir)
     if pinned:
         print(f"unimatrix.python pinned: {pinned}", file=out)
@@ -3597,7 +3802,9 @@ def _seed_standing_doctrine(out, want_codex, want_agy, codex_rp, agy_rp, codex_s
     """
     seed = _seed()
     missing = []
-    skills_root = skills_root or SKILLS_ROOT
+    skills_detail = ""
+    if skills_root is None:
+        skills_root, skills_detail = resolve_skills_root(plugin_root)
     root, rung, detail = resolve_doctrine(plugin_root)
     for label, rp, wanted, cap in (("codex", codex_rp, want_codex, seed.CODEX_CAP_BYTES),
                                    ("agy", agy_rp, want_agy, seed.AGY_CAP_BYTES)):
@@ -3616,6 +3823,8 @@ def _seed_standing_doctrine(out, want_codex, want_agy, codex_rp, agy_rp, codex_s
             missing.append(f"{label} coordinator doctrine")
             print(f"WARN: {label} coordinator doctrine not installed: {exc}", file=out)
     try:
+        if skills_root is None and (want_codex or want_agy):
+            raise OSError(f"required skills source not found: {skills_detail}")
         if want_agy:
             print(f"agy skills {seed.seed_agy_skills(agy_sj, skills_root)} in {agy_sj}", file=out)
         if want_codex:

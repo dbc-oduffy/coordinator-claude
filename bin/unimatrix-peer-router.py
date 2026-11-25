@@ -139,8 +139,9 @@ def _contract():
 
 
 def _box_id_aliases(row) -> list:
-    """`<stem>.<box id>` for a far mirror whose label is not the box id (an address label such as
-    `name.192-168-0-192`), so `<name>.machine-a` reaches it. Empty for a row with no far markers or box."""
+    """Every `<stem>.<box alias>` that names a far mirror: the box id (`<name>.machine-a`), its `-lan` and
+    `.local` forms and the host spelled in the row's box fields (`.Machine-b.local`), so each roster alias
+    reaches the session the listing shows. Empty for a row with no far markers or box."""
     if not isinstance(row, dict) or not any(row.get(k) for k in ("unimatrixRemote", "macSocketPath", "unimatrixBox", "unimatrixFarName")):
         return []
     own = row.get("name")
@@ -155,8 +156,9 @@ def _box_id_aliases(row) -> list:
         if isinstance(value, str) and value.strip():
             boxid = _contract().box_id(value)
             if boxid and not _contract().is_ip_literal(boxid):
-                boxes.add(boxid)
-    return [f"{s}.{b}" for s in sorted(stems) for b in sorted(boxes)]
+                host = value.strip().rpartition("@")[2]
+                boxes |= {boxid, f"{boxid}-lan", f"{boxid}.local", host, host.partition(".")[0]}
+    return [f"{s}.{b}" for s in sorted(stems) for b in sorted(boxes) if b]
 
 
 def _transport():
@@ -1656,10 +1658,12 @@ class Router:
         """
         ready = self.peer_readiness() if ready is None else ready
         entries, backed = {}, set()
+        roster = _roster()
         try:
             files = os.listdir(self.sessions_dir)
         except FileNotFoundError:
             files = []
+        loaded = []
         for filename in files:
             if not filename.endswith(".json"):
                 continue
@@ -1668,10 +1672,16 @@ class Router:
                     entry = json.load(file)
             except (OSError, ValueError):
                 continue
-            name = entry.get("name") if isinstance(entry, dict) else None
+            if isinstance(entry, dict):
+                loaded.append(entry)
+        for entry in loaded:
+            name = entry.get("name")
             if (not isinstance(name, str) or name in self.peers or name in self.transport_sources
                     or entry.get("unimatrixTransport") or not isinstance(entry.get("pid"), int)
-                    or not _roster().pid_alive(entry["pid"]) or not self.external_codex_sendable(entry)):
+                    or not roster.pid_alive(entry["pid"]) or not self.external_codex_sendable(entry)):
+                continue
+            # resolve_send_target refuses a mirror the listing predicate hides; listing it would print a name --to cannot reach.
+            if (entry.get(roster.FAR_SOCKET_FIELD) or entry.get("unimatrixRemote")) and not roster.listed_row(entry, loaded):
                 continue
             if not _push_only_mirror(entry):
                 backed.add(name)
@@ -2221,7 +2231,28 @@ class Router:
         name, endpoint = matches.pop()
         return name if self.resolve_sender(name) == endpoint else ""
 
-    def resolve_sender(self, name, fallback=""):
+    def _listed_twin(self, row) -> dict | None:
+        """The one listed mirror of the same far session when `row` is an unlisted mirror of it, else None.
+
+        A far session reached through two ssh aliases of one box is mirrored twice and the listing shows
+        one; an address that lands on the hidden mirror reaches the session the listing shows."""
+        roster = _roster()
+        sock, remote = row.get(roster.FAR_SOCKET_FIELD), row.get("unimatrixRemote")
+        if not (sock and remote) or not row.get("messagingSocketPath"):
+            return None
+        rows = self._session_rows()
+        if roster.listed_row(row, rows):
+            return None
+        twins = [r for r in rows
+                 if r.get(roster.FAR_SOCKET_FIELD) == sock and r.get("unimatrixRemote")
+                 and roster.box_key(r["unimatrixRemote"]) == roster.box_key(remote)
+                 and r.get("messagingSocketPath") and r["messagingSocketPath"] != row["messagingSocketPath"]
+                 and r.get("sessionId") == row.get("sessionId") and roster.listed_row(r, rows)
+                 and isinstance(r.get("pid"), int) and roster.pid_alive(r["pid"])
+                 and self.external_codex_sendable(r) and not _far_alias_is_stale(r)]
+        return twins[0] if len(twins) == 1 else None
+
+    def resolve_sender(self, name, fallback="") -> str:
         """Current messaging endpoint of the live roster session called `name`, else `fallback`.
 
         Re-read on every reply, so a sender that restarted under a new pid/endpoint keeps its
@@ -2251,6 +2282,8 @@ class Router:
             ep, pid = e.get("messagingSocketPath"), e.get("pid")
             if not ep or not isinstance(pid, int) or not _roster().pid_alive(pid):
                 continue
+            if not _off_windows() and _transport().is_pipe(ep) and not _transport().endpoint_exists(ep):
+                continue  # a stale row's dead pipe must neither win nor make the live row ambiguous
             if not self.external_codex_sendable(e):
                 refused_identity = True
                 continue
@@ -2285,6 +2318,11 @@ class Router:
             named = ", ".join(sorted(f"{rows_by_ep[ep].get('name')}@{ep}" for ep in matches))
             self.last_refusal = f"ambiguous: {len(matches)} live sessions carry this name: {named}"
             return ""  # An exact name never beats a far alias: both are live carriers of the address.
+        if len(matches) == 1:
+            twin = self._listed_twin(rows_by_ep[next(iter(matches))])
+            if twin:
+                matches, far_eps = {twin["messagingSocketPath"]}, {twin["messagingSocketPath"]}
+                rows_by_ep[twin["messagingSocketPath"]] = twin
         self.last_resolved_far = bool(matches) and matches <= far_eps
         if matches:
             row = rows_by_ep[next(iter(matches))]

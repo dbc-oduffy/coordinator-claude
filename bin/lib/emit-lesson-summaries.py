@@ -39,9 +39,9 @@ def _no_console_kw() -> dict:
         lib_dir = str(Path(__file__).resolve().parent)
         if lib_dir not in sys.path:
             sys.path.insert(0, lib_dir)
-        from cc_invoke import place_engine_root_on_path
+        from cc_invoke import ensure_engine_on_path
 
-        place_engine_root_on_path(str(Path(__file__).resolve().parents[3]))
+        ensure_engine_on_path(__file__)
         from coordinator_core.win_portability import no_console_creationflags
 
         return no_console_creationflags()

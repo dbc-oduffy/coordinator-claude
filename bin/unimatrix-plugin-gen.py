@@ -168,6 +168,26 @@ def _map_model(value, cfg):
     return None, f"model {value!r} is not a known tier"
 
 
+def _map_agent_tools(head, src, plan) -> None:
+    """Rewrite `tools:` (inline list, comma string or block list) to agy native names; an unmapped name is dropped and reported, an emptied list drops the key."""
+    i, _ = _field(head, "tools")
+    if i is None:
+        return
+    end = i + 1
+    while end < len(head) and re.match(r"\s+\S|\s*-\s", head[end]):
+        end += 1
+    raw = " ".join([head[i].split(":", 1)[1]] + [ln.strip().lstrip("-") for ln in head[i + 1:end]])
+    names = [t.strip().strip("\"'") for t in raw.strip().strip("[]").replace(",", " ").split()]
+    mapped = []
+    for t in names:
+        native = plan.cfg["tools"].get(t)
+        if native is None:
+            plan.miss("agent-tool", src, f"tool {t!r} has no agy name; dropped")
+        elif native not in mapped:
+            mapped.append(native)
+    head[i:end] = [f"tools: [{', '.join(mapped)}]"] if mapped else []
+
+
 def _agents(plan, plugin_root) -> None:
     d = plugin_root / "agents"
     if not d.is_dir():
@@ -188,6 +208,7 @@ def _agents(plan, plugin_root) -> None:
                 plan.miss("agent-model", src, reason)
             else:
                 head[i] = f"model: {new}"
+        _map_agent_tools(head, src, plan)
         _ensure_description(head, body, _field(head, "name")[1] or Path(rel).stem)
         text = _join_frontmatter(head, body)
         plan.put(src, text.encode("utf-8"), "agent", src)

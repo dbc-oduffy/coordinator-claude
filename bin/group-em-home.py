@@ -154,7 +154,7 @@ def main(argv=None) -> int:
     ap.add_argument(
         "--refresh",
         action="store_true",
-        help=f"ensure: rewrite CLAUDE.md from the template; migrate: the same, only when a "
+        help=f"ensure: rewrite CLAUDE.md from the template; a copy matching no known template version is saved under .coordinator-local/diverged-home-CLAUDE first (reported replaced-diverged); migrate: the same, only when a "
         f"{_gem_home.LEGACY_DIRNAME} home moved",
     )
     args = ap.parse_args(argv)
@@ -164,7 +164,8 @@ def main(argv=None) -> int:
         if args.verb == "migrate":
             outcome = _gem_home.migrate_legacy_home()
             if outcome == "moved" and args.refresh:
-                home, seed = _gem_home.ensure_home_outcome(refresh=True)
+                report = _gem_home.ensure_home_report(refresh=True)
+                home, seed = report["home"], report["seed"]
             else:
                 home = _gem_home.resolve_home()
         elif args.verb == "ensure":

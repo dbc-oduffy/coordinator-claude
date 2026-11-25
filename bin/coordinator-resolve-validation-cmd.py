@@ -56,8 +56,6 @@ import os
 import shutil
 import sys
 
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 #: Every bin-shape name (besides `main`, handled separately below) a caller
 #: may reach for on this module before `_bootstrap_engine()` has run —
 #: `__getattr__` triggers a lazy bootstrap for any of these, matching
@@ -109,8 +107,12 @@ def _bootstrap_engine() -> None:
     workday-complete-step1-validate.py). Idempotent; safe to call more than
     once.
     """
-    if _REPO_ROOT not in sys.path:
-        sys.path.insert(0, _REPO_ROOT)
+    lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+    if lib not in sys.path:
+        sys.path.insert(0, lib)
+    import cc_invoke
+
+    cc_invoke.ensure_engine_on_path(__file__)
 
     from coordinator_core import resolve_validation_cmd as _engine
 

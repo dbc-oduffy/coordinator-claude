@@ -16,7 +16,10 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+from cc_invoke import require_colocated_engine_on_path  # noqa: E402
+
+require_colocated_engine_on_path(__file__)
 
 from coordinator_core.git.git_state import diff_commit_trees, head_sha, read_commit  # noqa: E402
 from coordinator_core.git.index_sync import IndexSyncRefused, sync_shared_index  # noqa: E402

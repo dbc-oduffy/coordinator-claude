@@ -401,11 +401,21 @@ def _launch_class(rc: int, out: str) -> int:
     return rc
 
 
+def _child_env(**extra: str) -> dict:
+    """Environment for a spawned child: UTF-8 console I/O so a cp1252 default never breaks a child's print."""
+    return dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8", **extra)
+
+
+def _proc_text(proc) -> str:
+    """Stripped stdout+stderr of a finished child; a None stream (no capture, killed child) reads as empty."""
+    return ((proc.stdout or "") + (proc.stderr or "")).strip()
+
+
 def run(argv: list[str], timeout: int = 300) -> tuple[int, str]:
     try:
         proc = subprocess.run(
             argv, capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=timeout, creationflags=_no_console(),
+            timeout=timeout, creationflags=_no_console(), env=_child_env(),
         )
     except OSError as exc:
         if getattr(exc, "winerror", None) == _WINERROR_CODE_INTEGRITY:
@@ -413,7 +423,7 @@ def run(argv: list[str], timeout: int = 300) -> tuple[int, str]:
         return SpawnFailure(127), f"{type(exc).__name__}: {exc}"
     except subprocess.TimeoutExpired as exc:
         return SpawnFailure(127), f"{type(exc).__name__}: {exc}"
-    out = (proc.stdout + proc.stderr).strip()
+    out = _proc_text(proc)
     return _launch_class(proc.returncode, out), out
 
 
@@ -745,11 +755,11 @@ def step_codex_runtime(ctx: Ctx) -> StepResult:
         proc = subprocess.run(
             [sys.executable, str(script), "--host", "codex", "--enroll-runtime"],
             stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8",
-            errors="replace", env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(plugin_root())),
+            errors="replace", env=_child_env(CLAUDE_PLUGIN_ROOT=str(plugin_root())),
             timeout=60, creationflags=_no_console())
     except (OSError, subprocess.TimeoutExpired) as exc:
         return _fail("load", str(exc), retryable=True)
-    detail = (proc.stdout + proc.stderr).strip()
+    detail = _proc_text(proc)
     return StepResult(RAN, detail) if proc.returncode == 0 else _fail("load", f"Codex enrollment exited {proc.returncode}: {detail}")
 
 
@@ -914,7 +924,7 @@ def step_substrate(ctx: Ctx) -> StepResult:
     ok, engine = _engine_root()
     if not ok:
         return _fail("artifact", "engine root does not resolve; substrate not deposited")
-    env = dict(os.environ, CLAUDE_PLUGIN_ROOT=str(plugin_root()), COORDINATOR_ENGINE_ROOT=engine)
+    env = _child_env(CLAUDE_PLUGIN_ROOT=str(plugin_root()), COORDINATOR_ENGINE_ROOT=engine)
     notes = []
     for name in ("install-substrate.py", "register-coordinator-mirror.py", "check-install-singularity.py"):
         script = Path(engine) / "coordinator" / "lib" / name
@@ -927,7 +937,7 @@ def step_substrate(ctx: Ctx) -> StepResult:
         except (OSError, subprocess.TimeoutExpired) as exc:
             return _fail("artifact", f"{name}: {exc}", retryable=True)
         if proc.returncode != 0:
-            return _fail("artifact", f"{name} exited {proc.returncode}: {(proc.stdout + proc.stderr).strip()[-300:]}",
+            return _fail("artifact", f"{name} exited {proc.returncode}: {_proc_text(proc)[-300:]}",
                          retryable=True)
         notes.append(name)
     return StepResult(RAN, "ran " + ", ".join(notes))
@@ -2061,7 +2071,28 @@ def answers_shape() -> dict:
     }
 
 
-HOSTS = ("claude", "grok")
+class HostRegistryUnavailable(RuntimeError):
+    """The engine's host registry cannot be loaded; the message names the engine root or file."""
+
+
+def plugin_hosts() -> tuple[str, ...]:
+    """Registry ids with plugin_host true, loaded by file path from the resolved engine root."""
+    ok, engine = _engine_root()
+    if not ok:
+        raise HostRegistryUnavailable("engine root unresolved: cannot read coordinator_core/install/host_registry.py")
+    path = Path(engine) / "coordinator_core" / "install" / "host_registry.py"
+    if not path.is_file():
+        raise HostRegistryUnavailable(f"host registry missing under engine root {engine}: {path}")
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_coordinator_host_registry", path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod  # dataclass resolution needs the module registered
+    try:
+        spec.loader.exec_module(mod)
+    except Exception as exc:
+        sys.modules.pop(spec.name, None)
+        raise HostRegistryUnavailable(f"host registry at {path} failed to load: {exc}") from exc
+    return tuple(mod.plugin_host_ids())
 
 
 def grok_plugin_registry() -> dict:
@@ -2097,6 +2128,46 @@ def _checkout_branch(root: Path) -> str | None:
     if head.startswith(ref):
         return head[len(ref):]
     return f"detached@{head[:7]}" if head else None
+
+
+def _head_sha(root: Path) -> str | None:
+    """Full commit sha of the checkout at `root` read from `.git` (no spawn): HEAD, else the ref it names in the
+    loose ref file or packed-refs, following a `.git` file and its commondir. None when unreadable."""
+    git = root / ".git"
+    try:
+        if git.is_file():
+            text = git.read_text(encoding="utf-8").strip()
+            if not text.startswith("gitdir:"):
+                return None
+            git = (root / text.partition(":")[2].strip()).resolve()
+        common = git
+        if (git / "commondir").is_file():
+            common = (git / (git / "commondir").read_text(encoding="utf-8").strip()).resolve()
+        head = (git / "HEAD").read_text(encoding="utf-8").strip()
+        if not head.startswith("ref: "):
+            return head or None
+        ref = head[len("ref: "):].strip()
+        for base in (git, common):
+            loose = base / ref
+            if loose.is_file():
+                return loose.read_text(encoding="utf-8").strip() or None
+        packed = common / "packed-refs"
+        if packed.is_file():
+            for line in packed.read_text(encoding="utf-8").splitlines():
+                parts = line.split()
+                if len(parts) == 2 and parts[1] == ref and not line.startswith(("#", "^")):
+                    return parts[0]
+    except (OSError, UnicodeDecodeError):
+        return None
+    return None
+
+
+SHARED_PROFILE_EFFECTS = [
+    "git performance defaults set in the shared git configuration",
+    "rule-class-register merge driver configured on registered repos",
+    "a dot-claude link created beside the dev root on Windows",
+]
+"""Shared-profile writes the engine refresh (scripts/setup.py) can make even on an already-current engine; listed by --plan before any apply. Hand-maintained mirror of setup.py's git-config, merge-driver and dot-claude-link steps: add an entry when setup.py gains another shared-profile write."""
 
 
 def engine_channel() -> dict:
@@ -2141,36 +2212,16 @@ def build_plan(permission_mode: str | None, hosts: tuple[str, ...] = ("claude",)
         env["host_plugins"] = {"grok": grok}
         if grok["present"] is not True:
             env["track_steps"] = ["grok_plugin_install", *env["track_steps"]]
-    channel_checkout = _registry_flat().get("repos.claude_klabauter")
-    channel_branch = None
-    if channel_checkout:
-        git_dir = Path(channel_checkout) / ".git"
-        try:
-            if git_dir.is_file():
-                git_dir = (Path(channel_checkout) / git_dir.read_text(encoding="utf-8").strip().removeprefix("gitdir: ")).resolve()
-            head = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
-            channel_branch = head.removeprefix("ref: refs/heads/") if head.startswith("ref: refs/heads/") else f"detached@{head[:7]}"
-        except OSError:
-            pass
     return {
         "backup": {**backup_block(_fresh_plan_id()),
                    "on_codex_runtime_enrol": [str(path) for _, path in _codex_backup_covers()]},
         "schema": SCHEMA,
         "orientation": ORIENTATION,
         "environment": env,
-        "engine_channel": {
-            "checkout": channel_checkout,
-            "checkout_branch": channel_branch,
-            "engine_target": env["engine_target"],
-            "governs": ("engine.target" if env["engine_target"] else
-                        "checkout_branch" if channel_branch else None),
-            "mismatch": bool(env["engine_target"] and channel_branch
-                             and env["engine_target"] != channel_branch),
-            "note": "engine.target governs routing when set; reported only, never changed by this plan",
-        },
         "answers_shape": answers_shape(),
         "registry_hygiene": registry_hygiene_report(),
         "engine_channel": engine_channel(),
+        "shared_profile_effects": SHARED_PROFILE_EFFECTS,
         "track_step_runners": track_step_runners(env["track_steps"], env["doe_box"]),
         "mode_policy": mode_policy(permission_mode),
         "decisions": [decision_json(d) for d in build_decisions(permission_mode)],
@@ -2209,12 +2260,12 @@ def record_concluded(results: list[dict], optional_ids: set[str], ctx: Ctx) -> d
     try:
         import importlib
         state = importlib.import_module("coordinator_core.ops.coordinator_setup_state")
-        rc, sha = run(["git", "-C", root, "rev-parse", "HEAD"], timeout=10)
+        sha = _head_sha(Path(root))
         receipt = state.SetupReceipt(
             phases_ran=tuple(r["id"] for r in results if r["status"] in (RAN, INHERITED)),
             phases_skipped=tuple((r["id"], r["detail"]) for r in results if r["status"] == SKIPPED),
             coordinator_version=_plugin_version(),
-            engine_ref=sha if rc == 0 and sha else None,
+            engine_ref=sha,
         )
         with contextlib.redirect_stdout(sys.stderr):  # the writer prints a status line; stdout is the JSON block
             rc = state.record_setup_concluded(receipt)
@@ -2573,13 +2624,23 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--format", choices=("json", "text"), default="json")
     ap.add_argument("--engine-root", help="engine checkout to register as repos.claude_klabauter (cold box)")
     ap.add_argument("--engine-target", choices=ENGINE_TARGETS, help="engine channel to register as engine.target")
-    ap.add_argument("--host", action="append", choices=HOSTS,
-                    help="host whose own plugin registry the plan probes (repeatable; claude is always probed)")
+    ap.add_argument("--host", action="append",
+                    help="host whose own plugin registry the plan probes (repeatable; claude is always probed); "
+                         "valid ids are the registry's plugin hosts")
     args = ap.parse_args(argv)
     # Registry discovery can import coordinator_core before any step runs.
     # A later path change cannot replace an already imported package.
     if own_root := _bundled_engine_root():
         sys.path.insert(0, str(own_root))
+    if args.host:
+        try:
+            valid = plugin_hosts()
+        except HostRegistryUnavailable as exc:
+            print(json.dumps({"error": f"--host: {exc}"}), file=sys.stderr)
+            return 2
+        bad = [h for h in args.host if h not in valid]
+        if bad:
+            ap.error(f"argument --host: invalid choice: {bad[0]!r} (choose from {', '.join(valid)})")
 
     raw = None
     if args.engine_root or args.engine_target:

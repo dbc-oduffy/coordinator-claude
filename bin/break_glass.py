@@ -52,7 +52,6 @@ from typing import Callable, List, Optional
 GENERATES = []  # writes only ~/.claude/settings.json, its .settings-last-good.*.json backups, and machine-local registry.local.toml — all outside this repo's own tracked tree
 
 _BIN_DIR = Path(__file__).resolve().parent
-_REPO_ROOT = _BIN_DIR.parent.parent  # coordinator/bin -> coordinator -> repo root
 
 _BOOTSTRAP_DONE = False
 
@@ -77,8 +76,15 @@ def _bootstrap_engine() -> None:
     global _BOOTSTRAP_DONE
     if _BOOTSTRAP_DONE:
         return
-    if str(_REPO_ROOT) not in sys.path:
-        sys.path.insert(0, str(_REPO_ROOT))
+    lib = str(_BIN_DIR / "lib")
+    if lib not in sys.path:
+        sys.path.insert(0, lib)
+    try:
+        import cc_invoke
+
+        cc_invoke.ensure_engine_on_path(__file__)
+    except Exception:
+        pass  # engine-less: each deferred coordinator_core import degrades to UNKNOWN
     _BOOTSTRAP_DONE = True
 
 STATUS_OK = "OK"

@@ -4,6 +4,10 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.32] — 2026-11-25
+
+- **Group EM home:** the home `CLAUDE.md` template reads the same in source and published installs, so a refresh no longer flags a published copy as diverged, and its engine line is accurate. Every earlier published version is recognised as unedited.
+
 ## [4.6.31] — 2026-11-25
 
 - **Agy:** generated agy agents carry Agy's native tool names, so their tool lists resolve on an Agy host.
