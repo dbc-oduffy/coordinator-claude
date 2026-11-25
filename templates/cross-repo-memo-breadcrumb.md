@@ -14,21 +14,22 @@ Confirm it is available with:
 ## Sending a memo — draft → compose → send (preferred; body-heavy memos)
 
     cross-repo-memo draft <topic> --to <receiver-em> --title "<one-line summary>"
-    # edit the staged draft at state/memo-outbox/<topic>.md
+    # edit the staged draft at .coordinator-local/memo-outbox/<topic>.md
     # (cross-repo-memo compose <topic> reprints the path; --open execs $EDITOR)
     cross-repo-memo send <topic>
 
 Other draft verbs: `list` (outbox drafts + age), `discard <topic>` (drop an unsent draft).
+`--kind` is one of `ask`, `consult`, `fyi`, `proposal`, `bug`, `notice`, `friction`.
 
 Write the body into the outbox path the CLI prints, never `%TEMP%` or a `tasks/` path.
 The CLI owns that buffer; a body staged anywhere else is not what `send` reads.
 
-`--summary` is capped at 120 characters and `draft` refuses an over-length summary, so
+`--summary` is capped at 240 characters and `draft` refuses an over-length summary, so
 the mistake is caught before the body is written; `send` enforces the same cap. Omit `--summary` and one is derived
 from the body.
 
 An empty outbox is the SENT state, not a failed send. `send` stamps the draft and parks
-it under `state/memo-outbox/sent/`, out of the way of the stale-draft nudge, so the
+it under `.coordinator-local/memo-outbox/sent/`, out of the way of the stale-draft nudge, so the
 topic is gone from the outbox listing afterwards either way. Verify a delivery against
 the receiver's inbox or archive, never against a surviving local draft — reasoning the
 other way once escalated a delivered, actioned memo to a PM as possibly never sent.

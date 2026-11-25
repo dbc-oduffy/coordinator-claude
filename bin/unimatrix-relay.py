@@ -149,7 +149,7 @@ CAPABILITIES = ["roster", "source", "specs", "capabilities", "send", "send-batch
                 "membership", "grant", "revoke", "keypin", "roster-mirrors", "freshness"]
 
 
-def parse_mode(original_command):
+def parse_mode(original_command) -> "tuple | None":
     """Map an SSH_ORIGINAL_COMMAND string to (mode, arg) or None when it is not allowed."""
     cmd = (original_command or "").split()
     if cmd == ["capabilities"]:
@@ -663,12 +663,15 @@ def _session_path(pid, expected_digest=None, expected_name_digest=None, expected
 #: The session the last `_session_path` resolved (pid, exported name, sessionId); send-* replies name it.
 _REACHED = {}
 
+#: The forced command's `--peer` box ({"box": ...}); every relay-in row names it as sender_box.
+_PEER = {}
+
 
 def deliveries_path():
     return settings_home() / "unimatrix" / "deliveries.jsonl"
 
 
-def record_delivery(row, now=None):
+def record_delivery(row, now=None) -> None:
     """Append one inbound outcome (delivered or refused; never message text) to deliveries.jsonl.
 
     Best effort: an unwritable record never fails or reorders a delivery."""
@@ -676,6 +679,8 @@ def record_delivery(row, now=None):
     stamp = time.time() if now is None else now
     entry = {"side": "relay-in", "at": stamp, **row}
     entry.setdefault("box", _own_box())
+    entry.setdefault("sender_box", _PEER.get("box"))
+    entry.setdefault("sender_name", None)
     try:
         path = deliveries_path()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -822,7 +827,7 @@ def send(pid):
     _write_line(path, sys.stdin.buffer.readline())
 
 
-def send_batch(pid, expected_digest=None, expected_name_digest=None, expected_session_id=None):
+def send_batch(pid, expected_digest=None, expected_name_digest=None, expected_session_id=None) -> None:
     """Deliver every stdin line to `pid`, replying one JSON result line per message line.
 
     A per-line fault (a blank line included, so replies stay index-aligned with the input) is
@@ -862,7 +867,7 @@ def receipts_path():
     return settings_home() / "unimatrix" / "receipts.jsonl"
 
 
-def record_receipt(session_id, line, now=None):
+def record_receipt(session_id, line, now=None, sender_box=None) -> str:
     """Append one receipt (session id, sha256 of the line sans newline; never the text) and return the digest.
 
     The row is one O_APPEND write, so racing relays lose no row except across a trim (a row appended
@@ -872,7 +877,8 @@ def record_receipt(session_id, line, now=None):
     import time
     stamp = time.time() if now is None else now
     digest = hashlib.sha256(line.rstrip(b"\n")).hexdigest()
-    row = {"session": session_id, "digest": digest, "at": stamp, "box": _own_box(), "ref": shown_ref(_REACHED.get("name")), "name": _REACHED.get("name"), "pid": _REACHED.get("pid"),
+    row = {"session": session_id, "digest": digest, "at": stamp, "box": _own_box(), "sender_box": sender_box or _PEER.get("box"),
+           "ref": shown_ref(_REACHED.get("name")), "name": _REACHED.get("name"), "pid": _REACHED.get("pid"),
            "ts": datetime.fromtimestamp(stamp, timezone.utc).astimezone().isoformat(timespec="seconds")}
     data = (json.dumps(row) + "\n").encode("utf-8")
     path = receipts_path()
@@ -886,6 +892,33 @@ def record_receipt(session_id, line, now=None):
     if size > 2 * RECEIPT_KEEP * len(data):
         _trim_receipts(path)
     return digest
+
+
+def record_inbound_receipt(entry, line, sender_remote, now=None) -> object:
+    """Receipt one frame the near mux/inbox client delivered into the local session `entry`; never raises.
+
+    The relay-in path receipts its own writes; a frame a mirror pushes in over the inbox client never
+    passes it. `entry` is the local session's registry entry (sessionId, name, pid), `sender_remote`
+    the far ssh alias (normalised to the sender's box id, the form `sender_box` carries). Returns the
+    digest, or None when the entry names no session or the row could not be written."""
+    try:
+        if not isinstance(entry, dict):
+            return None
+        if not _CONTRACT:
+            _CONTRACT.append(_load_sibling("unimatrix-peer-contract.py", "unimatrix_relay_peer_contract"))
+        name = entry.get("name") if isinstance(entry.get("name"), str) else None
+        session = entry.get("sessionId") or name
+        if not session:
+            return None
+        _REACHED.clear()
+        _REACHED.update(pid=entry.get("pid"), name=name, session=entry.get("sessionId"))
+        box = _CONTRACT[0].box_id(sender_remote) if sender_remote else None
+        return record_receipt(session, line if isinstance(line, bytes) else str(line).encode("utf-8"),
+                              now=now, sender_box=box)
+    except Exception:  # a failed receipt never fails a delivery that already happened
+        return None
+    finally:
+        _REACHED.clear()
 
 
 def _open_append(path):
@@ -924,7 +957,7 @@ def _trim_receipts(path):
             time.sleep(0.01)
 
 
-def receipts(session_id, since):
+def receipts(session_id, since) -> dict:
     """`receipts <id> <since>`: this box's receipt rows at or after epoch `since` for `id`.
 
     `id` is any identifier the roster prints for the session: its session id, its name, its shown
@@ -1068,7 +1101,7 @@ def release_on_sigterm():
         pass  # not the main thread
 
 
-def client_box(client):
+def client_box(client) -> "tuple[str | None, str | None]":
     """(box id, label) of the far box the authenticated ssh `client` address belongs to, or (None, None).
 
     Read from this box's own roster rows that name `client` as their far box; never from the pushed
@@ -2159,6 +2192,7 @@ def main() -> None:
         sys.exit("usage: roster | capabilities | specs | send <pid> | send-batch <pid> | send-to <pid> <digest> | send-named <pid> <digest> <name-digest> | send-session <pid> <digest> <name-digest> <session-id> | receipts <session-id|name|ref|pid> <since> | inbox <name> | inbox-mux | reply-inbox <name> | source | "
                  "grant <grantee> <note> <ttl> <repo> | revoke <grantee> | keypin <box_id> | freshness | membership get | membership put")
     mode, arg = parsed
+    _PEER["box"] = peer_arg(sys.argv[1:])
     if mode == "membership":
         membership = load_membership()
         if membership is None:

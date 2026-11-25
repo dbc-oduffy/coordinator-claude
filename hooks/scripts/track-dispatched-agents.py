@@ -728,16 +728,15 @@ def _write_subagent_start_record(payload: dict) -> None:
 
 
 def _rag_nudge_bridge_text(payload: dict) -> str:
-    """The tier-1 project-rag nudge for a subagent whose cwd carries `.project-rag`, else "".
+    """The code-intelligence push for a subagent: the project-rag nudge where `.project-rag` is present,
+    else, for a code-question agent, the install-detected tools; "" when nothing applies.
 
-    Text and presence gate both come from `_project_rag_nudge`. Informational only; every failure returns "".
+    Text and presence gate come from `_project_rag_nudge.push_text`. Informational only; every failure returns "".
     """
     try:
         import _project_rag_nudge
 
-        if not _project_rag_nudge.rag_present(payload.get("cwd")):
-            return ""
-        return _project_rag_nudge.nudge_text()
+        return _project_rag_nudge.push_text(payload.get("cwd"), payload.get("agent_type"))
     except Exception:
         return ""
 

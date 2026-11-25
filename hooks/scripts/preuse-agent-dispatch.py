@@ -1,6 +1,7 @@
-"""PreToolUse(Agent) fan-in dispatcher -- five guards behind one hooks.json
-Agent-matcher registration, one interpreter (`guard-agent-model-pin.py` and
-`guard-research-pipeline-dispatch.py` have no hooks.json entry of their own).
+"""PreToolUse(Agent) fan-in dispatcher -- seven guards behind one hooks.json
+Agent-matcher registration, one interpreter (`guard-agent-model-pin.py`,
+`guard-research-pipeline-dispatch.py` and `guard-rag-bypass-brief.py` have no hooks.json
+entry of their own; the last is warning-only and runs just before guard 4).
 
 Folds `block-dispatch-suite-invocation.py`, `block-unenumerated-agent-type.py`,
 and `enforce-agent-dispatch-mode.py` into ONE `python3` process on the
@@ -164,6 +165,7 @@ REGISTRY: Tuple[AgentGuard, ...] = (
     AgentGuard("guard_agent_model_pin", "guard-agent-model-pin.py"),
     AgentGuard("guard_research_pipeline_dispatch", "guard-research-pipeline-dispatch.py"),
     AgentGuard("block_unharvested_canvas_dispatch", "block-unharvested-canvas-dispatch.py"),
+    AgentGuard("guard_rag_bypass_brief", "guard-rag-bypass-brief.py"),
     AgentGuard("enforce_agent_dispatch_mode", "enforce-agent-dispatch-mode.py"),
 )
 

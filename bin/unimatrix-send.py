@@ -160,6 +160,12 @@ def _reached_note(resp):
     return f" (reached {reached} on {box})" if isinstance(box, str) and box else f" (reached {reached})"
 
 
+def _advisory_note(outcome) -> str:
+    """` [<advisory>]` when the relay's delivery row flagged the write as unconfirmed (reader had not drained), else ''."""
+    advisory = outcome.get("advisory")
+    return f" [{advisory}]" if isinstance(advisory, str) and advisory else ""
+
+
 def _age(seconds) -> str:
     """`45s`, `3m05s` or `1h02m` for a non-negative age in seconds."""
     s = int(max(seconds, 0))
@@ -343,7 +349,8 @@ def main(argv=None) -> int:
         _print_rows([(name, agents.get(name, {}).get("box", "-"), _yes_no(agents.get(name, {}).get("this_box")),
                       agents.get(name, {}).get("vendor", "-"),
                       "stale" if agents.get(name, {}).get("stale") is True
-                      else "ready" if name in peers else "session",
+                      else "ready" if name in peers
+                      else "mirror-only" if agents.get(name, {}).get("mirror_only") is True else "session",
                       _pending_cell(pend.get(name))) for name in reachable])
         print("Message any of these with SendMessage; ListAgents lists them too.")
     elif resp.get("held") is True:
@@ -364,8 +371,12 @@ def main(argv=None) -> int:
                   + (_route_note(outcome) if to_mirror else "") + f"; receiver enqueue: {enqueue_state(outcome)}",
                   file=sys.stderr)
             return 1
+        elif outcome.get("side") == "mirror-out":
+            print(f"mirrored, not delivered: {a.to}: the relay's mirror socket forwarded it onto the push channel; "
+                  "no session has confirmed reading it, so check the reply or resend")
         else:
-            print(f"sent to {a.to}" + _reached_note(resp) + (_route_note(outcome) if to_mirror else ""))
+            print(f"sent to {a.to}" + _reached_note(resp) + (_route_note(outcome) if to_mirror else "")
+                  + _advisory_note(outcome))
     else:
         print(f"unconfirmed: router gave no delivery receipt for {a.to}; the message may have been delivered, "
               "check before resending", file=sys.stderr)

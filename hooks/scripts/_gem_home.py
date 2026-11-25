@@ -25,6 +25,7 @@ LEGACY_KEY = "coordinator.general_work_home"
 DEFAULT_DIRNAME = "group-em"
 LEGACY_DIRNAME = "general-work"
 _TEMPLATE = Path(__file__).resolve().parent.parent.parent / "templates" / "group-em-home" / "home-CLAUDE.md"
+_SEED_DIR = _TEMPLATE.parent / "seed"
 
 
 class HomeRefused(Exception):
@@ -186,9 +187,10 @@ def _ensure_ignored(home: Path, entries: tuple[str, ...] = _IGNORED) -> None:
         path.write_text("\n".join([*lines, *missing]) + "\n", encoding="utf-8")
 
 
-def ensure_home(template: Path | None = None, refresh: bool = False) -> Path:
+def ensure_home(template: Path | None = None, refresh: bool = False, seed_dir: Path | None = None) -> Path:
     """Migrate a legacy home when safe, then create the home, `git init` it, add `state/`, ignore
-    `.coordinator-local/`, seed CLAUDE.md when absent (or on refresh)."""
+    `.coordinator-local/`, seed CLAUDE.md when absent (or on refresh), and seed the state tree
+    under `seed_dir` (default `templates/group-em-home/seed/`) write-when-absent."""
     migrate_legacy_home()
     home = resolve_home()
     home.mkdir(parents=True, exist_ok=True)
@@ -206,10 +208,94 @@ def ensure_home(template: Path | None = None, refresh: bool = False) -> Path:
     src = template or _TEMPLATE
     # A missing template skips seeding silently; templates/group-em-home/home-CLAUDE.md must ship.
     # Its non-CLAUDE.md name keeps the template outside the CLAUDE.md write guard.
-    # refresh redeploys the shipped template over a local edit; the template is the source of truth.
-    if src.is_file() and (refresh or not seed.exists()):
-        seed.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+    # refresh always lands the template: the install updates everything, and a local edit worth
+    # keeping is standardised into the template, never kept by hand on one box. A home matching
+    # no known version (template, last seeded, any KNOWN_VERSIONS line) is first saved under
+    # DIVERGED_DIR so its edits can be proposed for the template; nothing is lost.
+    if src.is_file():
+        text = src.read_text(encoding="utf-8")
+        last = home / LAST_SEEDED
+        if refresh and seed.exists() and not _unedited(seed, text, last, src):
+            _save_diverged(home, seed)
+        if not seed.exists() or refresh:
+            seed.write_text(text, encoding="utf-8")
+            last.parent.mkdir(parents=True, exist_ok=True)
+            last.write_text(text, encoding="utf-8")
+    _seed_state(home, seed_dir if seed_dir is not None else _SEED_DIR)
     return home
+
+
+LAST_SEEDED = Path(".coordinator-local") / "home-CLAUDE.last-seeded.md"
+SEEDED_MANIFEST = Path(".coordinator-local") / "home-seeded-state.txt"
+
+
+def _seed_state(home: Path, seed_dir: Path) -> None:
+    """Copy each file under `seed_dir` to the same relative path in `home`, only when that path is
+    absent and was never seeded before. State files (pm-rulings, pm-log, lessons, memories) grow
+    locally, so refresh never overwrites one; the manifest keeps a file the home archived or
+    deleted from coming back."""
+    if not seed_dir.is_dir():
+        return
+    manifest = home / SEEDED_MANIFEST
+    try:
+        done = set(manifest.read_text(encoding="utf-8").splitlines())
+    except FileNotFoundError:
+        done = set()
+    added = False
+    for src in sorted(p for p in seed_dir.rglob("*") if p.is_file()):
+        rel = src.relative_to(seed_dir).as_posix()
+        dest = home / rel
+        if rel in done or dest.exists():
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+        done.add(rel)
+        added = True
+    if added:
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text("\n".join(sorted(done)) + "\n", encoding="utf-8")
+
+
+KNOWN_VERSIONS = "home-CLAUDE.known-versions.sha256"
+DIVERGED_DIR = Path(".coordinator-local") / "diverged-home-CLAUDE"
+
+
+def _save_diverged(home: Path, seed: Path) -> Path:
+    """Copy a diverged home CLAUDE.md to DIVERGED_DIR/<content hash>.md before refresh replaces
+    it; the content-hash name makes a repeat refresh idempotent."""
+    text = seed.read_text(encoding="utf-8")
+    dest = home / DIVERGED_DIR / f"{version_hash(text)[:16]}.md"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if not dest.exists():
+        dest.write_text(text, encoding="utf-8")
+    print(f"group-em home: replaced a diverged CLAUDE.md; saved it at {dest}", file=sys.stderr)
+    return dest
+
+
+def known_version_hashes(template: Path) -> frozenset[str]:
+    """sha256 of every shipped template version, from the manifest beside `template`. A home
+    seeded before the last-seeded record existed is unedited exactly when it matches one."""
+    try:
+        lines = (template.parent / KNOWN_VERSIONS).read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return frozenset()
+    return frozenset(ln.split()[0] for ln in lines if ln.strip() and not ln.startswith("#"))
+
+
+def version_hash(text: str) -> str:
+    # CRLF-normalised: a home written in text mode on Windows carries CRLF line endings.
+    import hashlib
+
+    return hashlib.sha256(text.replace("\r\n", "\n").encode("utf-8")).hexdigest()
+
+
+def _unedited(seed: Path, template_text: str, last: Path, template: Path | None = None) -> bool:
+    current = seed.read_text(encoding="utf-8")
+    if current == template_text:
+        return True
+    if last.is_file() and current == last.read_text(encoding="utf-8"):
+        return True
+    return template is not None and version_hash(current) in known_version_hashes(template)
 
 
 def _nomination_module() -> ModuleType | None:

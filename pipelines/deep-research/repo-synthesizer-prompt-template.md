@@ -24,6 +24,26 @@ comparison mode the comparison project's name is in that field.
 already holds `FIDELITY_OK` or `FIDELITY_CORRECTION` lines from the specialists, you are pass 2 of 2
 (see Fidelity Relay — Pass 2 at the end). Otherwise you are pass 1, or the only pass.
 
+## Research Rules (run before synthesizing)
+
+Resolve the plugin root; the one line it prints is `<plugin-root>`:
+
+```bash
+"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/resolve-coordinator-clone" --content-root
+```
+
+On PowerShell run `& (Join-Path ($env:COORDINATOR_SETTINGS_HOME ?? (Join-Path ($env:CLAUDE_HOME ?? $HOME) ".coordinator-claude-settings")) "bin\resolve-coordinator-clone.exe") --content-root` instead.
+
+Then run the rules step for your stage:
+
+```bash
+<python> "<plugin-root>/pipelines/deep-research/research-rules-gate.py" brief --stage synthesizer --brief {{brief}}
+```
+
+`<python>` is the interpreter resolved per `resolve-coordinator-bin.md` § Portability (`python3`, else `python`). On PowerShell run `python (Join-Path "<plugin-root>" "pipelines\deep-research\research-rules-gate.py") brief --stage synthesizer --brief {{brief}}` instead.
+
+Treat every printed rule as part of this brief; `rules: none` means none. If the root does not resolve or the script errors, proceed with no added rules and name the failure in your return. When the step prints trailing sections, the assessment document's final `##` sections are exactly those, in the printed order, after every other section (and after the Fleet-Readable Competitor Row when it applies). When an overlay applies, the fill-request section holds one row for every question the overlay's corpus could not answer, or a single `none` row when it answered all; the ledger gate halts a synthesis that omits it.
+
 ## Your Inputs
 
 Specialist findings are at:
@@ -325,7 +345,7 @@ In fallback mode, assign `id` values as `"{chunk-letter}-{sequence}"` (e.g., `"A
 1. Write the assessment document to <output path> AND {{scratch_dir}}/synthesis.md
 2. Comparison mode only: write the gap analysis to <gap analysis path>
 3. Write advisory to <advisory path> AND {{scratch_dir}}/advisory.md (if applicable — skip if nothing beyond scope)
-3.5. If the researched repo is a third party's, append the Fleet-Readable Competitor Row to the end of <output path> (§ Fleet-Readable Competitor Row above)
+3.5. If the researched repo is a third party's, append the Fleet-Readable Competitor Row to the end of <output path> (§ Fleet-Readable Competitor Row above), placing it before any trailing sections the Research Rules step printed
 4. Prepend research-synthesis frontmatter to <output path> (§ Durable Index Artifacts above)
 5. Write the merged claims array to {{scratch_dir}}/merged-claims.json — writing it IS the `ran_at` stamp, via its mtime (§ Durable Index Artifacts above)
 6. Return a brief completion message — it is the workflow's result and reaches the EM (include "No advisory" if advisory was skipped; include the claims count and the pipeline token the EM needs to emit the durable pair: "Merged claims: N claims at {{scratch_dir}}/merged-claims.json, pipeline: repo" — no `ran_at`; the EM takes it from that file's mtime)

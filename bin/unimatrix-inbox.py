@@ -277,7 +277,7 @@ def _run(a):
             auth = line  # belongs to the frame on the next line
             continue
         auth = deliver_frame(frame, line, auth, a.deliver_endpoint, str(a.remote).rpartition("@")[2],
-                             on_fail=lambda _e: p.kill())
+                             on_fail=lambda _e: p.kill(), pid=a.pid)
     rc = p.wait()
     far_err.join(timeout=2)
     log.write(f"inbox ended rc={rc}\n")
@@ -285,11 +285,34 @@ def _run(a):
         sys.exit(rc)
 
 
-def deliver_frame(frame, line, auth, deliver_endpoint, box, on_fail=None):
+def _relay() -> object:
+    path = Path(__file__).resolve().parent / "unimatrix-relay.py"
+    mod = sys.modules.get("unimatrix_relay_for_inbox")
+    if mod is None:
+        spec = importlib.util.spec_from_file_location("unimatrix_relay_for_inbox", path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["unimatrix_relay_for_inbox"] = mod
+        spec.loader.exec_module(mod)
+    return mod
+
+
+def record_receipt(pid, line, box) -> None:
+    """Receipt a frame just delivered into local session `pid` (sender `box`), so the receipts oracle sees
+    every transport. Never raises: a missing receipt must not undo a delivery."""
+    try:
+        with open(os.path.join(os.path.expanduser(SESSIONS), f"{pid}.json"), encoding="utf-8") as fh:
+            entry = json.load(fh)
+        _relay().record_inbound_receipt(entry, line, box)
+    except Exception as e:
+        if log:
+            log.write(f"receipt not recorded: {type(e).__name__}: {e}\n")
+
+
+def deliver_frame(frame, line, auth, deliver_endpoint, box, on_fail=None, pid=None) -> bytes:
     """Hand one far frame (with its preceding `auth` line) to the local session; return the next `auth`.
 
     `on_fail` is called with the exception when the session cannot be reached, so the caller can stop
-    advertising a mirror nobody reads."""
+    advertising a mirror nobody reads. With `pid` (the local session) a delivered frame is receipted."""
     if deliver_endpoint:
         line = localize(frame, line, box)
         log.write(f"<< {deliver_endpoint} {line!r}\n")
@@ -299,6 +322,9 @@ def deliver_frame(frame, line, auth, deliver_endpoint, box, on_fail=None):
             log.write(f"deliver failed: {e}\n")
             if on_fail:
                 on_fail(e)
+        else:
+            if pid is not None:
+                record_receipt(pid, line, box)
         return b""
     port = inject_port(frame, box)
     log.write(f"<< :{port} {line!r}\n")
@@ -309,6 +335,9 @@ def deliver_frame(frame, line, auth, deliver_endpoint, box, on_fail=None):
         log.write(f"handoff failed: {e}\n")
         if on_fail:
             on_fail(e)
+    else:
+        if pid is not None:
+            record_receipt(pid, line, box)
     return b""
 
 
@@ -511,11 +540,11 @@ def _mux_run(a):
         if frame.get("type") == "auth":
             auths[name] = text
             continue
-        endpoint = (feed.sent.get(name) or (None, None))[1]
+        local_pid, endpoint = feed.sent.get(name) or (None, None)
         if endpoint is None:
             continue  # dropped while the frame was in flight
         auths[name] = deliver_frame(frame, text, auths.get(name, b""), endpoint, box,
-                                    on_fail=lambda _e, n=name: feed.fail(n))
+                                    on_fail=lambda _e, n=name: feed.fail(n), pid=local_pid)
     rc = p.wait()
     stop.set()
     far_err.join(timeout=2)

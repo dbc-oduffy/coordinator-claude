@@ -176,9 +176,9 @@ def capped_worker_count(requested: int | None) -> int | None:
     lib_dir = str(Path(__file__).resolve().parent / "lib")
     if lib_dir not in sys.path:
         sys.path.insert(0, lib_dir)
-    from cc_invoke import place_engine_root_on_path
+    from cc_invoke import require_engine_on_path
 
-    place_engine_root_on_path(str(Path(__file__).resolve().parents[2]))
+    require_engine_on_path(__file__)
     from coordinator_core.telemetry import host_sampler
 
     avail = host_sampler.avail_mb()[0]

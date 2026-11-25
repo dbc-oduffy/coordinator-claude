@@ -385,6 +385,7 @@ contract_blocks:
     - provisioned-scaffold-precedence
   coordinator:security-audit-worker:
     - provisioned-scaffold-precedence
+    - subagent-box-guards
 
 
   coordinator:test-runner:
@@ -414,6 +415,14 @@ contract_blocks:
   coordinator:executor:
     - provisioned-scaffold-precedence
     - run-report-citizenship
+    - subagent-box-guards
+
+  # subagent-box-guards: shell-running types that run python and hit the
+  # spawn/pytest/rm guards. general-purpose is a built-in type with no agent file.
+  general-purpose:
+    - subagent-box-guards
+  coordinator:family-stage-runner:
+    - subagent-box-guards
 
 
   # RESIDENT (same transient-duplication note applies). No G2-style
@@ -448,6 +457,7 @@ contract_blocks:
     - provisioned-scaffold-precedence
     - disk-first-protocol
     - named-dispatch-relay
+    - subagent-box-guards
   coordinator:repo-scout:
     - provisioned-scaffold-precedence
     - disk-first-protocol
@@ -456,6 +466,7 @@ contract_blocks:
     - provisioned-scaffold-precedence
     - disk-first-protocol
     - named-dispatch-relay
+    - subagent-box-guards
   coordinator:structured-synthesizer:
     - provisioned-scaffold-precedence
     - disk-first-protocol

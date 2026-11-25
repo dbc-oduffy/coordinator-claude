@@ -1,15 +1,17 @@
-"""PreToolUse(Grep|Glob) non-blocking hint: a symbol-style search in a project-rag-indexed repo draws one
-`additionalContext` line naming the tier-1 project-rag tools.
+"""PreToolUse(Grep|Glob) rag-first guard: a symbol-style search in a project-rag-indexed repo.
 
 Contract:
-  stdin   -- PreToolUse JSON (tool_name, tool_input, cwd, ...)
-  stdout  -- one hookSpecificOutput envelope (additionalContext only, never a permissionDecision) when
-             tool_name is Grep|Glob, a `.project-rag` dir sits at or above cwd, and the Grep pattern looks
-             like a code symbol; NOTHING otherwise
-  exit 0  -- always; every failure degrades to silence
+  stdin   -- PreToolUse JSON (tool_name, tool_input, cwd, session_id, agent_id, agent_type, ...)
+  stdout  -- one hookSpecificOutput envelope when tool_name is Grep|Glob, a `.project-rag` dir sits at or
+             above cwd, and the pattern looks like a code symbol; NOTHING otherwise. The envelope is:
+             a `permissionDecision: deny` for a Grep from a CODE_QUESTION_AGENTS agent whose
+             (session_id, agent_id) ledger state is none; an allow carrying `DEGRADED: project-rag is
+             down` (also on stderr) when the state is down; nothing when it is ok; a non-blocking hint
+             for every other caller and for Glob
+  exit 0  -- always; any exception allows, with one stderr line
 
-A glob (`*.py`) and a literal-text pattern are never symbols. Presence gate and hint text live in
-`_project_rag_nudge`.
+A glob (`*.py`) and a literal-text pattern are never symbols. Presence gate, texts and the agent set live
+in `_project_rag_nudge`; the call ledger in `_rag_call_ledger`.
 """
 
 from __future__ import annotations
@@ -56,16 +58,42 @@ def main(stdin_text: str | None = None) -> int:
         sym = symbol_in(tool_input.get("pattern") if isinstance(tool_input, dict) else None)
         if not sym:
             return 0
-        from _project_rag_nudge import hint_text, rag_present
+        from _project_rag_nudge import (
+            degraded_text, deny_text, hint_text, is_code_question_agent, rag_present,
+        )
 
         if not rag_present(payload.get("cwd")):
             return 0
-        sys.stdout.write(json.dumps({"hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "additionalContext": hint_text(sym),
-        }}))
-    except Exception:
-        pass
+        out: dict = {"hookEventName": "PreToolUse", "additionalContext": hint_text(sym)}
+        session_id = payload.get("session_id")
+        if (
+            payload.get("tool_name") == "Grep"
+            and is_code_question_agent(payload.get("agent_type"))
+            and isinstance(session_id, str)
+            and session_id
+        ):
+            import _rag_call_ledger
+
+            state = _rag_call_ledger.state_for(session_id, payload.get("agent_id"))
+            if state == _rag_call_ledger.STATE_OK:
+                from _project_rag_nudge import bump_search_count, nag_every, nag_text
+
+                if bump_search_count(session_id, payload.get("agent_id")) % nag_every(payload.get("cwd")):
+                    return 0
+                out["additionalContext"] = nag_text(sym)
+            elif state == _rag_call_ledger.STATE_DOWN:
+                warn = degraded_text()
+                sys.stderr.write(warn + "\n")
+                out["additionalContext"] = warn
+            else:
+                out = {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": deny_text(sym, payload.get("cwd")),
+                }
+        sys.stdout.write(json.dumps({"hookSpecificOutput": out}))
+    except Exception as exc:
+        sys.stderr.write(f"rag-first-guard fail-open: {type(exc).__name__}: {exc}\n")
     return 0
 
 

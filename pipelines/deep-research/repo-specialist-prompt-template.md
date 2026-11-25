@@ -16,6 +16,26 @@ directories/files sit under a secondary's path is read there, and your assessmen
 line names that secondary.
 Your role is `specialist-<chunk letter, lowercase>`.
 
+## Research Rules (run before reading the chunk)
+
+Resolve the plugin root; the one line it prints is `<plugin-root>`:
+
+```bash
+"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/resolve-coordinator-clone" --content-root
+```
+
+On PowerShell run `& (Join-Path ($env:COORDINATOR_SETTINGS_HOME ?? (Join-Path ($env:CLAUDE_HOME ?? $HOME) ".coordinator-claude-settings")) "bin\resolve-coordinator-clone.exe") --content-root` instead.
+
+Then run the rules step for your stage:
+
+```bash
+<python> "<plugin-root>/pipelines/deep-research/research-rules-gate.py" brief --stage specialist --brief {{brief}}
+```
+
+`<python>` is the interpreter resolved per `resolve-coordinator-bin.md` § Portability (`python3`, else `python`). On PowerShell run `python (Join-Path "<plugin-root>" "pipelines\deep-research\research-rules-gate.py") brief --stage specialist --brief {{brief}}` instead.
+
+Treat every printed rule as part of this brief; `rules: none` means none. If the root does not resolve or the script errors, proceed with no added rules and name the failure in your return. When the step prints `required_tools:`, call those tools by name (load each through ToolSearch if it is deferred) for every identifier and symbol lookup in your chunk; grep is for prose and literal strings that are not identifiers.
+
 **Clock.** Run `date +%s` as your first action; that is your start time.
 
 **Mailbox protocol.** Never SendMessage. To message peer X, append one JSON line

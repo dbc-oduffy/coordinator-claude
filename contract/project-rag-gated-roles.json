@@ -1,0 +1,29 @@
+{
+  "schema": "project-rag-gated-roles",
+  "version": 1,
+  "description": "Tier contract for the project-rag duty. Read by the DoE hooks (nags, duty text) and imported by the engine, which alone aborts a run. Core holds the generic tier mechanism; an installed provider registers a stricter tier under `providers`.",
+  "tiers": ["none", "rag", "ue"],
+  "halt_reasons": ["project_rag_unused", "project_rag_cadence", "project_rag_not_serving", "ue_corpus_gap"],
+  "halt_reason_notes": {
+    "project_rag_unused": "a gated agent made zero project-rag tool_use attempts; a failed call is an attempt",
+    "project_rag_cadence": "a provider tier's cadence window held fewer project-rag calls than its minimum",
+    "project_rag_not_serving": "structural failure: no project-rag tool loadable or answering; never a semantic-only miss",
+    "ue_corpus_gap": "the provider's corpus lacks the knowledge the claim needs"
+  },
+  "gated_roles": [
+    "sizing-scout", "prior-art-checker", "premise-checker", "plan-author", "enricher",
+    "repo-specialist", "research-specialist", "code-reviewer", "staff-eng", "coverage-auditor",
+    "research-scout", "research-synthesizer", "structured-synthesizer"
+  ],
+  "gated_role_suffixes": ["-reviewer"],
+  "nag_every": {"rag": 5, "ue": 3},
+  "providers": [
+    {
+      "id": "unreal-engine-addons",
+      "tier": "ue",
+      "detect": ["project-rag-ue-addon", "ue-addon", "example-game-repo"],
+      "ue_cadence": {"window_tool_calls": 20, "min_rag_calls": 2},
+      "duty_text": "THE ENGINE ABORTS THE RUN IF ANY WINDOW OF {window_tool_calls} CONSECUTIVE TOOL CALLS HOLDS FEWER THAN {min_rag_calls} PROJECT-RAG CALLS. THE ENGINE ABORTS THE RUN IF PROJECT-RAG IS NOT SERVING. THE ENGINE ABORTS THE RUN IF THE UNREAL ENGINE CORPUS LACKS THE KNOWLEDGE YOUR CLAIM NEEDS. A FAILED CALL STILL COUNTS AS AN ATTEMPT AND IS NEVER A REASON TO STOP; REPORT IT AS A GAP AND CONTINUE. YOU DO NOT KNOW UNREAL ENGINE FROM MEMORY, AND GREP AND GLOB CANNOT STAND IN FOR THE CORPUS: CALL PROJECT-RAG REGULARLY."
+    }
+  ]
+}

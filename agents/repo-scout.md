@@ -50,6 +50,8 @@ A coordinator PreToolUse denial is a stop, not an obstacle. **Follow a remedy th
 
 ## Your Job
 
+Run the prompt's Research Rules step first (`research-rules-gate.py brief --stage scout`) and follow what it prints; call its `required_tools` for identifier and symbol lookups, since grep is for prose and literal strings that are not identifiers.
+
 Mechanical inventory only — no analysis, evaluation, recommendations, or judgment. Never cross-pollinate; never read or write a mailbox.
 
 1. Read chunk assignments from dispatch.

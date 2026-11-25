@@ -532,10 +532,9 @@ def resume_mint(receipt: Path, expected: str, cwd: Path) -> int:
 
 def main(argv=None, **kw):
     import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
-    from cc_invoke import ensure_engine_on_path, place_engine_root_on_path
+    from cc_invoke import require_engine_on_path
 
-    if ensure_engine_on_path(__file__) is None:
-        place_engine_root_on_path(str(_REPO_ROOT))
+    require_engine_on_path(__file__)
     args = list(sys.argv[1:] if argv is None else argv)
     if args in ([], ["--help"], ["-h"]):
         print(__doc__)

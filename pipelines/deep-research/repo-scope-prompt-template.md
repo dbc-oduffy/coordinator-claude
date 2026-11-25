@@ -23,6 +23,26 @@ Take only `repo` seeds; the other kinds belong to other pipelines, so leave them
 If no repo can be resolved, write the scope file anyway with
 `Repository: UNRESOLVED` and say why in a `## Scope Notes` section, and make no chunk up.
 
+## Research Rules (run before anything else)
+
+Resolve the plugin root; the one line it prints is `<plugin-root>`:
+
+```bash
+"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/resolve-coordinator-clone" --content-root
+```
+
+On PowerShell run `& (Join-Path ($env:COORDINATOR_SETTINGS_HOME ?? (Join-Path ($env:CLAUDE_HOME ?? $HOME) ".coordinator-claude-settings")) "bin\resolve-coordinator-clone.exe") --content-root` instead.
+
+Then run the rules step for your stage:
+
+```bash
+<python> "<plugin-root>/pipelines/deep-research/research-rules-gate.py" brief --stage scope --brief {{brief}}
+```
+
+`<python>` is the interpreter resolved per `resolve-coordinator-bin.md` § Portability (`python3`, else `python`). On PowerShell run `python (Join-Path "<plugin-root>" "pipelines\deep-research\research-rules-gate.py") brief --stage scope --brief {{brief}}` instead.
+
+Treat every printed rule as part of this brief; `rules: none` means none. If the root does not resolve or the script errors, proceed with no added rules and name the failure in your return.
+
 **Run scratch directory:** {{scratch_dir}}
 **Write the scope file to:** `{{scratch_dir}}/scope.md`
 

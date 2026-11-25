@@ -319,6 +319,7 @@ When you receive the Workflow's completion notification (its result is the synth
    directory name: it is the only load-bearing cell, and the downstream fleet reader skips a row
    whose locator is not slug-shaped. A wrong spelling there costs the whole row, silently from
    this side — the run looks complete and the reader renders nothing.
+4.3. **File the overlay's fill requests** — only when an installed research-rules overlay applies (the manifest's `ledger-gate` already passed, so the section exists). Run `research-rules-gate.py brief --stage synthesizer --brief {scratch-dir}/scope.md` (call form: `repo-ledger-gate-prompt-template.md` step 3); it prints the overlay's `fill_request` heading and `owner_repo`. For each row under that heading in `{output-path}`, send a memo to that `owner_repo`'s EM carrying the question, the sources tried and the run's synthesis path (`coordinator/docs/wiki/cross-repo-communication/cross-repo-memo-lifecycle.md`). A lone "none" row files nothing; "rules: none" means no overlay applies and this step is skipped.
 4.5. **Emit the durable claims pair** — you do this, not the synthesizer; the pair has exactly one writer. Never derive the pipeline token from the run-stem.
 
    **`--ran-at` is measured off disk, never quoted from the agent.** The synthesizer has no shell and no clock; the merge moment is the mtime of `merged-claims.json`. Read it:

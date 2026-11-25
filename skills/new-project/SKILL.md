@@ -21,9 +21,10 @@ delegates onboarding to `coordinator:repo-setup`.
 |-------|------|---------|-------|
 | Project name | `--name <n>` | **required** | dir name + `package.json` name; prompt if absent. |
 | Parent dir | `--parent <dir>` | none — ask, offering `$HOME/projects` | flag → `COORDINATOR_PROJECTS_ROOT` env → `machine-local get coordinator.projects_root` → ask; passed to the helper explicitly. |
-| Stack template | `--template next-app\|empty` | **none — infer or ask** | `next-app` (Next/React/TS/Tailwind/Vitest) only for a web app; `empty` (git + onboarding only) for any non-web ask, said aloud. Ambiguous → ask; never fall through to `next-app`. |
+| Stack template | `--template next-app\|empty\|python-package` | **none — infer or ask** | `next-app` (Next/React/TS/Tailwind/Vitest) only for a web app; `python-package` for a Python repo; `empty` (git + onboarding only) otherwise, said aloud. Ambiguous → ask; never fall through to `next-app`. |
+| Project type | `--project-type game-dev\|web-dev\|data-science\|general`, `--subtypes a,b` | from `--like`, else ask | seeded into `coordinator.local.md`; carry the same values into step 3's `--answers`. |
 | Remote | `--remote none\|private\|public` | `none` | opt-in only. |
-| Like | `--like <sibling-repo>` | none | a registered sibling (`machine-local get repos.<key>`) whose `CLAUDE.md` conventions and `pyproject.toml` shape seed step 4. |
+| Like | `--like <sibling-path-or-registry-slug>` | none | passed to the helper; it reads the sibling's `coordinator.local.md` type/subtypes and its `CLAUDE.md` `## …convention…` sections, nothing else. |
 
 ## Flow
 
@@ -47,10 +48,9 @@ a success exit proves nothing; confirm `CLAUDE.md`, the tracker and `state/` exi
 else report onboarding failed. Surface the verdict's `open` and `needs_attention` items in step 7.
 This run is the only onboarding writer and finishes before step 7.
 
-**4 — `--like`.** The op takes no `like` key. Read the sibling's `CLAUDE.md` and `pyproject.toml` before
-step 3: carry its project type and subtypes into `--answers`, and after step 3 add its conventions to the
-new `CLAUDE.md` as a "Conventions from `<sibling>`" section citing the sibling by name; a sibling-specific
-fact is not copied.
+**4 — `--like`.** The helper takes `--like` in step 2 and seeds type, subtypes and the sibling's
+convention sections itself; an explicit `--project-type`/`--subtypes` wins. Never hand-copy a
+sibling's `CLAUDE.md` or `pyproject.toml`; a failing `--like` is an engine defect, memoed to the engine owner.
 
 **4.5 — Registry.** `new-project-scaffold` self-registers the new dir under `repos.<name>`
 (kebab→snake-cased) via `machine-local set`; nothing further to run. If `machine-local` exits 127, run

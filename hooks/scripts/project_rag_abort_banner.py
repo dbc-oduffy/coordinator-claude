@@ -1,23 +1,23 @@
-"""PostToolUse / PostToolUseFailure on `mcp__project-rag__*`: ABORT banner when project-rag gives no data.
+"""PostToolUse / PostToolUseFailure on `mcp__project-rag__*`: gap banner when project-rag gives no data.
 
-A failed call, or a retrieval call that returned nothing, injects one ABORT `additionalContext`
-banner: the agent stops and reports the exact call and output instead of answering from Grep or
-memory. Sibling to the in-file rule (tripwire A-PROJECT-RAG-MISS-ON-A-UE-FACT-ABORTS-NEVER-FALLS-BACK).
+A failed call, or a retrieval call that returned nothing, injects one gap `additionalContext`
+banner: the call counts as an attempt, the agent records the exact call and output as a gap and
+continues, and the engine alone decides any abort. Every call is also recorded in the rag-call ledger.
 
 Exemptions, each silent except the semantic advisory:
   - MetaHuman wrong-source: a MetaHuman lookup whose `source` is not `unreal_5.8_plugin` is a
     wrong-source error, not an outage; the agent retries with the right source.
   - Semantic-only failure: `project_semantic_search`, or a non-structural call whose output names only
     the embed/semantic band, gets a one-line advisory (use structural lookups, name the semantic gap),
-    never an ABORT. A structural tool (symbol, referencers, callers, graph, type hierarchy) always aborts.
+    never the gap banner. A structural tool (symbol, referencers, callers, graph, type hierarchy) always gets the gap banner.
   - example-game-repo stand-down: when the example-game-repo-control plugin (or a settings file) already registers
     its own `project_rag_abort_banner` hook, that hook speaks and this one stays silent, so the
     banner never fires twice.
   - Timeout under load: a structural call whose envelope says `verdict == "timeout"` gets a TIMEOUT UNDER
     LOAD retry-once message (stage, source, retry_after advisory); the same call timing out again
-    within ten minutes gets the ABORT banner. Only `verdict == "warming"` means warming.
+    within ten minutes gets the gap banner. Only `verdict == "warming"` means warming.
   - Non-UE miss: a call that names no engine/unreal/MetaHuman source, repo, tool or type gets a
-    retry-then-Grep advisory that reports the gap, never an ABORT. Only a UE/MetaHuman miss aborts.
+    retry-then-Grep advisory that reports the gap, never the gap banner. Only a UE/MetaHuman miss gets the gap banner.
   - Non-retrieval tools (health, staleness, instructions) and non-project-rag tools.
 
 Never blocks; always exits 0; every failure degrades to silence.
@@ -55,13 +55,13 @@ _LIST_KEYS = frozenset({
 _COUNT_KEYS = ("count", "total", "total_count", "result_count", "n_results")
 
 BANNER = (
-    "!!! ABORT !!! project-rag returned no data: {tool} {outcome}.\n"
+    "PROJECT-RAG GAP: project-rag returned no data: {tool} {outcome}.\n"
     "Call: {call}\n"
     "Output: {output}\n"
-    "STOP THE TASK. For an Unreal Engine fact do NOT fall back to Grep, memory or training data: "
-    "open your report with an unmistakable ABORT banner quoting this exact call and its output, "
-    "say project-rag is not returning data, and hand it back. For a non-UE lookup, retry once, "
-    "then Grep, and report the fallback. (A MetaHuman lookup needs source={source}; a "
+    "This call counts as an attempt and does not end your task; the engine alone decides any abort. "
+    "Cite this exact call and output in your report as a gap. For an Unreal Engine fact do not answer "
+    "from memory or training data: retry once, use another project-rag layer or tool, and mark the "
+    "claim UNVERIFIED if none answers. (A MetaHuman lookup needs source={source}; a "
     "source=engine miss is a wrong-source error, retry with the right source.)"
 )
 
@@ -78,8 +78,8 @@ TIMEOUT_BANNER = (
     "This is NOT an outage and NOT warming. Back off {wait} and retry this exact call ONCE: "
     "Call: {call}\n"
     "Output: {output}\n"
-    "Abort only if the retry also times out; then the ABORT rule applies (an Unreal Engine fact never "
-    "falls back to Grep, memory or training data)."
+    "If the retry also times out, cite the call and output in your report as a gap and continue "
+    "with another project-rag layer or tool; never answer an Unreal Engine fact from memory or training data."
 )
 _TIMEOUT_TTL_SECONDS = 600
 _TIMEOUT_STATE_FILE = "project-rag-banner-timeouts.json"
@@ -323,7 +323,7 @@ def _is_failure(payload: dict) -> bool:
 
 
 def banner_for(payload: dict) -> str:
-    """The ABORT banner text for this hook payload, or "" when nothing should fire."""
+    """The gap banner text for this hook payload, or "" when nothing should fire."""
     tool_name = payload.get("tool_name")
     if not isinstance(tool_name, str) or not tool_name.startswith(TOOL_PREFIX):
         return ""
@@ -358,12 +358,37 @@ def banner_for(payload: dict) -> str:
         output=_short(output if output not in (None, "") else "<no output>"), source=METAHUMAN_SOURCE)
 
 
+def ledger_outcome(payload: dict) -> str:
+    """`ok` for a successful call that returned data (any success of a non-retrieval tool), else `down`."""
+    if _is_failure(payload):
+        return "down"
+    if _tool_short(str(payload.get("tool_name"))) in _NON_RETRIEVAL:
+        return "ok"
+    response = payload.get("tool_response")
+    return "down" if _is_empty(response) or timeout_envelope(response) is not None else "ok"
+
+
+def _record_ledger(payload: dict) -> None:
+    """Record this project-rag call in the rag-call ledger; the stand-down never silences it. Never raises."""
+    try:
+        tool_name = payload.get("tool_name")
+        if not isinstance(tool_name, str) or not tool_name.startswith(TOOL_PREFIX):
+            return
+        here = str(Path(__file__).resolve().parent)
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        __import__("_rag_call_ledger").record(payload, ledger_outcome(payload))
+    except Exception:  # noqa: BLE001 -- a ledger fault never touches the banner
+        return
+
+
 def main(stdin_text: Optional[str] = None) -> int:
     try:
         raw = sys.stdin.read() if stdin_text is None else stdin_text
         payload = json.loads(raw or "null")
         if not isinstance(payload, dict):
             return 0
+        _record_ledger(payload)
         text = banner_for(payload)
         if text:
             event = "PostToolUseFailure" if _is_failure(payload) else "PostToolUse"

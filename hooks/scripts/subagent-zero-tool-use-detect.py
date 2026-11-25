@@ -41,10 +41,22 @@ hook as failed even at exit 0 (AC5a). Stage 2 (a separate script, C8's fold
 into `runtime-tripwire-em-check.py`) is what surfaces a written record to the
 EM, on a later `UserPromptSubmit` turn.
 
+RAG STOP-CHECK FOLD: after gate 2, a finishing research/sizing/planning/review agent
+(`CODE_QUESTION_AGENTS`; executor never) with zero project-rag calls in the machine-local
+ledger (`_rag_call_ledger.state_for`) is blocked with a `decision: block` reason that names
+the engine halt reason `project_rag_unused`; the engine alone aborts the run, and the reason
+text carries no stop/abort directive. A repo where a research-rules layer applies, or any
+`.project-rag` repo, is gated. The ledger is fed by real PostToolUse events,
+so it never reads a transcript (DR-047 boundary holds) and a tool name in a prompt never
+counts. A recorded `down` row counts as having used project-rag: only zero attempted calls
+aborts. `stop_hook_active` skips the check, so the block fires once per stop, never loops.
+This is the ONE stdout emission on any path; on a block the engine ops are not relayed (the
+agent keeps running and they relay at its real stop).
+
 Contract:
   stdin   -- SubagentStop JSON (session_id, agent_id, agent_type,
              agent_transcript_path, transcript_path, hook_event_name, cwd, ...)
-  stdout  -- NOTHING, ever (DEC-4)
+  stdout  -- NOTHING (DEC-4), except the RAG STOP-CHECK `decision: block` object
   stderr  -- NOTHING, ever, including every failure path (AC5a)
   exit 0  -- always (AC6); an unresolvable engine is silent, not fatal
 
@@ -176,6 +188,92 @@ except Exception:
         return None
 
 
+try:
+    import _rag_call_ledger as _ledger  # noqa: E402
+except Exception:
+    _ledger = None  # missing sibling -> the stop-check fails open
+try:
+    from _project_rag_nudge import rag_present as _rag_present  # noqa: E402
+except Exception:
+    def _rag_present(cwd: Any) -> bool:
+        return False
+try:
+    from _project_rag_nudge import is_code_question_agent as _is_code_question_agent  # noqa: E402
+except Exception:
+    # Import-failure fallback; keep the set and the `-reviewer` guard in step with _project_rag_nudge.
+    _FALLBACK_AGENTS = frozenset({
+        "sizing-scout", "prior-art-checker", "premise-checker", "plan-author", "enricher",
+        "repo-specialist", "research-specialist", "code-reviewer", "staff-eng",
+        "coverage-auditor", "research-scout", "research-synthesizer", "structured-synthesizer",
+    })
+
+    def _is_code_question_agent(agent_type: Any) -> bool:
+        if not isinstance(agent_type, str):
+            return False
+        name = agent_type.strip().rsplit(":", 1)[-1]
+        return name in _FALLBACK_AGENTS or (name.endswith("-reviewer") and len(name) > len("-reviewer"))
+
+# Research agents the engine gates when an installed research-rules layer applies to the repo
+# (a provider-registered tier), even without a `.project-rag` index marker.
+_LAYER_GATED_AGENTS = frozenset({
+    "research-specialist", "repo-specialist", "sizing-scout", "prior-art-checker",
+    "research-scout", "research-synthesizer", "structured-synthesizer", "coverage-auditor",
+})
+
+# Engine halt reason for zero attempted calls; must equal the contract's halted_by value.
+HALT_REASON_UNUSED = "project_rag_unused"
+
+_UNUSED_REASON = (
+    "project-rag usage record: this agent has made zero project-rag tool calls. The engine "
+    "halts the run with reason " + HALT_REASON_UNUSED + " when a sizing, planning, research or "
+    "review agent finishes with none; grep, Read and web search do not substitute. One call "
+    "avoids it, and a failed call (error, stale, degraded) counts as an attempt. Call "
+    "project_symbol_brief or project_semantic_search (ToolSearch "
+    "select:mcp__project-rag__project_symbol_brief,mcp__project-rag__project_semantic_search), "
+    "record any failure and its exact output in your report as a gap, then finish."
+)
+
+
+def _layer_applies(git_root: str) -> bool:
+    """True when an installed research-rules layer applies to the repo; False on any failure."""
+    try:
+        import importlib.util
+
+        src = Path(__file__).resolve().parents[2] / "pipelines" / "deep-research" / "research_rules_layer.py"
+        spec = importlib.util.spec_from_file_location(src.stem, src)
+        if not (spec and spec.loader):
+            return False
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return bool(mod.applicable_layers(Path(git_root)))
+    except Exception:
+        return False
+
+
+def _rag_abort_reason(payload: dict, agent_type: str, session_id: str, agent_id: str,
+                      cwd: str, git_root: str) -> str:
+    """The block reason for a finishing agent with zero project-rag ledger rows, else "".
+
+    Reads only the ledger. Fails open ("") on any error, on a re-entrant stop, and for any
+    agent outside the closed code-question set (executor included).
+    """
+    try:
+        if _ledger is None or payload.get("stop_hook_active") is True:
+            return ""
+        base = agent_type.split(":")[-1]
+        if not _is_code_question_agent(base):
+            return ""
+        if _ledger.state_for(session_id, agent_id) != _ledger.STATE_NONE:
+            return ""
+        if base in _LAYER_GATED_AGENTS and _layer_applies(git_root):
+            return _UNUSED_REASON
+        if _rag_present(cwd or git_root):
+            return _UNUSED_REASON
+    except Exception:
+        return ""
+    return ""
+
+
 def _git_root(start: str) -> str:
     """Resolve the git root by walking up from `start` looking for a `.git`
     entry (dir or file), without spawning a subprocess. Fail-open to "" on
@@ -286,6 +384,11 @@ def main() -> int:
     # subagent's worktree), not ambient process cwd.
     git_root = _git_root(cwd)
     if not _is_dispatched_this_session(git_root, session_id, agent_id):
+        return 0
+
+    abort = _rag_abort_reason(payload, agent_type, session_id, agent_id, cwd, git_root)
+    if abort:
+        sys.stdout.write(json.dumps({"decision": "block", "reason": abort}))
         return 0
 
     # agent_transcript_path is authoritative; transcript_path is a decoy (the PARENT

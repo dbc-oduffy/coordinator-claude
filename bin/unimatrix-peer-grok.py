@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Grok adapter for the unimatrix peer router: registry discovery and one cwd-pinned headless resume.
+"""Grok adapter for the unimatrix peer router: registry discovery and agent-mail delivery.
 
 Thin CLI wrapper + re-export facade over `_unimatrix.adapters.grok` and `_unimatrix.proc`.
 """
 import asyncio
 import importlib
+import json
 import os
 import subprocess  # noqa: F401 -- exposed for tests patching subprocess.run
 import sys
@@ -57,11 +58,12 @@ def _contract():
 
 
 def main(argv=None) -> int:
-    """`unimatrix-peer-grok.py <session-id> <cwd> <text>`: one turn into the session; prints the reply."""
+    """`unimatrix-peer-grok.py <session-id> <cwd> <text>`: agent mail, or a failure string."""
     argv = sys.argv[1:] if argv is None else list(argv)
     if len(argv) != 3:
         sys.exit("usage: unimatrix-peer-grok.py <session-id> <cwd> <text>")
-    print(asyncio.run(_grok().grok_turn(*argv)))
+    result = asyncio.run(_grok().deliver(*argv))
+    print(result if isinstance(result, str) else json.dumps(result))
     return 0
 
 

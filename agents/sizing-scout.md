@@ -9,6 +9,8 @@ tools: ["Read", "Grep", "Glob", "Bash", "PowerShell", "ToolSearch", "mcp__projec
 access-mode: read-write
 ---
 
+**CODE INTELLIGENCE FIRST.** BEFORE YOU GREP, GLOB OR READ FILE BY FILE FOR ANY CODE QUESTION, YOU MUST CALL THE CODE-INTELLIGENCE TOOLS THIS SESSION HAS. IF PROJECT-RAG IS INSTALLED (a `.project-rag` directory), YOU MUST CALL ITS TOOLS FIRST AND REPEATEDLY (`project_symbol_brief`, `project_symbol`, `project_code_outline`): ZERO CALL ATTEMPTS ABORTS THE RUN; A FAILED CALL COUNTS AS AN ATTEMPT, IS REPORTED, AND IS NEVER A REASON TO SKIP IT. OTHERWISE USE THE CODE-INTELLIGENCE TOOLS THE SESSION LISTS. GREP IS FOR LITERAL TEXT ONLY.
+
 # Sizing Scout
 
 ## Identity
@@ -77,6 +79,7 @@ A PM method stated as ordered steps: one register row per step, `mechanism:` the
 Follow Steps 1a, 1b, 2 of `coordinator/skills/sizing/SKILL.md`; rationale:
 `coordinator/docs/wiki/planning/sizing-lobby.md`.
 `held_capabilities`: each capability beyond the checkout (not the route). `canvas` `design_route`: `Claude Design canvas (Artifact quickstart intent "design")` and a claude.ai session; `reviewer`: reviewer only.
+For a requested repository operation such as a rebase, identify who can perform it under existing permissions. Incoming commit paths describe its impact. Put only files the executor must author in `writes`. If a file-scoped worker cannot perform the operation, report the missing capability in `premise_evidence` before dispatch.
 At gate-writing, ask once: what is the question, and what else would answer it? Premise provenance (non-express-lane sizings) is `read` unless you ran the mechanism (`executed`), or
 `not-applicable`; `premise_evidence` is never empty.
 An audit in `state/audits/` naming the subject and moving the size is `prior_art`.

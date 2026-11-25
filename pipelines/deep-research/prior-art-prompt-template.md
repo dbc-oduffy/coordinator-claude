@@ -10,6 +10,26 @@ present, the peer repos worth searching.
 Run in research mode: the research question is the brief's topic, and your claim surface is the
 topic's facets rather than a plan's claims.
 
+## Research Rules (run before searching)
+
+Resolve the plugin root; the one line it prints is `<plugin-root>`:
+
+```bash
+"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/resolve-coordinator-clone" --content-root
+```
+
+On PowerShell run `& (Join-Path ($env:COORDINATOR_SETTINGS_HOME ?? (Join-Path ($env:CLAUDE_HOME ?? $HOME) ".coordinator-claude-settings")) "bin\resolve-coordinator-clone.exe") --content-root` instead.
+
+Then run the rules step for your stage:
+
+```bash
+<python> "<plugin-root>/pipelines/deep-research/research-rules-gate.py" brief --stage prior-art --brief {{brief}}
+```
+
+`<python>` is the interpreter resolved per `resolve-coordinator-bin.md` § Portability (`python3`, else `python`). On PowerShell run `python (Join-Path "<plugin-root>" "pipelines\deep-research\research-rules-gate.py") brief --stage prior-art --brief {{brief}}` instead.
+
+Treat every printed rule as part of this brief; `rules: none` means none. If the root does not resolve or the script errors, proceed with no added rules and name the failure in your sidecar. Where the printed rules name corpora to search, search them as part of the facet pass.
+
 ## Scratch Directory
 
 **Run scratch directory:** {{scratch_dir}}

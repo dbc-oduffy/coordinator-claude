@@ -679,6 +679,21 @@ A root visible from more than one box is a row in `docs/fleet/storage-roots.toml
   `unprobed` for a `url` root; `unknown` for every path root while `box.id` is unset (stderr names
   `machine-local set box.id <name>`). No network probe, no mount automation.
 
+## 5c.9. `paths.scratch_root` — the per-box root for throwaway scratch
+
+`paths.scratch_root` names a directory on this box for throwaway output. It is per box and lives in
+`registry.local.toml`; an operator sets it with `machine-local set paths.scratch_root <dir>`. Tripwire:
+`SCRATCH-RESOLVES-THROUGH-PATHS-SCRATCH-ROOT`.
+
+- **Layout.** `<paths.scratch_root>/<repo dir name>/<tool-or-stage>/<run-id|date>/`.
+- **Fallback.** Key unset, empty, unreadable, or its target absent: `<repo>/scratch/<tool-or-stage>/<run-id|date>/`.
+  Scratch is the one root class that falls back rather than refusing (see
+  `a-hardcoded-data-root-is-not-exempt-under-an-escape-token`).
+- **What goes there.** Throwaway, TEMP-class files only. Never a store (§5c.7), never anything a
+  later stage or session reads back; that stays in the repo.
+- **Resolver.** `scratch_dir(repo, tool, run_id)` in `coordinator/hooks/scripts/_scratch_root.py` reads the key
+  in-process (never the CLI), creates the leaf dirs, and never creates the root itself.
+
 ## 5c. Coordinator-owned Keys — Reference
 
 Keys authored by coordinator infrastructure (not user-set). These are registered in tracked `registry.toml` as empty-value declarations; per-machine values are written to `registry.local.toml` by the named script.

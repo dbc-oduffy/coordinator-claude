@@ -106,6 +106,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 from dataclasses import dataclass, field, replace
@@ -3871,11 +3872,51 @@ def _install_doc_paths_for_repo_root(module, repo_root: Path) -> "List[Path]":
     ]
 
 
+def _install_doc_finding_candidate_rels(finding, repo_root: Path) -> "List[str]":
+    """Repo-root-relative POSIX paths a finding's reference can name: a command
+    reference resolves against the tree root, a link against its doc's directory."""
+    target = str(finding.missing_path).split("#", 1)[0].replace("\\", "/")
+    if not target or target.startswith("<"):
+        return []
+    if finding.kind != "link":
+        rel = os.path.normpath(target).replace("\\", "/")
+    else:
+        try:
+            resolved = Path(os.path.normpath(Path(finding.doc).parent / target))
+            rel = resolved.relative_to(os.path.normpath(repo_root)).as_posix()
+        except ValueError:
+            return []
+    return [rel] if rel and rel != "." and not rel.startswith("..") else []
+
+
+def _attribute_install_doc_finding(
+    finding,
+    repo_root: Path,
+    rows: "Sequence[ResolvedTarget]",
+    skipped_row_names: "Sequence[str]",
+) -> "Optional[str]":
+    """Name of the skipped/fail-closed row that would have shipped the path `finding`
+    references (its dest prefix covers the path and its source tree carries it), else None."""
+    for row in rows:
+        if row.name not in skipped_row_names:
+            continue
+        prefix = _dest_prefix_for(row.dest_dir)
+        for rel in _install_doc_finding_candidate_rels(finding, repo_root):
+            if prefix and rel != prefix and not rel.startswith(prefix + "/"):
+                continue
+            inner = rel[len(prefix) :].lstrip("/") if prefix else rel
+            if inner and (Path(row.source_dir) / inner).exists():
+                return row.name
+    return None
+
+
 def dispatch_end_of_run_install_doc_payload_check(
     repo_roots: "List[Path]",
     *,
     target_filtered: bool,
     out: IO[str] = sys.stdout,
+    rows_by_repo_root: "Optional[dict[Path, List[ResolvedTarget]]]" = None,
+    skipped_row_names: "Optional[Sequence[str]]" = None,
 ) -> bool:
     """Run `check_install_doc_payload.check_tree()` ONCE per distinct
     destination repo root touched by this `main()` invocation, after every
@@ -3952,7 +3993,22 @@ def dispatch_end_of_run_install_doc_payload_check(
         if not findings:
             continue
 
-        rendered = "\n".join(f"    {finding.render(repo_root)}" for finding in findings)
+        rows_for_root = (rows_by_repo_root or {}).get(repo_root, [])
+        rendered_lines = []
+        for finding in findings:
+            cause = (
+                _attribute_install_doc_finding(finding, repo_root, rows_for_root, skipped_row_names)
+                if rows_for_root and skipped_row_names
+                else None
+            )
+            line = f"    {finding.render(repo_root)}"
+            if cause is not None:
+                line += (
+                    f"\n      caused by row {cause!r}, which was skipped or failed closed this "
+                    f"round and did not publish this path — fix that row, not the doc"
+                )
+            rendered_lines.append(line)
+        rendered = "\n".join(rendered_lines)
         if target_filtered:
             print(
                 f"  WARNING: end-of-run install-doc payload check found "
@@ -5482,6 +5538,63 @@ def dispatch_end_of_run_plugin_provenance_gate(
     return ok
 
 
+_UNIMATRIX_INBOUND_GATE_PATH = Path(__file__).resolve().parent / "unimatrix-inbound-gate.py"
+_UNIMATRIX_INBOUND_GATE_TIMEOUT_S = 900.0
+
+
+def dispatch_end_of_run_unimatrix_inbound_gate(
+    *,
+    gate_path: "Optional[Path]" = None,
+    timeout_s: float = _UNIMATRIX_INBOUND_GATE_TIMEOUT_S,
+    err: IO[str] = sys.stderr,
+    out: IO[str] = sys.stdout,
+    popen: "Callable[..., Any]" = subprocess.Popen,
+) -> bool:
+    """Release qualification: one probe from every enrolled box must reach a Machine-a session
+    (`unimatrix-inbound-gate.py`, python via `sys.executable`). Any nonzero exit, a missing gate
+    script or a run past `timeout_s` fails the round. Fail-closed, no override."""
+    gate = gate_path or _UNIMATRIX_INBOUND_GATE_PATH
+    if not gate.is_file():
+        print(f"  Error: unimatrix inbound gate not found at {gate}; refusing the release.", file=err)
+        return False
+    tick = _gate_heartbeat("unimatrix inbound gate lines", out=out)
+    proc = popen(
+        [sys.executable, str(gate)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=_utf8_child_env(),
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    killed = threading.Event()
+
+    def _kill() -> None:
+        killed.set()
+        proc.kill()
+
+    timer = threading.Timer(timeout_s, _kill)
+    timer.daemon = True
+    timer.start()
+    seen = 0
+    try:
+        for line in proc.stdout:
+            seen += 1
+            print(f"  [inbound-gate] {line.rstrip()}", file=out)
+            tick(seen, seen)
+        rc = proc.wait()
+    finally:
+        timer.cancel()
+    if rc != 0 or killed.is_set():
+        why = f"killed after {timeout_s:.0f}s" if killed.is_set() else f"exit {rc}"
+        print(f"  Error: unimatrix inbound gate failed ({why}): a probe from an enrolled box did "
+              f"not arrive at a Machine-a session.", file=err)
+        return False
+    print("  Unimatrix inbound gate: every enrolled box's probe arrived.", file=out)
+    return True
+
+
 def dispatch_end_of_run_plugin_version_stamp_gate(
     repo_roots: "List[Path]",
     *,
@@ -6663,7 +6776,7 @@ def _commit_module_attr_gate(
     if not violations:
         return True
     print(
-        f"  Error: {len(violations)} module attribute(s) do not resolve in commit {sha} — "
+        f"  Error: {len(violations)} module or instance attribute(s) do not resolve in commit {sha} — "
         "the caller ships, the attribute exists only uncommitted or off this commit's ancestry:",
         file=err,
     )
@@ -8710,25 +8823,99 @@ _GIT_ARCHIVE_DEADLINE_SECS = 120.0
 _GIT_EXTRACT_DEADLINE_SECS = 600.0
 
 
-def _members_within_deadline(
-    archive: "tarfile.TarFile", started: float, toplevel: Path, sha: str
-) -> "Iterator[tarfile.TarInfo]":
-    """Yields `archive`'s members for `extractall`, raising `GitArchiveDeadlineError` once
-    `_GIT_EXTRACT_DEADLINE_SECS` has passed since `started` (a `time.perf_counter()` reading),
-    naming the members and bytes already yielded."""
-    members = 0
-    size = 0
-    for member in archive:
-        elapsed = time.perf_counter() - started
-        if elapsed > _GIT_EXTRACT_DEADLINE_SECS:
-            raise GitArchiveDeadlineError(
-                f"extracting git archive {sha!r} of {toplevel} exceeded "
-                f"{_GIT_EXTRACT_DEADLINE_SECS:.0f}s deadline after {elapsed:.1f}s with "
-                f"{members} members / {size} bytes extracted"
+def _files_under(root: Path) -> int:
+    """Count of files below `root`; 0 when it does not exist."""
+    return sum(len(files) for _, _, files in os.walk(root))
+
+
+def _materialize_tree_paths(
+    toplevel: Path, sha: str, rels: "Sequence[str]", dest: Path, *, label: str = "_materialize_tree_paths"
+) -> int:
+    """Writes the blobs of `sha` named by `rels` (toplevel-relative POSIX paths) under `dest`
+    and returns how many. Two git spawns and no per-file Python: `read-tree` into a private temp
+    `GIT_INDEX_FILE`, then one `checkout-index --stdin -z` with parallel workers. The repo's own
+    index and work tree are never touched.
+
+    The payload is the blob's bytes (`core.autocrlf=false`, `core.eol=lf`; see
+    `_extract_git_archive`) and git modes come from the index, so 100755 survives on POSIX.
+    `--prefix` must be a forward-slash path ending in `/`, or git writes `<dest>name` siblings.
+    Raises `GitArchiveDeadlineError` past the deadlines and `GitMaterializeError` on a git failure."""
+    from coordinator_core.temp_layout import managed_tempdir  # noqa: PLC0415
+
+    fd, index_str = tempfile.mkstemp(prefix=f"claude-klabauter-publish-index-{os.getpid()}-", dir=managed_tempdir())
+    os.close(fd)
+    index = Path(index_str)
+    index.unlink()
+    env = {**os.environ, "GIT_INDEX_FILE": str(index)}
+    git = [
+        "git", "-C", str(toplevel),
+        "-c", "core.autocrlf=false", "-c", "core.eol=lf",
+        "-c", f"checkout.workers={max(1, (os.cpu_count() or 2) // 2)}",
+        "-c", "core.symlinks=false", "-c", "core.sparseCheckout=false",
+    ]
+    no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        start = time.perf_counter()
+        try:
+            try:
+                read = subprocess.run(
+                    [*git, "read-tree", sha],
+                    capture_output=True, text=True, encoding="utf-8", errors="replace",
+                    check=False, env=env, timeout=_GIT_ARCHIVE_DEADLINE_SECS, creationflags=no_window,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise GitArchiveDeadlineError(
+                    f"git read-tree {sha!r} of {toplevel} exceeded {_GIT_ARCHIVE_DEADLINE_SECS:.0f}s "
+                    f"deadline: killed after {time.perf_counter() - start:.1f}s"
+                ) from exc
+        finally:
+            print(
+                f"  [timing] {label}: read-tree: {time.perf_counter() - start:.3f}s ({toplevel}, {sha})",
+                file=sys.stdout,
             )
-        yield member
-        members += 1
-        size += member.size
+        if read.returncode != 0:
+            raise GitMaterializeError(
+                f"git read-tree {sha!r} failed for {toplevel} (exit {read.returncode}): {read.stderr.strip()}"
+            )
+        start = time.perf_counter()
+        stdin = b"".join(rel.encode("utf-8", "surrogateescape") + b"\0" for rel in rels)
+        try:
+            try:
+                out = subprocess.run(
+                    [*git, "checkout-index", "-f", "-z", "--stdin", f"--prefix={dest.as_posix().rstrip('/')}/"],
+                    input=stdin, capture_output=True, check=False, env=env,
+                    timeout=_GIT_EXTRACT_DEADLINE_SECS, creationflags=no_window,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise GitArchiveDeadlineError(
+                    f"extracting git tree {sha!r} of {toplevel} exceeded "
+                    f"{_GIT_EXTRACT_DEADLINE_SECS:.0f}s deadline: killed after "
+                    f"{time.perf_counter() - start:.1f}s with {_files_under(dest)} of {len(rels)} files written"
+                ) from exc
+        finally:
+            print(
+                f"  [timing] {label}: checkout-index: {time.perf_counter() - start:.3f}s ({dest})",
+                file=sys.stdout,
+            )
+        if out.returncode != 0:
+            raise GitMaterializeError(
+                f"git checkout-index {sha!r} failed for {toplevel} (exit {out.returncode}): "
+                f"{out.stderr.decode('utf-8', 'replace').strip()}"
+            )
+    finally:
+        index.unlink(missing_ok=True)
+        Path(f"{index}.lock").unlink(missing_ok=True)
+    return len(rels)
+
+
+def _paths_in_pathspec(tracked: "set", pathspec: "Sequence[str]") -> "List[str]":
+    """The sorted `tracked` paths a `:(literal)`-style `pathspec` selects: an entry matches a path
+    exactly or as a directory prefix (`entry + "/"`), never a bare string prefix. Empty pathspec
+    selects everything."""
+    entries = [e.removeprefix(":(literal)").rstrip("/") for e in pathspec]
+    if not entries:
+        return sorted(tracked)
+    return sorted(p for p in tracked if any(p == e or p.startswith(e + "/") for e in entries))
 
 
 @dataclass(frozen=True)
@@ -8887,13 +9074,16 @@ def _tracked_paths_at_sha(toplevel: Path, sha: str) -> "set":
     if cached is not None:
         return cached
     result = subprocess.run(
-        ["git", "-C", str(toplevel), "ls-tree", "-r", "--name-only", sha],
+        ["git", "-C", str(toplevel), "ls-tree", "-r", "--name-only", "-z", sha],
         capture_output=True,
-        text=True, encoding="utf-8", errors="replace",
         check=False,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
-    paths: "set" = set(result.stdout.splitlines()) if result.returncode == 0 else set()
+    paths: "set" = (
+        {p for p in result.stdout.decode("utf-8", "surrogateescape").split("\0") if p}
+        if result.returncode == 0
+        else set()
+    )
     _TRACKED_PATHS_AT_SHA_CACHE[key] = paths
     return paths
 
@@ -9168,7 +9358,8 @@ def _extract_git_archive(toplevel: Path, sha: str) -> Path:
     contributing root `setup/publish-targets.portable` names, every
     resolved inject `src` under this toplevel, and each covered root's own
     `.percolate-ignore` (named explicitly; § `_required_pathspec_for_toplevel`
-    docstring) — to a temp file, unpacked with `tarfile.extractall(filter=...)`.
+    docstring) — materialized by `_materialize_tree_paths` (`git read-tree` into a temp index, then
+    one `git checkout-index`), never a tar round trip.
 
     Pathspec-scoped is now the whole point (docs/plans/2026-08-21-the-
     payload-proves-itself-before-it-overwrites-the-engine.md C5): full-tree
@@ -9182,21 +9373,15 @@ def _extract_git_archive(toplevel: Path, sha: str) -> Path:
     narrowing WHICH of the archived files a given row actually publishes
     remains `build_allowlisted_source`'s job, unchanged.
 
-    `filter='tar'`, not `'data'`: `'data'` normalizes group/other
-    permission bits, and this repo tracks 561 files at mode `100755`
-    (all of `coordinator/bin/` and `bin/` — the payload of the
-    `claude-klabauter-bin` publish row), whose executable bit must survive
-    extraction byte-for-byte. `'tar'` still refuses absolute paths and `..`
-    traversal — the safety property that matters for an archive this
-    process produced itself. An explicit `filter=` is required regardless
-    of choice: `DeprecationWarning` on 3.12/3.13, default flips on 3.14.
+    This repo tracks 561 files at mode `100755` (all of `coordinator/bin/` and `bin/` — the payload
+    of the `claude-klabauter-bin` publish row); `checkout-index` carries the mode from the index.
 
     Never a `tar` subprocess — that shell-out site is not a member of the
     closed list in `docs/reference/shell-out-carve-outs.md`.
 
     `-c core.autocrlf=false -c core.eol=lf`: the payload is the blob's bytes,
     never one host's checkout of them. On a Windows host with the invoking
-    repo's eol config in play, a bare `git archive` applies the `text=auto`
+    repo's eol config in play, a bare checkout applies the `text=auto`
     smudge and materializes CRLF for a file whose blob is LF, making the
     payload depend on the publishing box's git config. Nothing downstream
     reliably undoes that: a mirror clone's `core.autocrlf` is whatever its
@@ -9235,96 +9420,22 @@ def _extract_git_archive(toplevel: Path, sha: str) -> Path:
     pathspec = _required_pathspec_for_toplevel(toplevel, sha)
     from coordinator_core.temp_layout import managed_tempdir  # noqa: PLC0415
 
-    managed = managed_tempdir()
+    rels = _paths_in_pathspec(_tracked_paths_at_sha(toplevel, sha), pathspec)
+    if not rels:
+        raise GitMaterializeError(
+            f"git tree {sha!r} of {toplevel} lists no tracked path under pathspec {list(pathspec)!r} "
+            "(empty or failed `git ls-tree`) — refusing to materialize an empty shadow"
+        )
     shadow_dir = Path(
-        tempfile.mkdtemp(prefix=f"claude-klabauter-publish-materialize-{os.getpid()}-", dir=managed)
+        tempfile.mkdtemp(prefix=f"claude-klabauter-publish-materialize-{os.getpid()}-", dir=managed_tempdir())
     )
-    fd, archive_path_str = tempfile.mkstemp(
-        prefix=f"claude-klabauter-publish-archive-{os.getpid()}-", suffix=".tar", dir=managed
-    )
-    os.close(fd)
-    archive_path = Path(archive_path_str)
     try:
-        try:
-            _git_archive_start = time.perf_counter()
-            try:
-                _archive_cmd = [
-                    "git",
-                    "-C",
-                    str(toplevel),
-                    "-c",
-                    "core.autocrlf=false",
-                    "-c",
-                    "core.eol=lf",
-                    "archive",
-                    "--format=tar",
-                    "-o",
-                    str(archive_path),
-                    sha,
-                ]
-                if pathspec:
-                    _archive_cmd += ["--", *pathspec]
-                try:
-                    result = subprocess.run(
-                        _archive_cmd,
-                        capture_output=True,
-                        text=True, encoding="utf-8", errors="replace",
-                        check=False,
-                        timeout=_GIT_ARCHIVE_DEADLINE_SECS,
-                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                    )
-                except subprocess.TimeoutExpired as exc:
-                    try:
-                        written = archive_path.stat().st_size
-                    except OSError:
-                        written = 0
-                    raise GitArchiveDeadlineError(
-                        f"git archive {sha!r} of {toplevel} exceeded "
-                        f"{_GIT_ARCHIVE_DEADLINE_SECS:.0f}s deadline: killed after "
-                        f"{time.perf_counter() - _git_archive_start:.1f}s with {written} bytes "
-                        "written"
-                    ) from exc
-            finally:
-                print(
-                    f"  [timing] _extract_git_archive: git archive: "
-                    f"{time.perf_counter() - _git_archive_start:.3f}s ({toplevel}, {sha})",
-                    file=sys.stdout,
-                )
-            if result.returncode != 0:
-                raise GitMaterializeError(
-                    f"git archive {sha!r} failed for {toplevel} (exit {result.returncode}): "
-                    f"{result.stderr.strip()}"
-                )
-            _extractall_start = time.perf_counter()
-            try:
-                with tarfile.open(archive_path) as archive:
-                    archive.extractall(
-                        path=shadow_dir,
-                        members=_members_within_deadline(
-                            archive, _extractall_start, toplevel, sha
-                        ),
-                        filter="tar",
-                    )
-            finally:
-                print(
-                    f"  [timing] _extract_git_archive: extractall: "
-                    f"{time.perf_counter() - _extractall_start:.3f}s ({shadow_dir})",
-                    file=sys.stdout,
-                )
-        except Exception:
-            # shadow_dir is created via
-            # mkdtemp above, before either failure mode below can occur. On
-            # a non-zero `git archive` or a tarfile raise (corrupt archive,
-            # disk full), shadow_dir was never returned to any caller, so it
-            # never enters _MATERIALIZED_REF_CACHE / GateResult.shadow_roots
-            # and is unreachable to _cleanup_shadow_roots — an orphaned temp
-            # dir on every failed materialization, contradicting AC9. Reclaim
-            # it here before re-raising, mirroring the archive_path.unlink
-            # pattern below.
-            shutil.rmtree(shadow_dir, ignore_errors=True)
-            raise
-    finally:
-        archive_path.unlink(missing_ok=True)
+        _materialize_tree_paths(toplevel, sha, rels, shadow_dir, label="_extract_git_archive")
+    except BaseException:
+        # A failed materialization never reaches _MATERIALIZED_REF_CACHE / _cleanup_shadow_roots,
+        # so the temp dir is reclaimed here.
+        shutil.rmtree(shadow_dir, ignore_errors=True)
+        raise
     return shadow_dir
 
 
@@ -9340,7 +9451,7 @@ def _seed_shadow_from_store(store: Any, toplevel: Path, sha: str, pathspec: "Seq
     A full extraction writes every file of the pathspec (~12 min of the C14f publish under
     on-access scanning); consecutive stamps differ by a handful. Hardlinks every file of the
     stored shadow, unlinks each path `git diff` names, and extracts the added/modified ones from
-    a `git archive` of just those paths, with `_extract_git_archive`'s eol flags. Returns None,
+    `_materialize_tree_paths` of just those paths, with `_extract_git_archive`'s eol flags. Returns None,
     leaving nothing behind, when no stored shadow qualifies or any step fails."""
     from coordinator_core.percolate.shadow_store import COMPLETE_MARKER  # noqa: PLC0415
     from coordinator_core.temp_layout import managed_tempdir  # noqa: PLC0415
@@ -9386,17 +9497,9 @@ def _seed_shadow_from_store(store: Any, toplevel: Path, sha: str, pathspec: "Seq
                 (shadow_dir / rel).unlink(missing_ok=True)
                 if status != "D":
                     wanted.append(rel)
-            # Batched: Windows caps a command line at 32k chars.
-            for i in range(0, len(wanted), 100):
-                arc = subprocess.run(
-                    [*git, "archive", "--format=tar", sha, "--", *wanted[i:i + 100]],
-                    capture_output=True, check=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                )
-                if arc.returncode != 0:
-                    raise OSError(arc.stderr.decode("utf-8", "replace").strip())
-                with tarfile.open(fileobj=io.BytesIO(arc.stdout)) as tar:
-                    tar.extractall(path=shadow_dir, filter="tar")
-        except OSError as exc:
+            if wanted:
+                _materialize_tree_paths(toplevel, sha, wanted, shadow_dir, label="_seed_shadow_from_store")
+        except (OSError, GitMaterializeError) as exc:
             shutil.rmtree(shadow_dir, ignore_errors=True)
             print(f"  [timing] _seed_shadow_from_store: seed from {prev.name} failed ({exc})", file=sys.stdout)
             return None
@@ -9409,7 +9512,7 @@ def _seed_shadow_from_store(store: Any, toplevel: Path, sha: str, pathspec: "Seq
     return None
 
 
-_PUBLISH_TEMP_RE = re.compile(r"^claude-klabauter-publish-(?:archive|materialize)-(?:(\d+)-)?")
+_PUBLISH_TEMP_RE = re.compile(r"^claude-klabauter-publish-(?:archive|materialize|index)-(?:(\d+)-)?")
 _LEGACY_PUBLISH_TEMP_MAX_AGE_S = 24 * 3600
 
 
@@ -9578,6 +9681,18 @@ def _resolve_round_commit(repo_root: Path, value: str) -> str:
     return sha
 
 
+def _engine_export_base() -> Path:
+    """Directory holding the per-sha engine exports. Runs before bootstrap: importing
+    coordinator_core here would fail, or cache the working-tree package over the export, so the
+    stdlib-only temp_layout is loaded by path."""
+    import importlib.util  # noqa: PLC0415
+    spec = importlib.util.spec_from_file_location(
+        "_publish_temp_layout", Path(__file__).resolve().parents[2] / "coordinator_core" / "temp_layout.py")
+    temp_layout = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(temp_layout)
+    return temp_layout.managed_tempdir() / "claude-klabauter-publish-engine"
+
+
 def _export_engine_at_ref(repo_root: Path, ref: str) -> Path:
     """Export the code a round imports at `ref` to a temp dir keyed by commit
     sha, reused across rounds. Two git spawns cold, one warm; the working tree
@@ -9592,18 +9707,12 @@ def _export_engine_at_ref(repo_root: Path, ref: str) -> Path:
     if rev.returncode != 0:
         raise RuntimeError(f"--commit {ref!r} does not resolve to a commit in {repo_root}")
     sha = rev.stdout.decode().strip()
-    # Runs before bootstrap: importing coordinator_core here would fail, or cache the
-    # working-tree package over the export. temp_layout is stdlib-only; load it by path.
-    import importlib.util  # noqa: PLC0415
-    spec = importlib.util.spec_from_file_location(
-        "_publish_temp_layout", Path(__file__).resolve().parents[2] / "coordinator_core" / "temp_layout.py")
-    temp_layout = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(temp_layout)
-
-    base = temp_layout.managed_tempdir() / "claude-klabauter-publish-engine"
+    base = _engine_export_base()
     dest = base / sha
-    if (dest / "coordinator_core").is_dir():
+    if _export_is_complete(dest, sha):
         return dest
+    if dest.exists():
+        shutil.rmtree(dest, ignore_errors=True)
     base.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f"{sha[:12]}-", dir=base))
     try:
@@ -9613,10 +9722,11 @@ def _export_engine_at_ref(repo_root: Path, ref: str) -> Path:
                 raise RuntimeError(f"git archive {sha} failed: {arc.stderr.decode(errors='replace').strip()}")
             with tarfile.open(fileobj=io.BytesIO(arc.stdout)) as tar:
                 tar.extractall(path=staging, filter="tar")
+        _write_export_marker(staging, sha)
         try:
             os.replace(staging, dest)
         except OSError:
-            if not (dest / "coordinator_core").is_dir():
+            if not _export_is_complete(dest, sha):
                 raise
             shutil.rmtree(staging, ignore_errors=True)
     except BaseException:
@@ -9630,6 +9740,45 @@ def _export_engine_at_ref(repo_root: Path, ref: str) -> Path:
 # so a new export hardlinks the newest cached one and rewrites only the diff.
 _EXPORT_SEED_CANDIDATES = 3
 _EXPORT_SEED_MAX_CHANGES = 500
+_EXPORT_MARKER_NAME = ".export-complete"
+_EXPORT_SHA_RE = re.compile(r"[0-9a-f]{40}")
+
+
+def _export_recorded_paths(root: Path) -> List[str]:
+    """Each exported top path plus its entries two levels down, as posix paths relative to `root`.
+    Depth-2 only: a purge that empties files below a depth-2 directory still passes `_export_is_complete`."""
+    recorded: List[str] = []
+    for top in _SOURCE_REF_IMPORTED_PATHS:
+        if not (root / top).is_dir():
+            continue
+        recorded.append(top)
+        for n in sorted(os.listdir(root / top)):
+            if n == "__pycache__":
+                continue
+            entry = f"{top}/{n}"
+            recorded.append(entry)
+            if (root / entry).is_dir():
+                recorded.extend(f"{entry}/{m}" for m in sorted(os.listdir(root / entry)) if m != "__pycache__")
+    return recorded
+
+
+def _write_export_marker(root: Path, sha: str) -> None:
+    """Last step of an export: record the sha and the exported path set."""
+    (root / _EXPORT_MARKER_NAME).write_text(
+        json.dumps({"sha": sha, "paths": _export_recorded_paths(root)}), encoding="utf-8")
+
+
+def _export_is_complete(root: Path, sha: str) -> bool:
+    """True when `root` carries a marker naming `sha` and every recorded path still exists.
+    Bounded: one marker read plus one stat per recorded path, never a tree walk."""
+    try:
+        marker = json.loads((root / _EXPORT_MARKER_NAME).read_text(encoding="utf-8"))
+        paths = marker["paths"]
+        if marker["sha"] != sha or not isinstance(paths, list) or not all(isinstance(p, str) for p in paths):
+            return False
+        return "coordinator_core" in paths and all((root / p).exists() for p in paths)
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
 
 
 def _seed_export_from_cache(git: Callable[..., "subprocess.CompletedProcess[bytes]"], base: Path, sha: str, staging: Path) -> bool:
@@ -9641,10 +9790,15 @@ def _seed_export_from_cache(git: Callable[..., "subprocess.CompletedProcess[byte
     Returns False, leaving `staging` empty, when no cached export is within
     `_EXPORT_SEED_MAX_CHANGES` or a link fails; the caller then does the full export."""
     try:
-        cached = sorted(
-            (d for d in base.iterdir() if len(d.name) == 40 and d.name != sha and (d / "coordinator_core").is_dir()),
-            key=lambda d: d.stat().st_mtime, reverse=True,
-        )[:_EXPORT_SEED_CANDIDATES]
+        cached = []
+        for d in base.iterdir():
+            if not _EXPORT_SHA_RE.fullmatch(d.name) or d.name == sha or not d.is_dir():
+                continue
+            if _export_is_complete(d, d.name):
+                cached.append(d)
+            else:
+                shutil.rmtree(d, ignore_errors=True)
+        cached = sorted(cached, key=lambda d: d.stat().st_mtime, reverse=True)[:_EXPORT_SEED_CANDIDATES]
     except OSError:
         return False
     for prev in cached:
@@ -9661,6 +9815,8 @@ def _seed_export_from_cache(git: Callable[..., "subprocess.CompletedProcess[byte
                 out = staging / os.path.relpath(root, prev)
                 out.mkdir(parents=True, exist_ok=True)
                 for name in files:
+                    if name == _EXPORT_MARKER_NAME and root == str(prev):
+                        continue
                     os.link(os.path.join(root, name), out / name)
             wanted = []
             for status, rel in changes:
@@ -15973,8 +16129,12 @@ def _run_round(
                 round_pinned_shas=round_pinned_shas,
             )
         with _time_phase(round_timings, "<round>", "dispatch_end_of_run_install_doc_payload_check"):
+            not_published_names = [*failed_row_names, *skipped_row_names]
             install_doc_ok = dispatch_end_of_run_install_doc_payload_check(
-                cold_gate_roots, target_filtered=target_filtered
+                cold_gate_roots,
+                target_filtered=target_filtered,
+                rows_by_repo_root=gate_rows_by_root,
+                skipped_row_names=not_published_names,
             )
             for repo_root, u in active.items():
                 if u.cold:
@@ -15982,7 +16142,12 @@ def _run_round(
                 view = _warm_install_doc_view(repo_root, u.union_root, u.deletions)
                 scratch_dirs.append(view)
                 install_doc_ok = (
-                    dispatch_end_of_run_install_doc_payload_check([view], target_filtered=target_filtered)
+                    dispatch_end_of_run_install_doc_payload_check(
+                        [view],
+                        target_filtered=target_filtered,
+                        rows_by_repo_root={view: gate_rows_by_root.get(u.union_root, [])},
+                        skipped_row_names=not_published_names,
+                    )
                     and install_doc_ok
                 )
         with _time_phase(round_timings, "<round>", "dispatch_end_of_run_unscanned_published_check"):
@@ -16046,9 +16211,12 @@ def _run_round(
                     _plugin_version_stamp_gate_staged(repo_root, u, end_of_run_rows_by_repo_root.get(repo_root, []))
                     and plugin_provenance_ok
                 )
+        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_unimatrix_inbound_gate"):
+            unimatrix_inbound_ok = dispatch_end_of_run_unimatrix_inbound_gate()
         gates_ok = (
             plugin_payload_ok
             and plugin_provenance_ok
+            and unimatrix_inbound_ok
             and identity_ok
             and install_doc_ok
             and unscanned_ok

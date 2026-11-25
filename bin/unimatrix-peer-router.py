@@ -138,6 +138,27 @@ def _contract():
     return _core_module("protocol")
 
 
+def _box_id_aliases(row) -> list:
+    """`<stem>.<box id>` for a far mirror whose label is not the box id (an address label such as
+    `name.192-168-0-192`), so `<name>.machine-a` reaches it. Empty for a row with no far markers or box."""
+    if not isinstance(row, dict) or not any(row.get(k) for k in ("unimatrixRemote", "macSocketPath", "unimatrixBox", "unimatrixFarName")):
+        return []
+    own = row.get("name")
+    if not isinstance(own, str) or "." not in own:
+        return []
+    stem = own.partition(".")[0]
+    far = row.get("unimatrixFarName")
+    stems = {stem, *([far.partition(".")[0]] if isinstance(far, str) and far else [])}
+    boxes = set()
+    for key in ("unimatrixBox", "box", "unimatrixRemote"):
+        value = row.get(key)
+        if isinstance(value, str) and value.strip():
+            boxid = _contract().box_id(value)
+            if boxid and not _contract().is_ip_literal(boxid):
+                boxes.add(boxid)
+    return [f"{s}.{b}" for s in sorted(stems) for b in sorted(boxes)]
+
+
 def _transport():
     """The local transport module (sockets, named pipes, process locks), loaded on first use."""
     return _core_module("transport")
@@ -503,6 +524,11 @@ NOT_DELIVERED_PREFIXES = ("[unimatrix-peer-agy] not delivered", "[unimatrix-peer
 _MIRROR_MARKERS = ("unimatrixRemote", "macSocketPath", "unimatrixMirror", "farPid")
 
 
+def _push_only_mirror(entry) -> bool:
+    """True for a relay-pushed mirror row: a socket forwarding onto the far relay's push channel, no bridge behind it."""
+    return bool(entry.get("unimatrixMirror")) and not (entry.get("unimatrixRemote") or entry.get("macSocketPath"))
+
+
 def _far_alias_is_stale(entry):
     """True when `entry` is a Claude mirror registered under another far session's name.
 
@@ -532,7 +558,7 @@ def not_delivered(reply):
     return str(reply or "").lstrip().startswith(NOT_DELIVERED_PREFIXES)
 
 
-def wrap_inbound(sender, body, reply_to=None):
+def wrap_inbound(sender, body, reply_to=None) -> str:
     """What a peer sees: `[<sender>] <body>` plus a trailer naming the sender and the exact reply command.
 
     `reply_to` overrides the --to address when the sender itself cannot be queued (a Codex v2 sub-agent).
@@ -543,13 +569,16 @@ def wrap_inbound(sender, body, reply_to=None):
     if sys.platform == "win32":
         # PowerShell call-operator form; a peer driving a POSIX shell on Windows cannot run it.
         quote = lambda value: "'" + str(value).replace("'", "''") + "'"
+        # Paths may carry spaces and are always quoted; a PowerShell-safe address stays bare, as shlex.quote leaves it.
+        quote_address = lambda value: (
+            str(value) if re.fullmatch(r"[A-Za-z0-9_.:/][A-Za-z0-9_.:/-]*", str(value)) else quote(value))
         send = f"& {quote(sys.executable)} {quote(here() / SEND_SCRIPT)}"
     else:
-        quote = shlex.quote
+        quote = quote_address = shlex.quote
         send = f"{quote(sys.executable)} {quote(str(here() / SEND_SCRIPT))}"
     return (f"[{sender}] {body}\n\nFrom agent {sender}, not the PM. "
             f"Never answer them in plain text to the human at your keyboard. "
-            f"Reply to them with: {send} --to {quote(str(reply_to or sender))} '<your reply>'")
+            f"Reply to them with: {send} --to {quote_address(str(reply_to or sender))} '<your reply>'")
 
 
 def routable_from(frame, name):
@@ -721,6 +750,29 @@ class Registration:
         return (previous is not None and time.monotonic() < deadline
                 and secrets.compare_digest(token.encode("utf-8"), previous.encode("utf-8")))
 
+    def refusal(self, token) -> str:
+        """The refusal text for a rejected `token`: which side's authorization failed, and the command that clears it."""
+        try:
+            raw = Path(self.key).read_text(encoding="utf-8").strip()
+            try:
+                parsed = json.loads(raw)
+                on_disk = parsed.get("peerToken") if isinstance(parsed, dict) else None
+            except ValueError:
+                on_disk = raw
+        except OSError:
+            on_disk = None
+        if not isinstance(token, str) or not token:
+            side = ("sender side: no token presented; the router could not read this face's key "
+                    f"under {self.sessions_dir}")
+        elif not isinstance(on_disk, str) or not on_disk:
+            side = f"face side: key file {self.key} is unreadable"
+        elif not secrets.compare_digest(on_disk.encode("utf-8"), self.token.encode("utf-8")):
+            side = f"face side: key file {self.key} disagrees with the live token"
+        else:
+            side = "sender side: the token held is stale (rotated or from an older face)"
+        return (f"not delivered: auth ({side}); clear: "
+                f'"{sys.executable}" "{here() / _ROUTER_NAME}" --restart')
+
     def rotate(self, grace_s) -> float:
         """Mint a new token, accept {old,new} first, then replace the key file; returns the wall-clock grace deadline.
 
@@ -800,7 +852,7 @@ async def run_face(name, endpoint, forward, sessions_dir, cwd=None, transport=Fa
             if not reg.accepts(token):
                 # Silence is acceptance, so a refusal must be written.
                 try:
-                    writer.write((json.dumps({"ok": False, "error": "not delivered: auth"}) + "\n").encode("utf-8"))
+                    writer.write((json.dumps({"ok": False, "error": reg.refusal(token)}) + "\n").encode("utf-8"))
                     await writer.drain()
                 except OSError:
                     pass
@@ -1593,14 +1645,17 @@ class Router:
             ready[name] = ok
         return ready
 
-    def roster_rows(self, sender="cli", ready=None):
+    def roster_rows(self, sender="cli", ready=None) -> tuple:
         """(reachable names, one {name, box, vendor} row per reachable name).
+
+        A name backed only by relay-pushed mirror rows carries `mirror_only: True`: no live session is
+        evidenced behind it, so a listing never calls it ready.
 
         Reachable: a peer that is ready, or an external roster session whose registered endpoint
         exists; never `sender` itself. This is the set a send from `sender` can resolve now.
         """
         ready = self.peer_readiness() if ready is None else ready
-        entries = {}
+        entries, backed = {}, set()
         try:
             files = os.listdir(self.sessions_dir)
         except FileNotFoundError:
@@ -1618,6 +1673,8 @@ class Router:
                     or entry.get("unimatrixTransport") or not isinstance(entry.get("pid"), int)
                     or not _roster().pid_alive(entry["pid"]) or not self.external_codex_sendable(entry)):
                 continue
+            if not _push_only_mirror(entry):
+                backed.add(name)
             if name in entries and (entry.get("startedAt") or 0) < (entries[name].get("startedAt") or 0):
                 continue
             entries[name] = entry
@@ -1631,7 +1688,8 @@ class Router:
         box = contract.local_box()
         rows = [{"name": n, "box": box, "vendor": self.peers[n]["vendor"], "this_box": True,
                  **({"stale": True} if self.peer_stale(n) else {})} if n in self.peers
-                else contract.agent_row(entries[n], box) for n in sorted(names)]
+                else {**contract.agent_row(entries[n], box),
+                      **({"mirror_only": True} if n not in backed else {})} for n in sorted(names)]
         for n, marker in sorted(self.stale_mirror_markers().items()):
             if n != sender and n not in names:
                 names.add(n)
@@ -2186,7 +2244,8 @@ class Router:
                     e = json.load(fh)
             except (OSError, ValueError):
                 continue
-            if (not isinstance(e, dict) or name not in [*_contract().mirror_addresses(e), *_contract().projected_addresses(e)]
+            if (not isinstance(e, dict) or name not in [*_contract().mirror_addresses(e), *_contract().projected_addresses(e),
+                                                        *_box_id_aliases(e)]
                     or name in self.peers or name in self.transport_sources):
                 continue
             ep, pid = e.get("messagingSocketPath"), e.get("pid")
@@ -2199,7 +2258,9 @@ class Router:
                 refused_identity = True
                 continue
             owned_alias = owned_alias or name in _contract().projected_addresses(e)
-            owner = (e.get('vendor'), e.get('target') or e.get('sessionId') or ep)
+            # A Claude Code row carries no vendor; a relay-pushed mirror of the same session must not
+            # read as a second owner beside the bridge mirror that stamps vendor "claude".
+            owner = (e.get('vendor') or 'claude', e.get('target') or e.get('sessionId') or ep)
             owners.add(owner)
             ep_owners.setdefault(ep, set()).add(owner)
             (exact if e.get("name") == name else aliases).add(ep)
@@ -2221,7 +2282,8 @@ class Router:
             # is one address, not ambiguity: prefer the bridge mirror, then the exact name.
             matches = {min(matches, key=lambda ep: (not rows_by_ep[ep].get("unimatrixFarName"), ep not in exact, ep))}
         if len(matches) > 1:
-            self.last_refusal = f"ambiguous: {len(matches)} live sessions carry this name"
+            named = ", ".join(sorted(f"{rows_by_ep[ep].get('name')}@{ep}" for ep in matches))
+            self.last_refusal = f"ambiguous: {len(matches)} live sessions carry this name: {named}"
             return ""  # An exact name never beats a far alias: both are live carriers of the address.
         self.last_resolved_far = bool(matches) and matches <= far_eps
         if matches:

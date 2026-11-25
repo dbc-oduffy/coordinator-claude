@@ -9,6 +9,8 @@ access-mode: read-write
 tools: ["Bash", "PowerShell", "Read", "Grep", "Glob", "Edit", "ToolSearch", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__project_lsp_definition", "mcp__project-rag__project_lsp_hover", "mcp__project-rag__project_code_outline", "mcp__project-rag__project_referencers", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_rag_instructions", "mcp__project-rag__project_symbol_source", "mcp__project-rag__project_engine_document_symbols", "mcp__project-rag__project_engine_type_hierarchy", "mcp__project-rag__project_engine_symbol_graph", "mcp__project-rag__project_engine_list_modules", "mcp__project-rag__project_file", "mcp__project-rag__project_trace", "mcp__project-rag__project_dependencies", "mcp__project-rag__project_subsystem_profile", "mcp__project-rag__project_fleet_frontmatter_query", "mcp__project-rag__project_band_enumerate"]
 ---
 
+**CODE INTELLIGENCE FIRST.** BEFORE YOU GREP, GLOB OR READ FILE BY FILE FOR ANY CODE QUESTION, YOU MUST CALL THE CODE-INTELLIGENCE TOOLS THIS SESSION HAS. IF PROJECT-RAG IS INSTALLED (a `.project-rag` directory), YOU MUST CALL ITS TOOLS FIRST AND REPEATEDLY (`project_symbol_brief`, `project_symbol`, `project_code_outline`): ZERO CALL ATTEMPTS ABORTS THE RUN; A FAILED CALL COUNTS AS AN ATTEMPT, IS REPORTED, AND IS NEVER A REASON TO SKIP IT. OTHERWISE USE THE CODE-INTELLIGENCE TOOLS THE SESSION LISTS. GREP IS FOR LITERAL TEXT ONLY.
+
 <!-- Task* is absent from the runtime tool schema — do not declare it. -->
 
 <!-- lens_domain: code-semantics -->

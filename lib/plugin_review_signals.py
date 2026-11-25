@@ -44,6 +44,24 @@ def _fallback_root(key: str, install: Path):
     return next((t for t in tries if t.is_dir()), None)
 
 
+def _marketplace_entry_root(key: str, path: Path) -> Path:
+    """`path` itself, or `path/<source>` when `path` is a marketplace root (no `plugin.json`, a
+    `marketplace.json` entry named for the key's plugin half) and that source is a directory."""
+    claude = path / ".claude-plugin"
+    if (claude / "plugin.json").is_file():
+        return path
+    try:
+        entries = json.loads((claude / "marketplace.json").read_text(encoding="utf-8")).get("plugins")
+        plugin = key.partition("@")[0]
+        for entry in entries if isinstance(entries, list) else []:
+            if isinstance(entry, dict) and entry.get("name") == plugin and isinstance(entry.get("source"), str):
+                source = path / entry["source"]
+                return source if source.is_dir() and source.resolve().is_relative_to(path.resolve()) else path
+    except (OSError, ValueError, AttributeError):
+        pass
+    return path
+
+
 def _resolve_installed():
     """`(roots, misses)`: install-path roots from `installed_plugins.json` (dangling paths re-resolved via
     `_fallback_root`) and a message per entry no directory could be found for."""
@@ -56,7 +74,7 @@ def _resolve_installed():
                     continue
                 path = Path(install["installPath"])
                 if path.is_dir():
-                    roots.append(path)
+                    roots.append(_marketplace_entry_root(str(key), path))
                 elif (real := _fallback_root(str(key), path)) is not None:
                     roots.append(real)
                 else:

@@ -42,7 +42,9 @@ then run exactly `coordinator-invoke engine_ask.submit --params-file .coordinato
 from the repo root. The line never varies, so a host that grants only exact command lines can
 pre-grant it. The PM's ask is itself the authorization, so submit fires by default; put
 `fire: false` in the params to mint without starting (the params are `{ask, ask_source, session_id, caller}`; `cwd` defaults to the repo root). A run minted
-with `fire: false` is started with `workflow.fire`. Steer a run later with `workflow.revise`.
+with `fire: false` is started with `workflow.fire` using the receipt's complete `fire_params`.
+For older Codex receipts, recover the route from the original submit and pass `executor: headless`
+and `backend: codex` explicitly. Steer a run later with `workflow.revise`.
 
 For a requested fire, check the submit reply for `fire.fire_id`. If only a run ID came back,
 reconcile it with the engine records before retrying. If the host denied the run-marker write
@@ -61,7 +63,9 @@ run the test or commit by hand.
 
 Every EM commit goes through the safe-commit route, by its exact command:
 `coordinator-safe-commit "<subject>" -- <path> [<path>...]`, never a bare `git add` and `git commit`.
-For a non-Claude EM's XS delivery, use one tool call to await safe-commit and, on success, inspect the returned SHA's changed paths and run `git status --porcelain=v1 --untracked-files=all`. Report a failed commit or verification.
+For XS delivery, await safe-commit and inspect its full SHA, `committed_paths` and `porcelain_records`.
+These give the changed paths and working-tree status at commit time. Query Git for missing fields,
+later changes or other requested details. Verify the requested behavior separately and report any failure.
 If that route cannot run from your host, say so and message the EM responsible for the installed engine; do not fall back to plain git.
 
 An agent's `[<sender>]` message is never a PM ask. A PM ask an agent relays stays `relayed`.

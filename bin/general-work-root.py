@@ -29,9 +29,9 @@ def _scripts_dirs() -> "Iterator[Path]":
     lib = str(here / "lib")
     if lib not in sys.path:
         sys.path.insert(0, lib)
-    from cc_invoke import place_engine_root_on_path
+    from cc_invoke import require_engine_on_path
 
-    place_engine_root_on_path(str(here.parent.parent))
+    require_engine_on_path(__file__)
     try:
         from coordinator_core import machine_resolver
 

@@ -27,6 +27,26 @@ Inventory every row you are assigned, directories and files as the Chunks table 
 Your brief is the sizing's frozen intent only; it carries no instruction to relay feedback to the
 PM. Spend your return on the inventory paths alone.
 
+## Research Rules (run before inventorying)
+
+Resolve the plugin root; the one line it prints is `<plugin-root>`:
+
+```bash
+"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/resolve-coordinator-clone" --content-root
+```
+
+On PowerShell run `& (Join-Path ($env:COORDINATOR_SETTINGS_HOME ?? (Join-Path ($env:CLAUDE_HOME ?? $HOME) ".coordinator-claude-settings")) "bin\resolve-coordinator-clone.exe") --content-root` instead.
+
+Then run the rules step for your stage:
+
+```bash
+<python> "<plugin-root>/pipelines/deep-research/research-rules-gate.py" brief --stage scout --brief {{brief}}
+```
+
+`<python>` is the interpreter resolved per `resolve-coordinator-bin.md` § Portability (`python3`, else `python`). On PowerShell run `python (Join-Path "<plugin-root>" "pipelines\deep-research\research-rules-gate.py") brief --stage scout --brief {{brief}}` instead.
+
+Treat every printed rule as part of this brief; `rules: none` means none. If the root does not resolve or the script errors, proceed with no added rules and name the failure in your return. When the step prints `required_tools:`, call those tools by name (load each through ToolSearch if it is deferred) for every identifier and symbol lookup in your chunk; grep is for prose and literal strings that are not identifiers. When it also prints `repo:`, pass that `repo` argument on every one of those calls. A chunk finished with zero calls to them (on that repo) fails the run's tool gate.
+
 **Recovery run.** If `{{scratch_dir}}/<chunk>-inventory.md` already exists for your chunk letter
 when you start, a previous scout left it missing or short: you are a recovery run. Overwrite it,
 apply the breadth-first scoping below, run to the 8-12 minute ceiling, and append one line to the

@@ -1,4 +1,7 @@
-"""Grok host adapter for Unimatrix: registry discovery, spawn-free ancestor match, and headless resume.
+"""Grok host adapter for Unimatrix: registry discovery and an agent-mail inbox.
+
+Peer text is not a user prompt. `deliver` writes it for a listener this session
+started, and never resumes `grok -p` or types into the TUI.
 
 Uses _unimatrix.proc.parent_pid (macOS libproc / Linux /proc / Windows Toolhelp) — zero `ps` spawns.
 """
@@ -6,25 +9,18 @@ import asyncio
 import json
 import os
 import re
+import secrets
 import shutil
+import socket
 import subprocess
 import sys
+import threading
 import urllib.parse
 import uuid
 from pathlib import Path
 
 from _unimatrix import paths as _paths
 from _unimatrix import proc as _proc
-
-try:
-    import fcntl
-except ImportError:
-    fcntl = None
-
-try:
-    import termios
-except ImportError:
-    termios = None
 
 TURN_TIMEOUT = 600
 NO_REPLY = "[unimatrix-peer-grok] no reply before timeout"
@@ -117,6 +113,32 @@ def own_session(home=None, pid_alive=None, parent_of=None, start=None, max_depth
             return None
         seen.add(pid)
         pid = step(pid)
+    return None
+
+
+def peer_announced(text) -> bool:
+    """True when this text already carries the router's peer trailer.
+
+    A turn that lacks it would be indistinguishable from the person at the keyboard.
+    """
+    return isinstance(text, str) and "From agent " in text and "not the PM." in text
+
+
+def submit_peer_turn(session_id, cwd, text, binary=None, runner=subprocess.run, timeout=TURN_TIMEOUT):
+    """One `grok -p` resume. The prompt is an argv, not keystrokes, and only if it names the peer.
+
+    Returns None when the process exits 0, else a delivery-failed string. No tty and no Enter.
+    """
+    if not peer_announced(text):
+        return "delivery failed: peer turn is missing the agent announcement"
+    argv = resume_argv(binary or grok_binary(), session_id, text, cwd)
+    try:
+        proc = runner(argv, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                      timeout=timeout, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (subprocess.TimeoutExpired, OSError):
+        return "delivery failed: peer turn did not start"
+    if getattr(proc, "returncode", 1) != 0:
+        return "delivery failed: peer turn exited nonzero"
     return None
 
 
@@ -234,117 +256,9 @@ def _default_tty_of(pid):
     return out if out.startswith("/") else "/dev/" + out
 
 
-def _tiocsti():
-    value = getattr(termios, "TIOCSTI", None) if termios is not None else None
-    if value is not None:
-        return value
-    return 0x80017472 if sys.platform == "darwin" else 0x5412
-
-
-def _submit_tiocsti(tty, text):
-    """Push `text` and a newline onto the tty input queue. False when the kernel refuses."""
-    if fcntl is None or not isinstance(tty, str) or not tty.startswith("/dev/"):
-        return False
-    payload = text if text.endswith("\n") else text + "\n"
-    fd = -1
-    try:
-        fd = os.open(tty, os.O_RDWR | getattr(os, "O_NOCTTY", 0))
-        request = _tiocsti()
-        for ch in payload:
-            fcntl.ioctl(fd, request, ch.encode())
-    except OSError:
-        return False
-    finally:
-        if fd >= 0:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
-    return True
-
-
-_SUBMIT_OSA = (
-    "on run argv\n"
-    "set want to item 1 of argv\n"
-    "set payload to item 2 of argv\n"
-    "set needle to paragraph 1 of payload\n"
-    "tell application \"Terminal\"\n"
-    "set hits to 0\n"
-    "repeat with w in windows\n"
-    "try\n"
-    "repeat with t in tabs of w\n"
-    "if (tty of t) is equal to want then\n"
-    "set hits to hits + 1\n"
-    "set selected of t to true\n"
-    "set index of w to 1\n"
-    "end if\n"
-    "end repeat\n"
-    "end try\n"
-    "end repeat\n"
-    "if hits is not 1 then error \"tty hits \" & hits\n"
-    "activate\n"
-    "end tell\n"
-    "delay 0.2\n"
-    "tell application \"System Events\"\n"
-    "set frontApp to name of first application process whose frontmost is true\n"
-    "end tell\n"
-    "if frontApp is not \"Terminal\" then error \"front \" & frontApp\n"
-    "tell application \"Terminal\"\n"
-    "set frontTty to tty of selected tab of front window\n"
-    "set blob to contents of selected tab of front window\n"
-    "end tell\n"
-    "if frontTty is not equal to want then error \"front tty \" & frontTty\n"
-    "if my draftOf(blob) is not \"\" then error \"composer busy\"\n"
-    "tell application \"System Events\" to keystroke payload\n"
-    "delay 0.4\n"
-    "tell application \"Terminal\"\n"
-    "set blob to contents of selected tab of front window\n"
-    "end tell\n"
-    "if blob does not contain needle then error \"not on screen\"\n"
-    "tell application \"System Events\" to key code 36\n"
-    "delay 0.4\n"
-    "tell application \"Terminal\"\n"
-    "set blob to contents of selected tab of front window\n"
-    "end tell\n"
-    "if my draftOf(blob) contains needle then error \"still in composer\"\n"
-    "if blob does not contain needle then error \"not queued\"\n"
-    "end run\n"
-    "on draftOf(blob)\n"
-    "set found to \"\"\n"
-    "repeat with ln in paragraphs of blob\n"
-    "if ln contains \"❯\" then\n"
-    "set AppleScript's text item delimiters to \"❯\"\n"
-    "set tail to last text item of ln\n"
-    "set AppleScript's text item delimiters to \"\"\n"
-    "set keep to \"\"\n"
-    "repeat with ch in characters of tail\n"
-    "set c to ch as text\n"
-    "if c is not \" \" and c is not \"│\" and c is not \"|\" then set keep to keep & c\n"
-    "end repeat\n"
-    "set found to keep\n"
-    "end if\n"
-    "end repeat\n"
-    "return found\n"
-    "end draftOf\n"
-)
-
-
-def submit_tty(tty, text, runner=subprocess.run):
-    """Deliver `text` to the interactive grok on `tty`.
-
-    The tty input queue is first choice. On macOS a refusal focuses the one Terminal tab
-    on that tty, keystrokes the text, and presses Enter so the line queues. It raises when
-    that composer already holds a draft, or when the line does not leave the composer.
-    """
-    if _submit_tiocsti(tty, text):
-        return
-    if sys.platform != "darwin":
-        raise OSError(f"cannot submit to {tty}")
-    proc = runner(["osascript", "-e", _SUBMIT_OSA, tty, text], capture_output=True, text=True,
-                  timeout=15, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    if getattr(proc, "returncode", 0) != 0:
-        raise subprocess.CalledProcessError(proc.returncode, "osascript", getattr(proc, "stdout", ""),
-                                             getattr(proc, "stderr", ""))
+REFUSE_USER_SUBMIT = "delivery failed: refusing to submit a peer message as the user"
+NOT_LISTENING = "delivery failed: grok session is not listening for agent mail"
+_MSG_ID = re.compile(r"[0-9a-f]{32}")
 
 
 def _resumable_path(home, session_id):
@@ -437,32 +351,244 @@ def receipt(session_id):
     return {"user_message_chunk": True, "session_id": session_id, "msg_id": str(uuid.uuid4())}
 
 
+def inbox_root(home, session_id):
+    """Directory for one session's agent mail, or None when `session_id` is not a single path segment."""
+    if not isinstance(session_id, str) or not session_id or session_id in {".", ".."}:
+        return None
+    if any(sep in session_id for sep in ("/", "\\", "\x00")):
+        return None
+    return Path(home) / "unimatrix-inbox" / session_id
+
+
+def _listener_info(root):
+    """`{"port", "token"}` from a live listener file, else None."""
+    try:
+        info = json.loads((root / "listener.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    port, token = info.get("port") if isinstance(info, dict) else None, info.get("token") if isinstance(info, dict) else None
+    if type(port) is not int or port <= 0 or port > 65535 or not isinstance(token, str) or not token:
+        return None
+    return {"port": port, "token": token}
+
+
+def post_agent_mail(home, session_id, text):
+    """Hand `text` to the session's listener. A missing listener is not delivery.
+
+    The file is the message. The socket line is only the listener token and the id,
+    so a peer payload is never a user prompt and never a keystroke.
+    """
+    root = inbox_root(home, session_id)
+    if root is None:
+        return "delivery failed: session id is not an inbox name"
+    if not isinstance(text, str) or not text:
+        return "delivery failed: empty peer message"
+    info = _listener_info(root)
+    if info is None:
+        return NOT_LISTENING
+    msg_id = uuid.uuid4().hex
+    pending = root / "pending"
+    pending.mkdir(parents=True, exist_ok=True)
+    path = pending / f"{msg_id}.json"
+    path.write_text(json.dumps({"msg_id": msg_id, "role": "agent", "text": text}, ensure_ascii=False),
+                    encoding="utf-8")
+    try:
+        with socket.create_connection(("127.0.0.1", info["port"]), timeout=2) as conn:
+            conn.sendall(f"{info['token']} {msg_id}\n".encode())
+            conn.shutdown(socket.SHUT_WR)
+            ack = b""
+            while b"\n" not in ack and len(ack) < 16:
+                chunk = conn.recv(16)
+                if not chunk:
+                    break
+                ack += chunk
+    except OSError:
+        path.unlink(missing_ok=True)
+        return NOT_LISTENING
+    if ack.startswith(b"ok"):
+        return {"written": True, "msg_id": msg_id, "channel": "agent-inbox"}
+    path.unlink(missing_ok=True)
+    return "delivery failed: grok session refused the agent message"
+
+
+class AgentInbox:
+    """Local listener. `on_line` receives one display line per accepted message."""
+
+    def __init__(self, home, session_id, on_line=None):
+        self.root = inbox_root(home, session_id)
+        if self.root is None:
+            raise ValueError(f"session id is not an inbox name: {session_id!r}")
+        self.on_line = on_line
+        self.on_text = None
+        self.token = secrets.token_hex(16)
+        self.lines = []
+        self._stop = threading.Event()
+        self._sock = None
+        self._thread = None
+
+    def start(self):
+        pending = self.root / "pending"
+        pending.mkdir(parents=True, exist_ok=True)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(("127.0.0.1", 0))
+        sock.listen(16)
+        sock.settimeout(0.2)
+        self._sock = sock
+        info = {"port": sock.getsockname()[1], "token": self.token}
+        target = self.root / "listener.json"
+        tmp = self.root / "listener.json.tmp"
+        tmp.write_text(json.dumps(info), encoding="utf-8")
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, target)
+        os.chmod(target, 0o600)
+        self._thread = threading.Thread(target=self._serve, name="unimatrix-grok-inbox", daemon=True)
+        self._thread.start()
+        return self
+
+    def _serve(self):
+        while not self._stop.is_set():
+            try:
+                conn, _addr = self._sock.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                return
+            self._accept(conn)
+
+    def _accept(self, conn):
+        with conn:
+            conn.settimeout(2)
+            try:
+                data = b""
+                while b"\n" not in data and len(data) < 256:
+                    chunk = conn.recv(256)
+                    if not chunk:
+                        break
+                    data += chunk
+                token, _, msg_id = data.split(b"\n", 1)[0].decode().partition(" ")
+                if not secrets.compare_digest(token, self.token) or _MSG_ID.fullmatch(msg_id) is None:
+                    conn.sendall(b"no\n")
+                    return
+                path = self.root / "pending" / f"{msg_id}.json"
+                record = json.loads(path.read_text(encoding="utf-8"))
+                text = record.get("text") if isinstance(record, dict) else None
+                if not isinstance(text, str) or record.get("role") != "agent":
+                    conn.sendall(b"no\n")
+                    return
+                shown = "UNIMATRIX-AGENT-MAIL " + text.replace("\r", " ").replace("\n", "\\n")
+                self.lines.append(shown)
+                if self.on_text is not None:
+                    self.on_text(text)
+                if self.on_line is not None:
+                    self.on_line(shown)
+                path.unlink(missing_ok=True)
+                conn.sendall(b"ok\n")
+            except (OSError, UnicodeError, ValueError):
+                try:
+                    conn.sendall(b"no\n")
+                except OSError:
+                    pass
+
+    def stop(self):
+        self._stop.set()
+        sock, self._sock = self._sock, None
+        if sock is not None:
+            sock.close()
+        if self._thread is not None:
+            self._thread.join(timeout=2)
+        try:
+            (self.root / "listener.json").unlink()
+        except OSError:
+            pass
+
+
+def _shown_path(home, session_id):
+    root = inbox_root(home, session_id)
+    return None if root is None else root / "shown.jsonl"
+
+
+def _lock_shown(root):
+    """Exclusive lock around the shown spool. One inode, so a rename cannot drop a line."""
+    root.mkdir(parents=True, exist_ok=True)
+    fh = open(root / "shown.lock", "a+b")
+    if os.name == "nt":
+        import msvcrt
+        fh.seek(0)
+        if fh.read(1) == b"":
+            fh.write(b" ")
+            fh.flush()
+        fh.seek(0)
+        msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+    return fh
+
+
+def _unlock_shown(fh):
+    if os.name == "nt":
+        import msvcrt
+        fh.seek(0)
+        try:
+            msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
+    fh.close()
+
+
+def append_shown(home, session_id, line):
+    """Record one display line for the Stop hook. The listener has already acked."""
+    path = _shown_path(home, session_id)
+    if path is None:
+        return
+    fh = _lock_shown(path.parent)
+    try:
+        with path.open("a", encoding="utf-8") as out:
+            out.write(line.replace("\n", "\\n") + "\n")
+    finally:
+        _unlock_shown(fh)
+
+
+def take_shown(home, session_id):
+    """Return the pending display lines and clear them, or None when there are none."""
+    path = _shown_path(home, session_id)
+    if path is None or not path.is_file():
+        return None
+    fh = _lock_shown(path.parent)
+    try:
+        try:
+            text = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            return None
+        if not text:
+            return None
+        path.write_text("", encoding="utf-8")
+        return text
+    finally:
+        _unlock_shown(fh)
+
+
+def serve_inbox(session_id, home=None):
+    """Print one line per agent message. Blocks until the process is killed."""
+    inbox = AgentInbox(home or grok_home(), session_id, on_line=lambda line: print(line, flush=True))
+    inbox.start()
+    try:
+        inbox._thread.join()
+    finally:
+        inbox.stop()
+
+
 async def deliver(session_id, cwd, text, timeout=TURN_TIMEOUT, binary=None, runner=subprocess.run,
                   home=None, registry=None, is_live_grok=None, submit=None, tty_of=None):
-    """Resume a marked session even if its grok is still live. Otherwise submit to a TUI.
+    """Deliver peer text to the session's agent inbox.
 
-    grok-coordinator writes the resumable marker. That session is headless-resumed,
-    including while the child grok holds it. An unmarked live TUI is a tty submit.
-    A session with no holder and no marker is not resumed.
+    `grok -p` writes a user_message_chunk. TIOCSTI and osascript type into the
+    user's composer and press Enter. Neither runs here. A session with no
+    listener is a failed delivery, not a queued user turn.
+    The unused parameters stay so existing callers keep a stable signature.
     """
-    root = Path(home) if home is not None else grok_home()
-    if is_resumable(root, session_id):
-        await grok_turn(session_id, cwd, text, timeout=timeout, binary=binary, runner=runner)
-        if not chunk_recorded(root, cwd, session_id, text):
-            return "delivery failed: no user_message_chunk"
-        return receipt(session_id)
-    rows = registry if registry is not None else _read_rows(home)
-    mapped = _registry_map(rows, session_id, None if registry is not None else (tty_of or _default_tty_of))
-    pred = is_live_grok or _default_is_live_grok
-    holder = live_holder(session_id, mapped, pred)
-    if holder is not None:
-        (submit or submit_tty)(holder["tty"], text)
-        return {"ok": True, "written": True, "msg_id": str(uuid.uuid4())}
-    row = mapped.get(session_id)
-    pid = row.get("pid") if isinstance(row, dict) else None
-    if type(pid) is int and not row.get("tty") and pred(pid):
-        return "delivery failed: held grok session has no tty"
-    return "delivery failed: grok session was not launched for headless resume"
+    del cwd, timeout, binary, runner, registry, is_live_grok, submit, tty_of
+    return await asyncio.to_thread(post_agent_mail, home if home is not None else grok_home(), session_id, text)
 
 
 def parse_reply(stdout):

@@ -4,6 +4,12 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.30] — 2026-11-25
+
+- **Research runs:** a project-rag-first guard blocks Grep for gated research roles until they have queried project-rag, keeps a call ledger, and records-and-continues on a miss; every research-run role is covered, and the coverage auditor gets project-rag tools.
+- **Group-EM home:** install refresh always lands the current home `CLAUDE.md`; a copy matching no shipped template version is saved under `.coordinator-local/diverged-home-CLAUDE/` before it is replaced.
+- **Percolate:** publishing is the owning repo EM's act under the round's gates, never a Group EM approval.
+
 ## [4.6.29] — 2026-11-24
 
 - **Agy:** SessionStart auto-loads repo `CLAUDE.md` standing conventions; `permissions.allow` ships all 7 default entries (engine ops, safe-commit, `unimatrix-send.py`); generated `coordinator-doctrine.md` includes the Agy tool & surface mapping; bash-write guard carves out `unimatrix-send.py` read shapes.

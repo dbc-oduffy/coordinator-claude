@@ -19,6 +19,10 @@ output rather than breaking it.
 
 docs/plans/2026-09-26-wire-repo-index-bundle-verbs.md -- Design SS Ceremony, row C2.
 
+Pull first: `pull-repo-bundle --json` runs before any rebuild; only `land.verdict ==
+"landed"` (exit 0) ends the run. local_index_present, unknown_keep_local, unrecognised
+verdicts, failures and timeouts fall through to rebuild + publish.
+
 Negative-spec:
   - Does NOT leave a rebuild or publish child running past this process: the 3600s wait
     expiring kills the child tree, a Windows kill-on-close job covers this process dying,
@@ -75,6 +79,8 @@ def _console_python() -> str:
 
 _CEREMONY_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 _REBUILD_WAIT_SECONDS = 3600
+_PULL_WAIT_SECONDS = 1800
+_LANDED_VERDICT = "landed"
 _RECORD_NAME = "publish-repo-bundle-last.json"
 _REBUILD_ADMIT_KEY = "scip-rebuild"
 _REBUILD_PEAK_GIB = 4.0
@@ -494,13 +500,37 @@ def _map_exit4_fix(stderr: str) -> str:
     return ""
 
 
+def _pull_landed(exe_path: Path, repo_root: Path, repo_slug: str | None) -> bool:
+    """True only when `pull-repo-bundle` exits 0 and its `--json` report says
+    `land.verdict == "landed"`. Every other outcome -- `local_index_present`,
+    `unknown_keep_local`, any unrecognised verdict, a non-zero exit, a timeout, absent
+    or unparseable output -- is "not landed", so the caller rebuilds. Never raises."""
+    argv = [str(exe_path), "pull-repo-bundle", "--project-root", str(repo_root), "--json"]
+    if repo_slug:
+        argv.extend(["--repo", repo_slug])
+    code, out, _err = _run_and_wait(argv, repo_root, _PULL_WAIT_SECONDS)
+    if code != 0:
+        return False
+    candidates = [out] + [raw.strip() for raw in out.splitlines() if raw.strip().startswith("{")]
+    for text in candidates:
+        try:
+            report = json.loads(text)
+        except ValueError:
+            continue
+        land = report.get("land") if isinstance(report, dict) else None
+        if isinstance(land, dict):
+            return land.get("verdict") == _LANDED_VERDICT
+    return False
+
+
 def run(
     ceremony: str,
     repo_root: Path,
     cli_override: str | None = None,
     repo_slug: str | None = None,
 ) -> str:
-    """Resolve, run scip-rebuild, then (conditionally) publish-repo-bundle.
+    """Resolve, pull-repo-bundle first (a `landed` verdict ends the run), else run
+    scip-rebuild, then (conditionally) publish-repo-bundle.
     Returns the one line to print -- never raises; every failure path is a
     `publish-repo-bundle: skipped -- <reason>` or `... refused -- <fix>` string."""
     if not _CEREMONY_NAME_RE.match(ceremony):
@@ -527,6 +557,12 @@ def run(
     common_dir = _git_common_dir(repo_root) or repo_root
     record_path = _hub(common_dir) / _RECORD_NAME
 
+    current_head = _current_head(repo_root)
+    if _pull_landed(exe_path, repo_root, repo_slug):
+        line = "publish-repo-bundle: landed -- pull-repo-bundle landed a published bundle, no rebuild, no publish"
+        _write_record(record_path, 0, current_head, line)
+        return line
+
     rebuild_argv = [str(exe_path), "scip-rebuild", "--ceremony", ceremony]
     rebuild_code, _rebuild_out, rebuild_err = _run_and_wait(
         rebuild_argv, repo_root, _REBUILD_WAIT_SECONDS
@@ -544,7 +580,6 @@ def run(
         suffix = f", {detail}" if detail else ""
         return f"publish-repo-bundle: skipped -- scip-rebuild exited {rebuild_code}{suffix}, no publish"
 
-    current_head = _current_head(repo_root)
     last_record = _read_last_record(record_path)
     if (
         last_record is not None

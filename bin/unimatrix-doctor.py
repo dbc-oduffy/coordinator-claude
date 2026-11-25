@@ -367,9 +367,9 @@ def pwsh_alias_first_problems(environ, platform):
     lib = str(HERE / "lib")
     if lib not in sys.path:
         sys.path.insert(0, lib)
-    from cc_invoke import place_engine_root_on_path
+    from cc_invoke import require_engine_on_path
 
-    place_engine_root_on_path(str(HERE.parents[1]))
+    require_engine_on_path(__file__)
     from coordinator_core.codex_runner.sandbox_preflight import alias_first_pwsh
     alias = alias_first_pwsh(environ)
     if alias is None:

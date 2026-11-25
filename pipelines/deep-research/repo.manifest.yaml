@@ -108,6 +108,29 @@ stages:
       nonempty: stage.regate.return.failed
     depends_on: [regate]
     output: "{{scratch_dir}}/stub-report.md"
+  - id: tool-gate
+    phase: Gate
+    agent_type: general-purpose
+    model: haiku
+    effort: low
+    template: repo-tool-gate-prompt-template.md
+    halts_unless: ok
+    depends_on: [regate, stub]
+    schema:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+        remedy:
+          type: array
+          items:
+            type: string
+        failed:
+          type: array
+          items:
+            type: string
+    output: "{{scratch_dir}}/tool-gate.json"
   - id: atlas-sketch
     phase: Atlas sketch
     agent_type: general-purpose
@@ -117,7 +140,7 @@ stages:
       flag: deepest
       equals: true
     optional: true
-    depends_on: [gate, rescout, regate, stub]
+    depends_on: [gate, rescout, regate, stub, tool-gate]
     output: "{{scratch_dir}}/atlas-sketch-file-index.md"
   - id: specialists
     phase: Specialists
@@ -126,7 +149,7 @@ stages:
     template: repo-specialist-prompt-template.md
     fan_out:
       over: inputs.chunks
-    depends_on: [atlas-sketch, stub]
+    depends_on: [atlas-sketch, stub, tool-gate]
     output: "{{scratch_dir}}/{{item}}-assessment.md"
   - id: mailcheck
     phase: Rebuttal
@@ -192,12 +215,31 @@ stages:
       equals: true
     depends_on: [relay]
     output: "{{scratch_dir}}/synthesis-pass-2.md"
+  - id: ledger-gate
+    phase: Synthesis
+    agent_type: general-purpose
+    model: haiku
+    effort: low
+    template: repo-ledger-gate-prompt-template.md
+    halts_unless: ok
+    depends_on: [synthesize, synthesize-2]
+    schema:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+        remedy:
+          type: array
+          items:
+            type: string
+    output: "{{scratch_dir}}/ledger-gate.json"
   - id: coverage
     phase: Coverage
     agent_type: coordinator:coverage-auditor
     model: sonnet
     template: repo-coverage-prompt-template.md
-    depends_on: [synthesize, relay, synthesize-2]
+    depends_on: [synthesize, relay, synthesize-2, ledger-gate]
     schema:
       type: object
       required: [sidecarPath, absentClaims, deepeningRecommended]

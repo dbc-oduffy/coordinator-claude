@@ -105,11 +105,11 @@ class PipeServer:
                     self.loop.call_exception_handler({"message": "named pipe accept failed"})
                 return
 
-    def _read(self, handle):
+    def _read(self, handle) -> None:
         import win32file
         import pywintypes
         try:
-            raw = bytearray()
+            raw, token = bytearray(), None
             while True:
                 raw.extend(win32file.ReadFile(handle, 65536)[1])
                 if len(raw) > self.limit:
@@ -119,13 +119,16 @@ class PipeServer:
                     # Auth headers can be separate writes or share a write with the user frame.
                     parsed = json.loads(first)
                     if isinstance(parsed, dict) and parsed.get("type") == "auth":
-                        raw = bytearray(rest)
+                        token, raw = parsed.get("token"), bytearray(rest)
                         continue
                     break
                 else:
                     continue
                 break
             reader = asyncio.StreamReader(limit=self.limit, loop=self.loop)
+            # The handler never sees the consumed auth line, so the token rides on the reader;
+            # a face reads it here, and without it every authenticated delivery is refused.
+            reader.auth_token = token
             reader.feed_data(bytes(raw))
             reader.feed_eof()
 

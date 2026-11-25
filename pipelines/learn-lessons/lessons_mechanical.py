@@ -50,6 +50,7 @@ import tempfile
 import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from types import ModuleType
 from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -412,10 +413,23 @@ def _envelope_failure(stdout: str) -> str:
     return ""
 
 
+_SCRATCH_ROOT_MODULE = Path(__file__).resolve().parents[2] / "hooks" / "scripts" / "_scratch_root.py"
+
+
+def _scratch_root_module() -> ModuleType:
+    """The hook-side scratch resolver, loaded by path so hooks/scripts never joins sys.path."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_lessons_scratch_root", _SCRATCH_ROOT_MODULE)
+    if spec is None or spec.loader is None:
+        raise DriverError("scratch-root-unloadable", str(_SCRATCH_ROOT_MODULE))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def apply_mechanical(repo: Path, invoke: List[str], dry_run: bool, timeout: int) -> dict:
     """Run the engine's mechanical close under a timeout; a timeout is a typed halt, never a fallback scan."""
-    scratch = repo / SCRATCH_ROOT
-    scratch.mkdir(parents=True, exist_ok=True)
+    scratch = _scratch_root_module().scratch_dir(repo, "learn-lessons", f"apply-{date.today():%Y%m%d}")
     with tempfile.TemporaryDirectory(dir=scratch) as tmp:
         params = Path(tmp) / "params.json"
         params.write_text(json.dumps({"repo": str(repo), "dry_run": bool(dry_run)}), encoding="utf-8")

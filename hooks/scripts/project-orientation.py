@@ -816,7 +816,7 @@ def peer_recheck_staleness_banner(repo_root: Optional[str]) -> None:
         # Unused `_gen` keeps the shared _staleness_banner callback shape.
         very_stale_message=lambda age_hours, _gen: (
             f"── ⚠ Peer set VERY STALE: oldest re-check {age_hours}h old — "
-            "run a code-comparison re-check against your peers "
+            "re-check code against your peers "
             "(state/peers/*.yaml, coordinator/pipelines/deep-research/repo-driver.md) ──\n"
         ),
         stale_message=lambda age_hours, _gen: (

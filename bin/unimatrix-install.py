@@ -980,7 +980,7 @@ def rewrite_forced_interpreters(path, interpreter):
     Returns the number of lines rewritten (0 when the file is absent or unreadable)."""
     path = Path(path).resolve()
     try:
-        text = path.read_text(encoding="utf-8", newline="")
+        text = path.read_bytes().decode("utf-8")  # read_text(newline=) is 3.13+; bytes keep CRLF as-is
     except OSError:
         return 0
     token = f'\\"{interpreter}\\"' if " " in interpreter else interpreter
@@ -1015,7 +1015,7 @@ def rewrite_forced_relay_paths(path, dest_dir) -> int:
     Returns the number of lines rewritten (0 when the file is absent or unreadable)."""
     path = Path(path).resolve()
     try:
-        text = path.read_text(encoding="utf-8", newline="")
+        text = path.read_bytes().decode("utf-8")  # read_text(newline=) is 3.13+; bytes keep CRLF as-is
     except OSError:
         return 0
     target = str(Path(dest_dir) / _RELAY_FORCED_SCRIPT)
