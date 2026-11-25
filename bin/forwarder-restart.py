@@ -84,7 +84,8 @@ def main(argv: "Optional[list[str]]" = None) -> int:
 
     if confirmed:
         target: Optional[int] = recorded
-    elif recorded is None and owner is None:
+    elif owner is None and not hook._forwarder_is_listening():
+        # Nothing holds the port: a missing or stale record (dead pid) needs a spawn, not a refusal.
         target = None
     else:
         print(

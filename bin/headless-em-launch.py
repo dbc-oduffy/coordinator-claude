@@ -138,13 +138,12 @@ def _grok_launch_args(extra, environ, platform) -> list[str]:
 
 
 def _agy_launch_args(extra, cwd, environ=None) -> list[str]:
-    """`extra` led by one `--add-dir` per workspace root and `--mode accept-edits`.
+    """`extra` led by one `--add-dir` per workspace root, then `--dangerously-skip-permissions` once unless the caller passed `--mode`/`--sandbox`.
 
     agy's workspace is its add-dirs, not `--cwd`, and a `read_file` outside it is auto-denied headless.
     Roots: the launch cwd, `~/.coordinator`, `<machine lock root>`, and `agy_grant_guard.grant_dirs`
     (the generated plugin skills). Never the settings home or engine root whole.
-    `--dangerously-skip-permissions` is dropped; a caller's own `--mode` and any dir it already granted are
-    kept, never doubled.
+    A caller's own `--mode`/`--sandbox` is kept and no bypass flag is stacked on it; any dir it already granted are kept, never doubled.
 
     Trap: agy has no read-only grant, so each add-dir is writable; `launch` hashes the granted dirs around
     the stage (`agy_grant_tamper`). When agy ships read-only grants, switch to them and drop the hash guard.
@@ -166,8 +165,8 @@ def _agy_launch_args(extra, cwd, environ=None) -> list[str]:
             granted.add(d)
             head += ["--add-dir", d]
             granted.add(d)
-    if not any(a == "--mode" or a.startswith("--mode=") for a in rest):
-        head += ["--mode", "accept-edits"]
+    if not any(a in ("--mode", "--sandbox") or a.startswith("--mode=") for a in rest):
+        head.append("--dangerously-skip-permissions")
     return [*head, *rest]
 
 

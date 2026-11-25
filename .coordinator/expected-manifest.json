@@ -1,7 +1,7 @@
 {
   "paths": {
-    ".claude-plugin/marketplace.json": "f7e1c5621176293d9053b7bb16852e05bb3fa371",
-    ".claude-plugin/plugin.json": "2351392020b5ab9d427ffcba07d5b46a7f793d8e",
+    ".claude-plugin/marketplace.json": "62b4ae1875f85e402fcc83bfeac35587b910f447",
+    ".claude-plugin/plugin.json": "5984c40d5c6b83b83f6c7ae50989b415393cca04",
     ".gitattributes": "e601e3b4831fbad8558b4cf33c1d891e51bb4732",
     ".github/.persona-names-allowlist": "b192e993696d101230ee10c2cbe29faed29ea61f",
     ".github/ISSUE_TEMPLATE/bug_report.md": "0f541423ae94a7dd28b550bee94ce2babb50be4a",
@@ -34,7 +34,7 @@
     ".gitignore": "31886db36fd93b3817544f094188345777a5e87c",
     ".python-version": "e4fba2183587225f216eeada4c78dfab6b2e65f5",
     "AGENTS.md": "371699a67c251eedf6cde4f8ad7c9d13c0b435f0",
-    "CHANGELOG.md": "f15c536afd3d6330c607fbedd1ae8caa1b473021",
+    "CHANGELOG.md": "5195556286a532d630e259977694bbdec189f0a2",
     "CODE_OF_CONDUCT.md": "ba00a30d3950eb141f7ba5c969661e60c2f5c97a",
     "COMMERCIAL.md": "a8701144cfb16aedda57ec490159cafe170ff1d1",
     "CONTRIBUTING.md": "b0db3c04182459734d8871e93ab8a8165e2783a1",
@@ -139,7 +139,7 @@
     "bin/aggregate-rollup.cmd": "becc7b051efe07a0a4f99fda9def3562b91c986d",
     "bin/aggregate-rollup.ps1": "9edb4d1bd222e3b99800ef33472cca7ac5c31030",
     "bin/aggregate-rollup.py": "1b644014ec86dae2cc761ad4e8fc99928f302e0e",
-    "bin/agy-coordinator.py": "61b2a7cda088c1a4f43f2660f0e757f7b884bf6a",
+    "bin/agy-coordinator.py": "c6405bf00f6e56d0bc0862ffccd4928a51759c72",
     "bin/annotation-codemod.cmd": "5310c4683fa5b96c39b8aba1685ac20d515b75e6",
     "bin/annotation-codemod.ps1": "accdfb5f117eeaaf991d9164bfff6af320f1f61f",
     "bin/annotation-codemod.py": "48d11d0aca600bec60aa35588891fa31c569cecd",
@@ -639,7 +639,7 @@
     "bin/fleet-posture.py": "fed3bffe0ef0f6388b563fc393bdd33330d13cd5",
     "bin/fleet-test-write-scan.cmd": "d09fa1305d24b4d1d9674b200127e2d4ca3ea0cd",
     "bin/fleet-test-write-scan.py": "3522f7cd5d7a704916522ac19cbc0c3a4136b61e",
-    "bin/forwarder-restart.py": "9af933c9175817157de327e0607d22705309267b",
+    "bin/forwarder-restart.py": "b79794c9929ebc657097aeb8641b1b4fd9f7da13",
     "bin/freeze-review-diff.cmd": "d42b20fb82c9c7a4280781be5c2d272bb2b44220",
     "bin/freeze-review-diff.ps1": "b4c9f387223b53eaca167e8b51ec9096a67c4be6",
     "bin/freeze-review-diff.py": "fa0eb2dd663c83a5f13e6e8abe66fd7daa85726a",
@@ -695,7 +695,7 @@
     "bin/governor_disk.cmd": "49b437659cb17e93f66842669a5d2d697e4a2b70",
     "bin/governor_disk.ps1": "39df36a437818939dbbd513bd5c03612bf66405f",
     "bin/governor_disk.py": "250fbd3446eec13774cfbcd5fb2a29489c20a0d7",
-    "bin/grok-coordinator.py": "099cfd7f06e256f101d561b0016a015a630f2dbf",
+    "bin/grok-coordinator.py": "c0c2f3b59b25a319b7a7e9acd80bef049dea451b",
     "bin/group-em-box-notice.cmd": "da6a1deac970a44b19e95e2ce0329c59ac9d589b",
     "bin/group-em-box-notice.py": "30e29a5332755eacc878443afc830535e167528c",
     "bin/group-em-enter.cmd": "021c4789c90e64a1469e4f034f4f7e3fbd673c1d",
@@ -744,7 +744,7 @@
     "bin/harvest-exit-interviews.py": "8e3ec04aafc2bbf2291d4ec6670d12e85c97c771",
     "bin/headless-em-launch.cmd": "8720dad07650766ecaf75e89597bc495efef556f",
     "bin/headless-em-launch.ps1": "e0a3889a7cf47b18de0ff4b7c1bd9f48c09caeaf",
-    "bin/headless-em-launch.py": "b39eaa4844150deb666e48309b0d1a4144cce8e3",
+    "bin/headless-em-launch.py": "71313c028dc389f1e343d78d15b15108963eff6a",
     "bin/hollow-completion-record-sweep.cmd": "8bc0699583b47d0e2204fc27f3b9cc79e0dd1318",
     "bin/hollow-completion-record-sweep.py": "00939d0ef372f6fab4461bec7a51b18fe88fb642",
     "bin/hook-run.cmd": "75bb4d199ebece78da3f77a96aa9add299e7a641",
@@ -2790,5 +2790,5 @@
     "workflows/workday-start.mjs": "845bf8cdea87f0069619ce3cb3056b63687ceb91"
   },
   "schema": 1,
-  "source_head": "60b72205594f92a4b7a397e86f99f06c75efa03e"
+  "source_head": "4e841412f657d544016126de7612748a4c5abdc4"
 }

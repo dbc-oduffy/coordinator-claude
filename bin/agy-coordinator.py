@@ -2,8 +2,8 @@
 """Launch agy with coordinator EM defaults, leaving bare `agy` unchanged.
 
 `coordinator-agy` and `agy-coordinator` strip a leading/embedded `--coordinator`
-flag, default to `--dangerously-skip-permissions` (unless `--mode` or `--sandbox`
-is given) plus the EM model and effort from `coordinator_core.agent_pipe.model_tiers`,
+flag, default to `--dangerously-skip-permissions` (a caller's `--mode`/`--sandbox`
+replaces it) plus the EM model and effort from `coordinator_core.agent_pipe.model_tiers`,
 and `os.execvp` straight into `agy` on POSIX so TTY/child-process invariants hold.
 Native Unimatrix hooks (`unimatrix-agy-hook-sessionstart.py` + `agy-legs`) handle
 live peer delivery without a lingering parent process.
@@ -50,24 +50,32 @@ def _plan_flags(extra: list[str]) -> list[str]:
     return flags
 
 
+_SKIP = "--dangerously-skip-permissions"
+
+
 def _permission_flags(extra: list[str]) -> list[str]:
-    """Default to auto-approve unless caller passed an explicit permission/mode/sandbox flag."""
-    if any(
-        a in ("--dangerously-skip-permissions", "--mode", "--sandbox") or a.startswith("--mode=")
-        for a in extra
-    ):
+    """`--dangerously-skip-permissions` by default; a caller's explicit `--mode`/`--sandbox` replaces it, never stacks on it."""
+    if _explicit_mode(extra):
         return []
-    return ["--dangerously-skip-permissions"]
+    return [_SKIP]
+
+
+def _explicit_mode(extra: list[str]) -> bool:
+    return any(a in ("--mode", "--sandbox") or a.startswith("--mode=") for a in extra)
+
+
+def _without_skip(extra: list[str]) -> list[str]:
+    return [a for a in extra if a != _SKIP]
 
 
 def interactive_argv(binary: str, extra: list[str]) -> list[str]:
     """Interactive launch. Extra args are the caller's."""
-    return [binary, *_permission_flags(extra), *_plan_flags(extra), *extra]
+    return [binary, *_permission_flags(extra), *_plan_flags(extra), *_without_skip(extra)]
 
 
 def headless_argv(binary: str, text: str, extra: list[str] | None = None) -> list[str]:
     """One headless turn (`-p TEXT`)."""
-    rest = list(extra or ())
+    rest = _without_skip(list(extra or ()))
     fmt_flags = (
         []
         if any(a == "--output-format" or a.startswith("--output-format=") for a in rest)

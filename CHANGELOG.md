@@ -4,6 +4,10 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.33] — 2026-11-25
+
+- **Agy:** every coordinator agy launch (interactive, headless EM, worker) passes `--dangerously-skip-permissions` by default; an explicit `--mode` or `--sandbox` still wins. Read-only reviewers keep plan mode with the sandbox. Ships with claude-klabauter 48a15e07dc.
+
 ## [4.6.32] — 2026-11-25
 
 - **Group EM home:** the home `CLAUDE.md` template reads the same in source and published installs, so a refresh no longer flags a published copy as diverged, and its engine line is accurate. Every earlier published version is recognised as unedited.

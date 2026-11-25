@@ -114,6 +114,21 @@ def ensure_stop_hook(home, command: str | None = None) -> Path:
     return path
 
 
+def register_host_binding(session_id: str) -> bool:
+    """Write the engine's host-sessions/grok row for the interactive child; False when the engine or evidence is absent.
+
+    A copy launched outside the repo has no engine, so the fire gate's own adopt leg stays the fallback."""
+    root = Path(__file__).resolve().parents[2]
+    if (root / "coordinator_core").is_dir() and str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    try:
+        from coordinator_core.session import core, external_registry
+        sid = core.canonical_session_env_value("GROK_SESSION_ID", session_id)
+        return external_registry.adopt_grok_session(sid, {"GROK_SESSION_ID": session_id}) is not None
+    except Exception:
+        return False
+
+
 def _hold_inbox(mod, child_pid: int, stop: threading.Event) -> None:
     """Mark the child, then listen until it exits. Mail waits on the shown spool."""
     home = mod.grok_home()
@@ -128,6 +143,7 @@ def _hold_inbox(mod, child_pid: int, stop: threading.Event) -> None:
             session_id = row["session_id"]
             cwd = row.get("cwd") or os.getcwd()
             mod.mark_resumable(home, session_id, cwd)
+            register_host_binding(session_id)
 
             def _on_text(text, sid=session_id, work=cwd):
                 if mod.submit_peer_turn(sid, work, text) is None:
