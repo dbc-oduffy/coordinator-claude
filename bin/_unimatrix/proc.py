@@ -299,7 +299,7 @@ def agy_session_state(conversation, rec, home=None, now=None) -> str:
 
 
 def agy_face_unbacked(d, home=None) -> bool:
-    """True for a peer-router face of an agy session whose agy process is gone."""
+    """True for a peer-router face of an agy session whose agy process is gone or whose leg is pending."""
     if (not isinstance(d, dict) or d.get("vendor") != "agy" or not d.get("unimatrixRouterPid")
             or d.get("unimatrixMirror") or d.get("macSocketPath") or d.get("unimatrixRemote")):
         return False
@@ -322,6 +322,8 @@ def agy_face_unbacked(d, home=None) -> bool:
         return False
     if not isinstance(rec, dict):
         return False
+    if rec.get("mode", "live") != "live":  # a pending leg only spools: its face is not served; absent mode reads live
+        return True
     return agy_session_state(target, rec, home) == "dead"
 
 
@@ -335,15 +337,31 @@ def _peer_rows(peers_file):
     return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
 
 
-def agy_peer_rows_orphaned(home=None):
-    """[(name, target)] for agy peers.json rows whose `agy-legs/<target>.json` record does not exist."""
+def agy_peer_rows_orphaned(home=None) -> list:
+    """[(name, target)] for agy peers.json rows whose leg is gone.
+
+    Gone: `agy-legs/<target>.json` does not exist, or it records an int `pid` that is dead or no
+    longer the process that stamped `procStart` (pid reused: the leg was replaced). A record that
+    is unreadable or carries no pid is not proof of death and keeps its row."""
     base = state_dir(home)
     rows = _peer_rows(base / "peers.json")
+
+    def leg_gone(target) -> bool:
+        record = base / "agy-legs" / f"{target}.json"
+        if not record.exists():
+            return True
+        try:
+            rec = json.loads(record.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        pid = rec.get("pid") if isinstance(rec, dict) else None
+        return isinstance(pid, int) and not isinstance(pid, bool) and holder_proven_dead(rec)
+
     return [
         (r.get("name"), r["target"]) for r in rows
         if r.get("vendor") == "agy" and isinstance(r.get("target"), str) and r["target"]
         and "/" not in r["target"] and "\\" not in r["target"]
-        and not (base / "agy-legs" / f"{r['target']}.json").exists()
+        and leg_gone(r["target"])
     ]
 
 

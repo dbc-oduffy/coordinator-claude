@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Start the shipped agy leg for one conversation, replacing a stale one.
 
-Run by the SessionStart hook (no token: the leg starts pending, queuing peer messages) and inside an
-agy run_command (prefixed by unimatrix-agy-hook-pretool.py), where it and the leg inherit agy's
-language-server address and token and the leg starts live, replacing a pending one. Input:
+Run in the declared agy sidecar (unimatrix-agy-sidecar.py, in-process) and inside an agy run_command
+(prefixed by unimatrix-agy-hook-pretool.py), where it and the leg inherit agy's language-server address
+and token and the leg starts live, replacing a pending one; run by the SessionStart hook without
+credentials, the leg starts pending (queuing peer messages, no recorded address). Input:
 `--conversation <id> --agy-pid <pid>`, else one JSON object on stdin {"conversationId", "agyPid"}.
 The record it writes (see the pretool hook's docstring) stamps the agy pid and LS address the leg
 was started under; the pretool hook compares against them.
@@ -63,58 +64,6 @@ def read_request(argv):
     return req if isinstance(req, dict) else {}
 
 
-def nt_loopback_listener_ports(pid):
-    """Ports of the IPv4 loopback TCP listeners owned by `pid`, from GetExtendedTcpTable; [] on failure."""
-    import ctypes
-    from ctypes import wintypes
-    try:
-        iphlpapi = ctypes.WinDLL("iphlpapi")
-        size = wintypes.DWORD(0)
-        af_inet, listener_owner_pid = 2, 3  # AF_INET, TCP_TABLE_OWNER_PID_LISTENER
-        buf = None
-        for _ in range(3):  # the table can grow between the size query and the read
-            err = iphlpapi.GetExtendedTcpTable(buf, ctypes.byref(size), False, af_inet, listener_owner_pid, 0)
-            if err == 0:
-                break
-            buf = ctypes.create_string_buffer(size.value)
-        else:
-            return []
-        # MIB_TCPTABLE_OWNER_PID: DWORD count, then count rows of six DWORDs
-        # (state, localAddr, localPort, remoteAddr, remotePort, owningPid).
-        count = ctypes.c_uint32.from_buffer(buf).value
-        cells = (ctypes.c_uint32 * (1 + 6 * count)).from_buffer(buf)
-    except (OSError, AttributeError, ValueError, TypeError):
-        return []
-    ports = []
-    for i in range(count):
-        _, addr, port, _, _, owner = cells[1 + 6 * i:7 + 6 * i]
-        if owner == pid and addr == 0x0100007F:  # 127.0.0.1, network byte order read little-endian
-            ports.append(((port & 0xFF) << 8) | ((port >> 8) & 0xFF))
-    return ports
-
-
-def discover_ls_address(agy_pid):
-    """"127.0.0.1:<port>" of a TCP listener held by agy_pid (the lowest port), else None.
-
-    agy's language server runs in-process, so its listening ports are the pid's own. The pick is a
-    heuristic (not verified as the LS) and only stamps the pending record; the live relaunch takes its
-    address from env. None on Windows, without lsof, on failure, or when the pid holds no loopback
-    listener. On Windows the pid's listeners come from the IP Helper TCP table, no subprocess.
-    """
-    if not isinstance(agy_pid, int) or agy_pid <= 0:
-        return None
-    if os.name == "nt":
-        ports = nt_loopback_listener_ports(agy_pid)
-        return f"127.0.0.1:{min(ports)}" if ports else None
-    try:
-        out = subprocess.run(["lsof", "-a", "-p", str(agy_pid), "-iTCP", "-sTCP:LISTEN", "-Fn"],
-                             capture_output=True, text=True, timeout=5).stdout
-    except (OSError, subprocess.SubprocessError):
-        return None
-    ports = [int(m.group(1)) for m in re.finditer(r"^n(?:127\.0\.0\.1|localhost):(\d+)$", out or "", re.M)]
-    return f"127.0.0.1:{min(ports)}" if ports else None
-
-
 def start(req, roster, state):
     """Start the leg: live when the env carries the token and LS address, else pending (queues messages)."""
     conv = req.get("conversationId") or os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
@@ -124,7 +73,6 @@ def start(req, roster, state):
     live = bool(ls and os.environ.get("ANTIGRAVITY_CSRF_TOKEN"))
     env = dict(os.environ, ANTIGRAVITY_CONVERSATION_ID=conv)
     if not live:
-        ls = ls or discover_ls_address(req.get("agyPid"))
         env.pop("ANTIGRAVITY_CSRF_TOKEN", None)  # a token without an LS address would make a live leg with no target
     state.mkdir(parents=True, exist_ok=True)
     record = state / f"{conv}.json"

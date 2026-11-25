@@ -11,10 +11,13 @@ exception, expired wall) is an allow whose reason keeps "guard did not run": an 
 a subagent conversation and reads as a hook failure (DR-402: irreversible denies stay with the backstop).
 
 Hooks do not receive agy's language-server address or token, but run_command children do. When no
-current leg exists, the hook prefixes the command the agent is about to run with a detached start of
-unimatrix-agy-hook-launch.py, which inherits the token. That rewrite answers "ask": the user sees and
-approves the exact command. agy fails closed on a non-zero exit, invalid JSON, or a reply without
-`decision`, so every path emits one JSON object with `decision`.
+current leg exists, the hook prefixes the command the agent is about to run. posix: a detached start of
+unimatrix-agy-hook-launch.py, which inherits the token. Windows: agy's run_command job kills every
+descendant, so the hook itself starts the pending leg (outside the job) when none is alive, and the
+prefix only writes `<conv>.promote.json` (ls_address, csrf_token, cwd) for that leg to promote itself
+live in place. That rewrite answers "ask": the user sees and approves the exact command. agy fails
+closed on a non-zero exit, invalid JSON, or a reply without `decision`, so every path emits one JSON
+object with `decision`.
 
 `--event PreInvocation` runs the same script as the PreInvocation hook: it drains the advisories the
 adapter stashed at PreToolUse (agy documents no `injectSteps` on a PreToolUse answer) and injects them as
@@ -26,7 +29,7 @@ spawn: the guard's answer passes through so agy's own permissions.allow decides.
 A leg is current only if it is alive, was started under this same agy process (the nearest agy ancestor of the hook; none found is never current),
 and its language server still accepts connections. An agy restart changes the token and port, so a
 leg that survives one is stale even though its pid is alive. A `pending` leg (started by SessionStart
-without a token) is never current: the rewrite relaunches it live.
+without a token) is never current: the rewrite hands it the token to go live.
 
 Leg record (STATE/<conversationId>.json, written by the launcher, read here and by the router):
   {"pid": <leg pid>, "conversation": <id>, "endpoint": <leg socket>, "ls_address": "host:port",
@@ -309,7 +312,7 @@ def ls_reachable(addr):
         return False
 
 
-def leg_current(conv, agy_pid, state=None):
+def leg_current(conv, agy_pid, state=None) -> bool:
     try:
         with open((state or state_dir()) / f"{conv}.json", encoding="utf-8") as f:
             rec = json.load(f)
@@ -318,7 +321,7 @@ def leg_current(conv, agy_pid, state=None):
     except (OSError, ValueError, KeyError, TypeError):
         return False
     if rec.get("mode", "live") != "live":
-        return False  # a pending leg only queues; the first run_command relaunches it live
+        return False  # a pending leg only queues; the first run_command promotes it live
     ep = rec.get("endpoint")
     if os.name != "nt" and isinstance(ep, str) and os.path.isabs(ep) and not os.path.exists(ep):
         return False
@@ -343,23 +346,62 @@ def launcher_argv(conv, agy_pid):
     return argv + ["--agy-pid", str(agy_pid)] if agy_pid is not None else argv
 
 
-def _ps_quote(arg) -> str:
-    """One PowerShell single-quoted literal; an arg with whitespace carries inner double quotes because
-    Start-Process joins -ArgumentList items with bare spaces."""
-    if not arg or any(c.isspace() for c in arg):
-        arg = f'"{arg}"'
-    return "'" + arg.replace("'", "''") + "'"
+def _ps_literal(text) -> str:
+    """One PowerShell single-quoted literal."""
+    return "'" + str(text).replace("'", "''") + "'"
+
+
+def promote_prefix(conv, state=None) -> str:
+    """PowerShell that hands the run_command shell's LS address and CSRF token to the pending leg.
+
+    Writes `<state>/<conv>.promote.json` ({"ls_address","csrf_token","cwd"}) in-process: an empty temp
+    file gets a protected ACL for the current user only, then the body, then an atomic Move-Item onto
+    the final name. The token comes from the shell's env, never from this text. Any failure is silent."""
+    final = str((state or state_dir()) / f"{conv}.promote.json")
+    return (
+        "try { if ($env:ANTIGRAVITY_LS_ADDRESS -and $env:ANTIGRAVITY_CSRF_TOKEN) { "
+        f"$f = {_ps_literal(final)}; "
+        "[void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($f)); "
+        "$t = $f + '.' + [guid]::NewGuid().ToString('N') + '.tmp'; "
+        "[IO.File]::Create($t).Dispose(); "
+        "$a = New-Object Security.AccessControl.FileSecurity; $a.SetAccessRuleProtection($true, $false); "
+        "$a.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule("
+        "[Security.Principal.WindowsIdentity]::GetCurrent().User, 'FullControl', 'Allow'))); "
+        "$i = New-Object IO.FileInfo $t; "
+        "if ($i.PSObject.Methods['SetAccessControl']) { $i.SetAccessControl($a) } "
+        "else { [IO.FileSystemAclExtensions]::SetAccessControl($i, $a) }; "
+        "[IO.File]::WriteAllText($t, (@{ ls_address = $env:ANTIGRAVITY_LS_ADDRESS; "
+        "csrf_token = $env:ANTIGRAVITY_CSRF_TOKEN; cwd = (Get-Location).Path } | ConvertTo-Json -Compress), "
+        "(New-Object Text.UTF8Encoding $false)); "
+        "Move-Item -LiteralPath $t -Destination $f -Force } } catch {}"
+    )
+
+
+def ensure_pending_leg(conv, agy_pid, state=None) -> None:
+    """Start the pending leg from this hook process (outside agy's run_command job) when the conversation's
+    record is absent or its pid is dead; never raises. The leg survives the command, so it is the one
+    leg promote_prefix hands the token to."""
+    state = state or state_dir()
+    try:
+        rec = json.loads((state / f"{conv}.json").read_text(encoding="utf-8"))
+        if pid_alive(int(rec["pid"])):
+            return
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    try:
+        load_sibling("unimatrix-agy-hook-launch").start({"conversationId": conv, "agyPid": agy_pid},
+                                                        load_sibling("unimatrix-roster"), state)
+    except Exception:
+        pass
 
 
 def launch_prefix(conv, agy_pid) -> tuple:
-    """(start text, separator) that starts the launcher detached and silent. The start runs inside the
-    run_command shell, so the launcher inherits that shell's ANTIGRAVITY_CSRF_TOKEN; the hook process
-    itself has none. sh on posix, a hidden Start-Process on Windows (agy runs PowerShell there)."""
-    argv = launcher_argv(conv, agy_pid)
+    """(start text, separator). posix: a detached sh start of the launcher, run inside the run_command
+    shell so the launcher inherits its ANTIGRAVITY_CSRF_TOKEN (the hook process has none). Windows: agy's
+    run_command job kills every descendant, so the prefix only writes the promote file (promote_prefix)."""
     if os.name == "nt":
-        rest = ",".join(_ps_quote(a) for a in argv[1:])
-        exe = argv[0].replace("'", "''")
-        return f"Start-Process -WindowStyle Hidden -FilePath '{exe}' -ArgumentList {rest}", "; "
+        return promote_prefix(conv), "; "
+    argv = launcher_argv(conv, agy_pid)
     return f"(nohup {' '.join(shlex.quote(a) for a in argv)} >/dev/null 2>&1 &)", "; "
 
 
@@ -398,6 +440,8 @@ def bootstrap_rewrite(payload, agy_pid) -> dict | None:
         return None
     if agy_print_mode(agy_pid):
         return None  # a headless run keeps no leg; a rewrite would break the user's permissions.allow match
+    if os.name == "nt":
+        ensure_pending_leg(conv, agy_pid)
     start, sep = launch_prefix(conv, agy_pid)
     return {"reason": "PM-installed unimatrix hook: also (re)starts the agy leg for Claude/Codex peer messaging in the background.",
             "overwrite": {"CommandLine": f"{start}{sep}{cmd}"}}

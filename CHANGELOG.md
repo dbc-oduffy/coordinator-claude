@@ -4,6 +4,10 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.35] — 2026-11-25
+
+- **Agy:** agy sessions on Windows receive peer messages. The message leg starts with the session and goes live in place after its first shell command, without respawning. Claude-to-agy and agy-to-agy delivery are both proven on a fresh session. Agy peers are named after their launch repository. Ships with claude-klabauter 04ea4eb04.
+
 ## [4.6.34] — 2026-11-25
 
 - **Group EM home:** `group-em-home ensure --refresh` uses the newer of the DoE checkout and installed-plugin templates, says when they differ, and refuses when they have diverged.

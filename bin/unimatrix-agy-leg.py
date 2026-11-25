@@ -270,13 +270,83 @@ def stamp_proc_start():
         pass
 
 
-def respond(buf, pending):
+_PENDING = True  # module state: promote_if_handed flips it to False in place; respond reads it per request
+
+
+def _leg_state_dir() -> "str | None":
+    """The directory holding this leg's record, log and promote file (AGY_LEG_LOG's directory), or None."""
+    log_file = os.environ.get("AGY_LEG_LOG")
+    return os.path.dirname(os.path.abspath(log_file)) if log_file else None
+
+
+def _under(path, root) -> bool:
+    try:
+        a, b = os.path.normcase(os.path.abspath(path)), os.path.normcase(os.path.abspath(root))
+        return os.path.commonpath([a, b]) == b
+    except ValueError:
+        return False
+
+
+def promote_if_handed() -> bool:
+    """Switch to live in place when `<conv>.promote.json` hands over a language-server address and token.
+
+    Pending, or live with a file naming a different ls_address (agy restarted its server), takes the
+    values into the environment, deletes the file, rewrites this leg's own record as live (pid, agy_pid,
+    endpoint, procStart preserved; cwd copied only when the record's cwd lies under ~/.gemini) and drains
+    the spool. A live leg deletes a file naming its own address untouched. A malformed file is left and
+    ignored. Returns True when it promoted. The token is never logged or recorded.
+    """
+    global _PENDING
+    state = _leg_state_dir()
+    conv = os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
+    if not state or not conv:
+        return False
+    path = os.path.join(state, f"{conv}.promote.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            body = json.load(fh)
+    except (OSError, ValueError):
+        return False
+    addr = body.get("ls_address") if isinstance(body, dict) else None
+    token = body.get("csrf_token") if isinstance(body, dict) else None
+    if not (isinstance(addr, str) and addr and isinstance(token, str) and token):
+        return False
+    current = os.environ.get("ANTIGRAVITY_LS_ADDRESS")
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+    if not _PENDING and addr == current:
+        return False
+    os.environ["ANTIGRAVITY_LS_ADDRESS"] = addr
+    os.environ["ANTIGRAVITY_CSRF_TOKEN"] = token
+    rec_path = os.path.splitext(os.environ["AGY_LEG_LOG"])[0] + ".json"
+    try:
+        with open(rec_path, encoding="utf-8") as fh:
+            old = json.load(fh)
+        rec = dict(old, mode="live", ls_address=addr)
+        cwd = body.get("cwd")
+        if isinstance(cwd, str) and cwd and (not old.get("cwd") or _under(old["cwd"], os.path.expanduser("~/.gemini"))):
+            rec["cwd"] = cwd
+        _roster().write_json_atomic(rec_path, rec)
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    _PENDING = False
+    try:
+        drain()
+    except (OSError, TimeoutError) as exc:
+        log("drain-failed", {"error": str(exc)})
+    log("promoted", {"pid": os.getpid(), "ls_address": addr, "conversation": conv})
+    return True
+
+
+def respond(buf) -> bytes:
     """The one-line JSON answer to one request line: queue it while pending, else deliver it live."""
     try:
         text = json.loads(buf)["text"]
     except (ValueError, KeyError, TypeError):
         return b'{"ok":false,"body":"bad request"}\n'
-    if pending:
+    if _PENDING:
         try:
             enqueue(text)
         except OSError as e:
@@ -306,7 +376,7 @@ def _pipe_security():
     return sa
 
 
-def serve_pipe(endpoint, pending):
+def serve_pipe(endpoint) -> threading.Thread:
     """Bind the named pipe `endpoint` and serve it from a daemon thread; the thread is returned.
 
     The first instance exists when this returns, and the next instance is created before a
@@ -324,7 +394,7 @@ def serve_pipe(endpoint, pending):
             | getattr(win32pipe, "PIPE_REJECT_REMOTE_CLIENTS", 8),
             win32pipe.PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, security)
 
-    def serve(h):
+    def serve(h) -> None:
         try:
             buf = b""
             try:
@@ -333,7 +403,7 @@ def serve_pipe(endpoint, pending):
                     if not chunk:
                         break
                     buf += chunk
-                win32file.WriteFile(h, respond(buf, pending))
+                win32file.WriteFile(h, respond(buf))
                 win32file.FlushFileBuffers(h)  # disconnecting first would drop the unread answer
             except pywintypes.error:
                 pass
@@ -396,9 +466,9 @@ def _bind_unix(sock):
 
 
 def main(sock) -> None:
-    global _STARTED
+    global _STARTED, _PENDING
     _STARTED = time.time()
-    pending = not os.environ.get("ANTIGRAVITY_CSRF_TOKEN")
+    _PENDING = pending = not os.environ.get("ANTIGRAVITY_CSRF_TOKEN")
     log("start", {"pid": os.getpid(), "ls_address": os.environ.get("ANTIGRAVITY_LS_ADDRESS"),
                   "conversation": os.environ.get("ANTIGRAVITY_CONVERSATION_ID"),
                   "mode": "pending" if pending else "live"})
@@ -407,11 +477,12 @@ def main(sock) -> None:
     if not pending:
         drain()
     if sys.platform == "win32":
-        t = serve_pipe(sock, pending)
+        t = serve_pipe(sock)
         if not pending:
             drain()  # second pass: lines a client queued while the pipe was still binding
         while t.is_alive():
             stamp_proc_start()
+            promote_if_handed()
             time.sleep(PARENT_POLL_SECS)
             if session_gone():
                 log("exit", {"reason": "agy parent gone"})
@@ -425,6 +496,7 @@ def main(sock) -> None:
             c, _ = srv.accept()
         except socket.timeout:
             stamp_proc_start()
+            promote_if_handed()
             if session_gone():
                 log("exit", {"reason": "agy parent gone"})
                 srv.close()
@@ -460,7 +532,7 @@ def main(sock) -> None:
             except OSError:
                 continue
             try:
-                c.sendall(respond(buf, pending))
+                c.sendall(respond(buf))
             except OSError:
                 pass
 

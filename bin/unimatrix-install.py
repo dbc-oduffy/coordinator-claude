@@ -118,6 +118,7 @@ VENDORED_SCRIPTS = (
     "unimatrix-peer-agy.py",
     "unimatrix-peer-grok.py",
     "unimatrix-agy-leg.py",
+    "unimatrix-agy-sidecar.py",
     "unimatrix-peer-router.py",
     "unimatrix-agy-hook-pretool.py",
     "unimatrix-agy-hook-launch.py",
@@ -149,6 +150,8 @@ _SCRIPT_REF = re.compile(r"unimatrix-[a-z0-9-]+\.py")
 AGY_HOOK_KEY = "unimatrix-agy-leg"
 AGY_HOOK_SCRIPT = "unimatrix-agy-hook-pretool.py"
 AGY_SESSIONSTART_SCRIPT = "unimatrix-agy-hook-sessionstart.py"
+AGY_SIDECAR_SCRIPT = "unimatrix-agy-sidecar.py"
+AGY_SIDECAR_ID = "unimatrix-agy-leg"
 CODEX_SESSIONSTART_SCRIPT = "unimatrix-codex-hook-sessionstart.py"
 GUARD_SCRIPT = "unimatrix-host-guard.py"
 EXTERNAL_SESSION_SCRIPT = "coordinator-external-session.py"
@@ -521,7 +524,7 @@ def _copy_if_changed(src, dst, on_copy=None):
         on_copy(dst)
 
 
-VENDORED_LIB = ("python_interp.py", "unimatrix_box_mux.py", "unimatrix_relay_sessions.py", "session_detach.py",
+VENDORED_LIB = ("python_interp.py", "unimatrix_box_mux.py", "unimatrix_relay_sessions.py", "unimatrix_relay_queue.py", "session_detach.py",
                 "unimatrix_pair_contract.py", "cc_invoke.py", "engine_bootstrap.py",
                 "machine_local_impl_resolve.py", "unimatrix_far_addresses.py", "unimatrix_capabilities.py", "__init__.py")  # sibling lib/ modules the installed scripts load by path or import; __init__ makes `import lib` put lib/ on sys.path
 UNSHIPPED_LIB = ("unimatrix_test_home.py",)  # loaded by path only under UNIMATRIX_TEST_HOME; absent from installs by design
@@ -1141,6 +1144,52 @@ def unseed_agy_plugin(path, tree):
     return "removed"
 
 
+def agy_sidecars_dir() -> Path:
+    """agy's user sidecar root: one `<sidecar-id>/sidecar.json` folder per sidecar, watched live by agy."""
+    return agy_hooks_path().with_name("sidecars")
+
+
+def agy_sidecar_declaration(dest_dir) -> dict:
+    """The agy sidecar.json that launches the installed leg bring-up script.
+
+    agy runs `command` with `args` as an argv (no shell), so the interpreter and script paths need no
+    OS quoting: json.dumps escapes backslashes and a space in a path is one argument. snake_case keys and
+    a lowercase restart_policy are agy's declared schema.
+    """
+    return {
+        "command": str(_console_python()),
+        "args": [str(Path(dest_dir) / AGY_SIDECAR_SCRIPT)],
+        "restart_policy": "always",
+        "display_name": "Unimatrix agy leg",
+        "description": "Brings each agy conversation's unimatrix leg up live at session start, from the credentials agy gives its sidecars.",
+    }
+
+
+def seed_agy_sidecar(root, dest_dir) -> str:
+    """Write our sidecar declaration under `root`; return "created", "updated" or "present". Other sidecars are untouched."""
+    path = Path(root) / AGY_SIDECAR_ID / "sidecar.json"
+    text = json.dumps(agy_sidecar_declaration(dest_dir), indent=2) + "\n"
+    existed = path.is_file()
+    if existed and path.read_text(encoding="utf-8") == text:
+        return "present"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return "updated" if existed else "created"
+
+
+def unseed_agy_sidecar(root) -> str:
+    """Remove only our sidecar folder; return "removed" or "absent"."""
+    folder = Path(root) / AGY_SIDECAR_ID
+    if not (folder / "sidecar.json").is_file():
+        return "absent"
+    (folder / "sidecar.json").unlink()
+    try:
+        folder.rmdir()
+    except OSError:
+        pass
+    return "removed"
+
+
 def codex_hooks_path():
     """Codex's user hook discovery file: $CODEX_HOME/hooks.json, default ~/.codex."""
     env = os.environ.get("CODEX_HOME")
@@ -1194,40 +1243,123 @@ def _neutral_command(argv) -> str:
     return " ".join([head, *(_neutral_arg(a) for a in rest)])
 
 
-def _hook_command(dest_dir, script_name, *args) -> str:
-    return _neutral_command([_console_python(), Path(dest_dir) / script_name, *args])
+def _hook_command(dest_dir, script_name, *args, interpreter=None) -> str:
+    return _neutral_command([interpreter or _console_python(), Path(dest_dir) / script_name, *args])
 
 
 def _engine_args(engine_root):
     return ("--engine-root", str(engine_root)) if engine_root else ()
 
 
-def _hook_handler(dest_dir, script_name, *args):
-    return {"type": "command", "command": _hook_command(dest_dir, script_name, *args), "timeout": 10}
+def _hook_handler(dest_dir, script_name, *args, interpreter=None):
+    return {"type": "command", "command": _hook_command(dest_dir, script_name, *args, interpreter=interpreter),
+            "timeout": 10}
 
 
-def _hook_group(dest_dir, script_name, matcher=None, args=()):
-    group = {"hooks": [_hook_handler(dest_dir, script_name, *args)]}
+def _hook_group(dest_dir, script_name, matcher=None, args=(), interpreter=None):
+    group = {"hooks": [_hook_handler(dest_dir, script_name, *args, interpreter=interpreter)]}
     if matcher:
         group = {"matcher": matcher, **group}
     return group
 
 
-def agy_hook_entry(dest_dir, engine_root=None):
+def agy_hook_entry(dest_dir, engine_root=None, interpreter=None):
     """Our hooks.json value: PreToolUse, PostToolUse, SessionStart, PreInvocation, and Stop hooks running installed scripts.
 
     agy groups only tool events (PreToolUse, PostToolUse) under matcher/hooks; non-tool events
     (SessionStart, PreInvocation, Stop) take bare handlers, and agy rejects the whole file
     ("command hook must specify 'command'") when a non-tool event is grouped.
+    `interpreter` overrides the console python the commands name.
     """
     eng = _engine_args(engine_root)
+    py = interpreter
     return {
-        "PreToolUse": [_hook_group(dest_dir, AGY_HOOK_SCRIPT, AGY_TOOL_MATCHER, eng)],
-        "PostToolUse": [_hook_group(dest_dir, AGY_HOOK_SCRIPT, AGY_TOOL_MATCHER, ("--event", "PostToolUse", *eng))],
-        "SessionStart": [_hook_handler(dest_dir, AGY_SESSIONSTART_SCRIPT, *eng)],
-        "PreInvocation": [_hook_handler(dest_dir, AGY_HOOK_SCRIPT, "--event", "PreInvocation")],
-        "Stop": [_hook_handler(dest_dir, AGY_HOOK_SCRIPT, "--event", "Stop", *eng)],
+        "PreToolUse": [_hook_group(dest_dir, AGY_HOOK_SCRIPT, AGY_TOOL_MATCHER, eng, py)],
+        "PostToolUse": [_hook_group(dest_dir, AGY_HOOK_SCRIPT, AGY_TOOL_MATCHER, ("--event", "PostToolUse", *eng), py)],
+        "SessionStart": [_hook_handler(dest_dir, AGY_SESSIONSTART_SCRIPT, *eng, interpreter=py)],
+        "PreInvocation": [_hook_handler(dest_dir, AGY_HOOK_SCRIPT, "--event", "PreInvocation", interpreter=py)],
+        "Stop": [_hook_handler(dest_dir, AGY_HOOK_SCRIPT, "--event", "Stop", *eng, interpreter=py)],
     }
+
+
+def _command_words(command):
+    """A hook command's words, quotes stripped and separators forward-slashed; None when unparseable."""
+    try:
+        words = shlex.split(command, posix=os.name != "nt")
+    except ValueError:
+        return None
+    return [w.strip("\"'").replace("\\", "/") for w in words]
+
+
+def _entry_shape(value):
+    """`value` with every `command` string reduced to its argv after the interpreter word."""
+    if isinstance(value, dict):
+        return {k: (("argv", tuple((_command_words(v) or [v])[1:])) if k == "command" and isinstance(v, str)
+                    else _entry_shape(v)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_entry_shape(v) for v in value]
+    return value
+
+
+def _interpreter_dead(word) -> bool:
+    """True when a hook command's interpreter word names a path that no longer exists (a bare name is never dead)."""
+    return "/" in word and not os.path.exists(word)
+
+
+def _agy_entry_current(existing, want) -> bool:
+    """True when `existing` runs the same events and argv as `want`, whatever interpreter or quoting it uses."""
+    return _entry_shape(existing) == _entry_shape(want)
+
+
+def _first_command(value):
+    if isinstance(value, dict):
+        if isinstance(value.get("command"), str):
+            return value["command"]
+        value = list(value.values())
+    if isinstance(value, list):
+        for v in value:
+            found = _first_command(v)
+            if found:
+                return found
+    return None
+
+
+def _restyle_command(old, new, pinned):
+    """`new` re-rendered in `old`'s quoting form: unchanged words and the interpreter keep their raw
+    old text (the interpreter is `new`'s when a pin chose it); changed words take old's quote style."""
+    if old is None:
+        return new
+    try:
+        old_raw = shlex.split(old, posix=False)
+        new_raw = shlex.split(new, posix=False)
+    except ValueError:
+        return new
+    old_words, new_words = _command_words(old), _command_words(new)
+    if old_words is not None and old_words[1:] == new_words[1:]:
+        return new if pinned else old
+    if len(old_raw) != len(new_raw):
+        return new if pinned else " ".join([old_raw[0], *new_raw[1:]])
+    out = [new_raw[0] if pinned else old_raw[0]]
+    for o_raw, o_word, n_raw, n_word in zip(old_raw[1:], old_words[1:], new_raw[1:], new_words[1:]):
+        if o_word == n_word:
+            out.append(o_raw)
+        elif o_raw[:1] in ("'", '"') and o_raw[:1] not in n_word and not any(c in n_word for c in '$`'):
+            out.append(f"{o_raw[0]}{n_word}{o_raw[0]}")
+        else:
+            out.append(n_raw)
+    return " ".join(out)
+
+
+def _restyle_entry(existing, want, pinned):
+    if isinstance(want, dict):
+        old = existing if isinstance(existing, dict) else {}
+        return {k: (_restyle_command(old.get(k) if isinstance(old.get(k), str) else None, v, pinned)
+                    if k == "command" and isinstance(v, str) else _restyle_entry(old.get(k), v, pinned))
+                for k, v in want.items()}
+    if isinstance(want, list):
+        old = existing if isinstance(existing, list) else []
+        return [_restyle_entry(old[i] if i < len(old) else None, v, pinned) for i, v in enumerate(want)]
+    return want
 
 
 def external_session_capability(engine_root):
@@ -1292,23 +1424,31 @@ def _load_hooks(path):
 def seed_agy_hook(hooks_path, dest_dir, engine_root=None):
     """Point our key at this install; return "created", "added", "updated" or "present".
 
-    A value we wrote earlier (it carries PreToolUse or SessionStart) is replaced when it differs,
-    which heals a missing event, a script path or the engine root from an older install. A
-    hand-customised value and every other key in the file are left byte-identical.
+    A value we wrote earlier (it carries PreToolUse or SessionStart) is replaced only when its argv
+    differs (a missing event, a script path or the engine root from an older install); a working
+    entry is never re-rendered for its interpreter or quoting. A re-render takes the `unimatrix.python`
+    pin, else the existing entry's interpreter, and keeps the existing quoting form. A hand-customised
+    value and every other key in the file are left byte-identical.
     """
     path = Path(hooks_path)
     existed = path.exists()
     data = _load_hooks(path)
-    want = agy_hook_entry(dest_dir, engine_root)
+    pin = _pin_value()
     if AGY_HOOK_KEY in data:
         entry = data[AGY_HOOK_KEY]
         ours = isinstance(entry, dict) and ("PreToolUse" in entry or "SessionStart" in entry)
-        if entry == want or not ours:
+        if not ours:
             return "present"
-        data[AGY_HOOK_KEY] = want
+        first = _first_command(entry)
+        old_words = _command_words(first) if first else None
+        dead = bool(old_words) and _interpreter_dead(old_words[0])
+        want = agy_hook_entry(dest_dir, engine_root, pin or (None if dead else old_words[0] if old_words else None))
+        if not dead and _agy_entry_current(entry, want):
+            return "present"
+        data[AGY_HOOK_KEY] = _restyle_entry(entry, want, bool(pin) or dead)
         path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
         return "updated"
-    data[AGY_HOOK_KEY] = want
+    data[AGY_HOOK_KEY] = agy_hook_entry(dest_dir, engine_root, pin)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     return "added" if existed else "created"
@@ -2989,7 +3129,7 @@ def resolve_skills_root(plugin_root=None) -> tuple:
     if plugin_root:
         return Path(plugin_root) / "skills", f"--plugin-root {plugin_root}"
     pointer, pointer_files = _content_root_pointer()
-    candidates = [Path(pointer) / "skills"] if pointer else []
+    candidates = [Path(pointer) / "skills", Path(pointer) / "coordinator" / "skills"] if pointer else []
     base = Path(SKILLS_ROOT).parent
     candidates += [base / "skills", base.parent / "skills", base.parent / "templates" / "skills",
                    base / "templates" / "skills"]
@@ -3238,7 +3378,7 @@ def enroll_agy_runtime(engine_root, *, consent=False, check=False, dest_dir=None
     try:
         data = _load_hooks(hp)
         want = agy_hook_entry(dest, str(root))
-        hooks_drift = data.get(AGY_HOOK_KEY) != want
+        hooks_drift = not _agy_entry_current(data.get(AGY_HOOK_KEY), want)
         tree = dest / AGY_PLUGIN_TREE_DIR
         pjson = tree / "plugin.json"
         plugin_ok = False
@@ -3267,6 +3407,7 @@ def enroll_agy_runtime(engine_root, *, consent=False, check=False, dest_dir=None
             print("Agy runtime: plugin tree generation failed", file=out)
             return 7
         seed_agy_plugin(pj, tree)
+        seed_agy_sidecar(agy_sidecars_dir(), dest)
         seed_peer_doctrine(agy_rules_path(), render_peer_doctrine(dest))
         missing = _seed_standing_doctrine(
             out, False, True, None, agy_rules_path(),
@@ -3340,6 +3481,7 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
         agy_hooks_path().with_name("skills.json") if hooks_path is None else Path(hooks_path).with_name("agy-skills.json")
     )
     agy_pj = agy_plugins_path() if hooks_path is None else Path(hooks_path).with_name("agy-plugins.json")
+    agy_sc = agy_sidecars_dir() if hooks_path is None else Path(hooks_path).with_name("agy-sidecars")
     codex_sd = Path(codex_skills) if codex_skills else (
         Path.home() / ".agents" / "skills" if hooks_path is None else Path(hooks_path).with_name("codex-agents-skills")
     )
@@ -3530,6 +3672,7 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
             steps.append(("agy hook", hp, lambda: unseed_agy_hook(hp)))
             steps.append(("agy plugin", agy_pj, lambda: unseed_agy_plugin(
                 agy_pj, (Path(dest_dir) if dest_dir else settings_home() / "unimatrix") / AGY_PLUGIN_TREE_DIR)))
+            steps.append(("agy sidecar", agy_sc, lambda: unseed_agy_sidecar(agy_sc)))
             steps.append(("agy skills", agy_sj, lambda: _seed().unseed_agy_skills(agy_sj, skills_root)))
             steps.append(("agy coordinator doctrine", agy_rp, lambda: _seed().unseed_block(
                 agy_rp, _seed().DOCTRINE_BEGIN, _seed().DOCTRINE_END)))
@@ -3584,11 +3727,11 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
     if not args.install:
         return 0
 
-    want_codex, want_agy, want_grok = (hosts is not None and h in hosts for h in ("codex", "agy", "grok"))
+    want = {h: h in hosts for h in _load_host_registry().foreign_ids()} if hosts is not None else {}
+    want_codex, want_agy, want_grok = want.get("codex", False), want.get("agy", False), want.get("grok", False)
     # Every named host is staged; what needs its CLI (codex hook trust, agy plugin install) is recorded in
     # deferred-hosts.json for the login replay.
-    absent = [h for h, wanted in (("codex", want_codex), ("agy", want_agy), ("grok", want_grok))
-              if wanted and not host_present(h)]
+    absent = [h for h, wanted in want.items() if wanted and not host_present(h)]
     for h in absent:
         print(f"{h}: CLI not on PATH; staged, deferred until it appears", file=out)
     print(NATIVE_RC_NOTICE, file=out)
@@ -3698,11 +3841,11 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
             except (OSError, ValueError) as exc:
                 missing.append(label)
                 print(f"WARN: {label} not installed: {exc}", file=out)
-    for label, host, config, wanted in (("agy", "agy", agy_status, want_agy), ("grok", "grok", grok_status, want_grok)):
-        if not wanted:
+    for label, config in {"agy": agy_status, "grok": grok_status}.items():
+        if not want.get(label):
             continue
         try:
-            res = seed_host_status_line(config, host, engine_root=engine_root, dest_dir=dest)
+            res = seed_host_status_line(config, label, engine_root=engine_root, dest_dir=dest)
             print(f"{label} status line {res} in {config}", file=out)
         except (OSError, ValueError) as exc:
             missing.append(f"{label} status line")
@@ -3729,14 +3872,18 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
                 except (OSError, ValueError) as exc:
                     missing.append("agy plugin registration")
                     print(f"WARN: agy plugin not registered: {exc}", file=out)
+        try:
+            print(f"agy sidecar {seed_agy_sidecar(agy_sc, dest)} in {agy_sc}", file=out)
+        except (OSError, ValueError) as exc:
+            missing.append("agy sidecar")
+            print(f"WARN: agy sidecar not installed: {exc}", file=out)
     try:
         block = render_peer_doctrine(dest, skills_root=skills_root)
     except (OSError, ValueError) as exc:
         block = None
         print(f"WARN: peer doctrine not installed: {exc}", file=out)
-    for label, rp, wanted in (("codex", codex_rp, want_codex), ("agy", agy_rp, want_agy),
-                             ("grok", grok_rp, want_grok)):
-        if not wanted:
+    for label, rp in {"codex": codex_rp, "agy": agy_rp, "grok": grok_rp}.items():
+        if not want.get(label):
             continue
         try:
             if block is None:
@@ -3757,8 +3904,8 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
     if missing:
         print(f"PARTIAL INSTALL: not installed: {', '.join(missing)}", file=out)
         rc = rc or 7
-    arrived = [h for h, done in (("codex", want_codex and "codex" not in absent and verified),
-                                 ("grok", want_grok and "grok" not in absent)) if done]
+    arrived = [h for h, done in {"codex": want_codex and "codex" not in absent and verified,
+                                 "grok": want_grok and "grok" not in absent}.items() if done]
     try:
         record_deferred_hosts(dest, absent, arrived)
     except OSError as exc:
@@ -3806,8 +3953,8 @@ def _seed_standing_doctrine(out, want_codex, want_agy, codex_rp, agy_rp, codex_s
     if skills_root is None:
         skills_root, skills_detail = resolve_skills_root(plugin_root)
     root, rung, detail = resolve_doctrine(plugin_root)
-    for label, rp, wanted, cap in (("codex", codex_rp, want_codex, seed.CODEX_CAP_BYTES),
-                                   ("agy", agy_rp, want_agy, seed.AGY_CAP_BYTES)):
+    for label, (wanted, rp, cap) in {"codex": (want_codex, codex_rp, seed.CODEX_CAP_BYTES),
+                                     "agy": (want_agy, agy_rp, seed.AGY_CAP_BYTES)}.items():
         if not wanted:
             continue
         try:

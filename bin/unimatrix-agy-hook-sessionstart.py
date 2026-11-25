@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """agy SessionStart hook: register the conversation's leg at boot.
 
-agy's SessionStart env carries only ANTIGRAVITY_CONVERSATION_ID, not ANTIGRAVITY_CSRF_TOKEN, so the
-leg starts pending: it binds its endpoint and queues peer messages. The language-server address is
-discovered from the agy pid's listening ports. The first run_command through the PreToolUse hook's
-rewrite (unimatrix-agy-hook-pretool.py) relaunches the leg live, which drains the queue.
+agy's SessionStart env carries only ANTIGRAVITY_CONVERSATION_ID, not ANTIGRAVITY_CSRF_TOKEN. The leg
+comes up live through the declared agy sidecar (unimatrix-agy-sidecar.py): this hook hands it the
+conversation id (never a token), and the sidecar starts the leg with the credentials agy gave it, whose
+drain delivers the spool. Only when no live sidecar answers does the leg start pending (the belt): it
+binds its endpoint and queues peer messages, a sidecar that comes up later makes it live, else the first
+run_command through the PreToolUse hook's rewrite (unimatrix-agy-hook-pretool.py) relaunches it live.
 
 Reads the payload's `conversationId`, takes the agy pid from the nearest agy.exe ancestor of this hook
 (agy launches hooks through a short-lived intermediate process, so getppid() is never used; none found
-records no agy pid), takes the leg cwd from the payload `cwd` else `workspacePaths[0]`, and runs unimatrix-agy-hook-launch.py's start() in-process; start() spawns the leg detached and writes
+records no agy pid), takes the leg cwd from `workspacePaths[0]` else the payload `cwd` (never a dir under the agy config home), and runs unimatrix-agy-hook-launch.py's start() in-process; start() spawns the leg detached and writes
 the leg record, then the conversation is upserted into peers.json (register_peer, as the Codex hook
 does). Where the env does carry the address and token the leg starts live here.
 
@@ -34,17 +36,30 @@ def load_sibling(name):
     return mod
 
 
-def payload_cwd(payload):
-    """Payload `cwd` when a non-empty string, else the first non-empty string of `workspacePaths`, else None."""
-    cwd = payload.get("cwd")
-    if isinstance(cwd, str) and cwd:
-        return cwd
+def under_config_home(path) -> bool:
+    """True when `path` is the agy config home (~/.gemini) or inside it: agy runs hooks there, so it is no launch dir."""
+    try:
+        home = os.path.normcase(os.path.abspath(Path.home() / ".gemini"))
+        target = os.path.normcase(os.path.abspath(path))
+        return target == home or target.startswith(home + os.sep)
+    except (OSError, ValueError, TypeError, RuntimeError):
+        return False
+
+
+def payload_cwd(payload) -> "str | None":
+    """The launch dir: `workspacePaths[0]` when a non-empty string, else payload `cwd`, else None.
+
+    A candidate inside the agy config home is not a launch dir and is skipped (agy 1.5.17 reports its
+    config dir as `cwd`)."""
     paths = payload.get("workspacePaths")
     first = paths[0] if isinstance(paths, list) and paths else None
-    return first if isinstance(first, str) and first else None
+    for cand in (first, payload.get("cwd")):
+        if isinstance(cand, str) and cand and not under_config_home(cand):
+            return cand
+    return None
 
 
-def register(payload, agy_pid, engine_root=None):
+def register(payload, agy_pid, engine_root=None) -> bool:
     """Start the leg for payload's conversation; True when a leg record for it exists afterwards."""
     if not isinstance(payload, dict):
         return False
@@ -53,7 +68,15 @@ def register(payload, agy_pid, engine_root=None):
     conv = payload.get("conversationId") or os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
     state = roster.settings_home() / "unimatrix" / "agy-legs"
     cwd = payload_cwd(payload)
-    launch.start({"conversationId": conv, "agyPid": agy_pid, "cwd": cwd}, roster, state)
+    handed = False
+    if isinstance(agy_pid, int) and isinstance(conv, str) and launch.CONV_RE.match(conv):
+        try:
+            sidecar = load_sibling("unimatrix-agy-sidecar")
+            handed = bool(sidecar.handoff(conv, cwd, agy_pid, roster.settings_home(), roster.pid_alive))
+        except FileNotFoundError:  # no sidecar module beside this hook: the pending-leg belt applies
+            handed = False
+    if not handed:  # the sidecar was not up: a pending leg, made live later by the sidecar or the first run_command
+        launch.start({"conversationId": conv, "agyPid": agy_pid, "cwd": cwd}, roster, state)
     registered = isinstance(conv, str) and bool(launch.CONV_RE.match(conv)) and (state / f"{conv}.json").is_file()
     if registered:
         record_path = state / f"{conv}.json"
@@ -121,7 +144,7 @@ def register_external_session(conv, cwd, record, engine_root=None) -> bool:
         return False
 
 
-def bind_peer(conv, record):
+def bind_peer(conv, record) -> "str | None":
     """Upsert this conversation into peers.json as an agy peer, named as the router names a leg record.
 
     Never raises: the leg record already registers the peer with the router, so a peers.json
@@ -131,10 +154,25 @@ def bind_peer(conv, record):
         router = load_sibling("unimatrix-peer-router")
         cwd = json.loads(record.read_text(encoding="utf-8")).get("cwd")
         name = router.readable_peer_name(VENDOR, conv, cwd)
-        return load_sibling("unimatrix-codex-hook-sessionstart").register_peer(
-            router.default_peers_file(), name, VENDOR, conv)
+        hook = load_sibling("unimatrix-codex-hook-sessionstart")
+        status = hook.register_peer(router.default_peers_file(), name, VENDOR, conv)
+        reap_dead_peers(hook, router.default_peers_file(), keep=conv)
+        return status
     except Exception:
         return None
+
+
+def reap_dead_peers(hook, peers_file, keep=None) -> list:
+    """Drop agy peers.json rows whose leg record is absent or whose leg pid is dead or replaced.
+
+    `keep` is a target never dropped (the row just bound: its leg may not be observable yet).
+    Never raises; returns the dropped row names. Non-agy rows are never touched."""
+    try:
+        orphans = load_sibling("unimatrix-liveness").agy_peer_rows_orphaned()
+        targets = {t for _, t in orphans if t != keep}
+        return hook.drop_peer_rows(peers_file, targets) if targets else []
+    except Exception:
+        return []
 
 
 def _repo_claude_md(cwd, max_bytes=24000):
@@ -186,11 +224,65 @@ def reply(registered, worker_pointer=None, failure=None, repo_doctrine=None) -> 
     return {"injectSteps": [{"systemMessage": {"systemMessage": n}} for n in notes]} if notes else {}
 
 
+def _refresh_vendored(here, engine_root) -> int:
+    """Replace each file vendored under `here` whose engine copy (`<engine_root>/coordinator/bin/<rel>`) differs.
+
+    Each replace is temp file + os.replace in the same directory, so a concurrent reader sees the whole
+    old or whole new file. A file with no engine counterpart is left alone; the set is `here`'s own
+    contents, never the installer's closure. Never raises and never spawns; returns the count replaced.
+
+    Trap: a failed replace is silent, so a permanently failing refresh leaves the old copy running; the
+    cost is one size stat per file plus a full read of same-size files, unmeasured against the 500ms bar.
+    A vendored hook that predates this function never refreshes itself: one installer run seeds it.
+    """
+    refreshed = 0
+    try:
+        if not engine_root:
+            return 0
+        src_root = Path(engine_root) / "coordinator" / "bin"
+        if not src_root.is_dir():
+            return 0
+        here = Path(here)
+        for dirpath, dirnames, filenames in os.walk(here):
+            dirnames[:] = [d for d in dirnames if d != "__pycache__"]
+            for fname in filenames:
+                tmp = None
+                try:
+                    dest = Path(dirpath) / fname
+                    src = src_root / dest.relative_to(here)
+                    if not src.is_file():
+                        continue
+                    new = src.read_bytes()
+                    if dest.stat().st_size == len(new) and dest.read_bytes() == new:
+                        continue
+                    tmp = dest.with_name(f".{fname}.{os.getpid()}.refresh")
+                    tmp.write_bytes(new)
+                    try:
+                        os.chmod(tmp, dest.stat().st_mode & 0o7777)
+                    except OSError:
+                        pass
+                    os.replace(tmp, dest)
+                    tmp = None
+                    refreshed += 1
+                except Exception:
+                    pass
+                finally:
+                    if tmp is not None:
+                        try:
+                            tmp.unlink()
+                        except OSError:
+                            pass
+    except Exception:
+        pass
+    return refreshed
+
+
 def main(argv=None) -> int:
     out = {}
     try:
         args = list(sys.argv[1:] if argv is None else argv)
         root = args[args.index("--engine-root") + 1] if "--engine-root" in args[:-1] else None
+        _refresh_vendored(HERE, root)
         payload = json.load(sys.stdin)
         try:
             pointer = load_sibling("unimatrix-codex-hook-sessionstart").worker_pointer()
