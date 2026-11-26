@@ -1190,6 +1190,71 @@ def unseed_agy_sidecar(root) -> str:
     return "removed"
 
 
+def agy_config_path() -> Path:
+    """agy's global config.json (sibling of hooks.json); its `sidecars.<id>.enabled` key switches a declared sidecar on."""
+    return agy_hooks_path().with_name("config.json")
+
+
+def _read_agy_config(path) -> dict:
+    """The parsed config.json object, `{}` when absent; ValueError (file untouched) when it is not a JSON object."""
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8") or "{}")
+    except ValueError as exc:
+        raise ValueError(f"{path} is not valid JSON ({exc}); fix or remove it") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} has an unexpected shape (want a JSON object)")
+    return data
+
+
+def _write_agy_config(path, data) -> None:
+    """Atomic temp-file + os.replace write, keeping the existing file's mode (new files are 0600)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".unimatrix-tmp")
+    tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    if path.exists():
+        shutil.copymode(path, tmp)
+    else:
+        os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+
+
+def seed_agy_sidecar_enabled(path) -> str:
+    """Set `sidecars.<AGY_SIDECAR_ID>.enabled: true` in config.json; return "created", "enabled" or "present".
+
+    Every other key is preserved; a malformed file raises ValueError and is left untouched.
+    """
+    path = Path(path)
+    data = _read_agy_config(path)
+    sidecars = data.get("sidecars", {})
+    if not isinstance(sidecars, dict):
+        raise ValueError(f"{path} has an unexpected `sidecars` shape (want an object)")
+    entry = sidecars.get(AGY_SIDECAR_ID)
+    if isinstance(entry, dict) and entry.get("enabled") is True:
+        return "present"
+    existed = path.exists()
+    entry = dict(entry) if isinstance(entry, dict) else {}
+    entry["enabled"] = True
+    data["sidecars"] = {**sidecars, AGY_SIDECAR_ID: entry}
+    _write_agy_config(path, data)
+    return "enabled" if existed else "created"
+
+
+def unseed_agy_sidecar_enabled(path) -> str:
+    """Remove only our `sidecars.<AGY_SIDECAR_ID>` key (and a `sidecars` object it leaves empty); "removed" or "absent"."""
+    path = Path(path)
+    data = _read_agy_config(path)
+    sidecars = data.get("sidecars")
+    if not isinstance(sidecars, dict) or AGY_SIDECAR_ID not in sidecars:
+        return "absent"
+    del sidecars[AGY_SIDECAR_ID]
+    if not sidecars:
+        del data["sidecars"]
+    _write_agy_config(path, data)
+    return "removed"
+
+
 def codex_hooks_path():
     """Codex's user hook discovery file: $CODEX_HOME/hooks.json, default ~/.codex."""
     env = os.environ.get("CODEX_HOME")
@@ -1421,19 +1486,19 @@ def _load_hooks(path):
     return data
 
 
-def seed_agy_hook(hooks_path, dest_dir, engine_root=None):
+def seed_agy_hook(hooks_path, dest_dir, engine_root=None) -> str:
     """Point our key at this install; return "created", "added", "updated" or "present".
 
     A value we wrote earlier (it carries PreToolUse or SessionStart) is replaced only when its argv
     differs (a missing event, a script path or the engine root from an older install); a working
-    entry is never re-rendered for its interpreter or quoting. A re-render takes the `unimatrix.python`
-    pin, else the existing entry's interpreter, and keeps the existing quoting form. A hand-customised
-    value and every other key in the file are left byte-identical.
+    entry is never re-rendered for its interpreter or quoting. A re-render keeps the existing entry's
+    interpreter while that file exists (neither the `unimatrix.python` pin nor PATH moves it) and its
+    quoting form; a fresh install, or a dead existing interpreter, takes the running console python.
+    A hand-customised value and every other key in the file are left byte-identical.
     """
     path = Path(hooks_path)
     existed = path.exists()
     data = _load_hooks(path)
-    pin = _pin_value()
     if AGY_HOOK_KEY in data:
         entry = data[AGY_HOOK_KEY]
         ours = isinstance(entry, dict) and ("PreToolUse" in entry or "SessionStart" in entry)
@@ -1442,13 +1507,13 @@ def seed_agy_hook(hooks_path, dest_dir, engine_root=None):
         first = _first_command(entry)
         old_words = _command_words(first) if first else None
         dead = bool(old_words) and _interpreter_dead(old_words[0])
-        want = agy_hook_entry(dest_dir, engine_root, pin or (None if dead else old_words[0] if old_words else None))
+        want = agy_hook_entry(dest_dir, engine_root, None if dead else old_words[0] if old_words else None)
         if not dead and _agy_entry_current(entry, want):
             return "present"
-        data[AGY_HOOK_KEY] = _restyle_entry(entry, want, bool(pin) or dead)
+        data[AGY_HOOK_KEY] = _restyle_entry(entry, want, dead)
         path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
         return "updated"
-    data[AGY_HOOK_KEY] = agy_hook_entry(dest_dir, engine_root, pin)
+    data[AGY_HOOK_KEY] = agy_hook_entry(dest_dir, engine_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     return "added" if existed else "created"
@@ -3482,6 +3547,7 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
     )
     agy_pj = agy_plugins_path() if hooks_path is None else Path(hooks_path).with_name("agy-plugins.json")
     agy_sc = agy_sidecars_dir() if hooks_path is None else Path(hooks_path).with_name("agy-sidecars")
+    agy_cfg = agy_config_path() if hooks_path is None else Path(hooks_path).with_name("agy-config.json")
     codex_sd = Path(codex_skills) if codex_skills else (
         Path.home() / ".agents" / "skills" if hooks_path is None else Path(hooks_path).with_name("codex-agents-skills")
     )
@@ -3673,6 +3739,7 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
             steps.append(("agy plugin", agy_pj, lambda: unseed_agy_plugin(
                 agy_pj, (Path(dest_dir) if dest_dir else settings_home() / "unimatrix") / AGY_PLUGIN_TREE_DIR)))
             steps.append(("agy sidecar", agy_sc, lambda: unseed_agy_sidecar(agy_sc)))
+            steps.append(("agy sidecar enable key", agy_cfg, lambda: unseed_agy_sidecar_enabled(agy_cfg)))
             steps.append(("agy skills", agy_sj, lambda: _seed().unseed_agy_skills(agy_sj, skills_root)))
             steps.append(("agy coordinator doctrine", agy_rp, lambda: _seed().unseed_block(
                 agy_rp, _seed().DOCTRINE_BEGIN, _seed().DOCTRINE_END)))
@@ -3877,6 +3944,11 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
         except (OSError, ValueError) as exc:
             missing.append("agy sidecar")
             print(f"WARN: agy sidecar not installed: {exc}", file=out)
+        try:
+            print(f"agy sidecar enable key {seed_agy_sidecar_enabled(agy_cfg)} in {agy_cfg}", file=out)
+        except (OSError, ValueError) as exc:
+            missing.append("agy sidecar enable key")
+            print(f"WARN: agy sidecar not enabled: {exc}", file=out)
     try:
         block = render_peer_doctrine(dest, skills_root=skills_root)
     except (OSError, ValueError) as exc:

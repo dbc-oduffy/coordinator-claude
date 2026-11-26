@@ -21,12 +21,15 @@ import os
 import secrets
 import socket
 import sys
+import time
 import types
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 POLL_SECS = 5.0
 LINE_MAX = 1 << 16
+TRACE_MAX_BYTES = 64 * 1024
+TRACE_KEEP = 200
 
 
 def load_sibling(name) -> types.ModuleType:
@@ -42,11 +45,13 @@ def record_dir(home) -> Path:
     return Path(home) / "unimatrix" / "agy-sidecars"
 
 
-def credentials(env=None) -> "tuple | None":
-    """(ls_address, token) from the sidecar env, or None unless both are set."""
-    env = os.environ if env is None else env
-    ls, token = env.get("ANTIGRAVITY_LS_ADDRESS"), env.get("ANTIGRAVITY_CSRF_TOKEN")
-    return (ls, token) if ls and token else None
+def write_private_json(path, obj) -> None:
+    """Atomically publish `obj` at `path`, the temp file created 0600 so the nonce is never world-readable."""
+    tmp = Path(f"{path}.{os.getpid()}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(obj, f)
+    os.replace(tmp, path)
 
 
 def handoff(conv, cwd, agy_pid, home, pid_alive, timeout=1.0) -> bool:
@@ -115,10 +120,14 @@ def serve(hub, srv, pid_alive) -> None:
         except socket.timeout:
             continue
         with conn:
-            conn.settimeout(5)
             buf = b""
+            deadline = time.monotonic() + 1.5  # one wall for the whole line: a per-recv timeout lets a dribbling client hold the single-threaded loop
             try:
                 while not buf.endswith(b"\n") and len(buf) < LINE_MAX:
+                    left = deadline - time.monotonic()
+                    if left <= 0:
+                        break
+                    conn.settimeout(left)
                     chunk = conn.recv(4096)
                     if not chunk:
                         break
@@ -128,12 +137,37 @@ def serve(hub, srv, pid_alive) -> None:
                 pass
 
 
+def trace_launch(home, agy_pid, env, reason) -> None:
+    """Append one JSON line (pids, which credential variables are present, exit_reason: "serving" when the sidecar goes on to serve; never values) to
+    <home>/unimatrix/agy-sidecars.log, keeping only the newest TRACE_KEEP lines once it passes TRACE_MAX_BYTES.
+    Never raises. Unlocked: concurrent sidecars may drop lines on the trim race, which a trace tolerates."""
+    env = os.environ if env is None else env
+    try:
+        path = Path(home) / "unimatrix" / "agy-sidecars.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        line = json.dumps({"ts": time.time(), "pid": os.getpid(), "ppid": os.getppid(), "agy_pid": agy_pid,
+                           "has_ls_address": bool(env.get("ANTIGRAVITY_LS_ADDRESS")),
+                           "has_csrf_token": bool(env.get("ANTIGRAVITY_CSRF_TOKEN")), "exit_reason": reason})
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+        if path.stat().st_size > TRACE_MAX_BYTES:
+            keep = path.read_text(encoding="utf-8", errors="replace").splitlines()[-TRACE_KEEP:]
+            tmp = Path(f"{path}.{os.getpid()}.tmp")
+            tmp.write_text("\n".join(keep) + "\n", encoding="utf-8")
+            os.replace(tmp, path)
+    except Exception:
+        pass
+
+
 def main(env=None) -> int:
-    if credentials(env) is None:
-        return 0
+    """Run the sidecar. `env` only gates the credential check; legs inherit the real process env."""
     launch = load_sibling("unimatrix-agy-hook-launch")
     roster = launch.load_sibling("unimatrix-roster")
     agy_pid = load_sibling("unimatrix-agy-hook-pretool").agy_ancestor_pid() or os.getppid()
+    has_creds = launch.ls_credentials(env) is not None
+    trace_launch(roster.settings_home(), agy_pid, env, "serving" if has_creds else "no-credentials")
+    if not has_creds:
+        return 0
     hub = Hub(launch, roster, agy_pid, secrets.token_hex(16))
     srv = socket.socket()
     srv.bind(("127.0.0.1", 0))
@@ -141,12 +175,8 @@ def main(env=None) -> int:
     record = record_dir(roster.settings_home()) / f"{agy_pid}.json"
     try:
         record.parent.mkdir(parents=True, exist_ok=True)
-        roster.write_json_atomic(str(record), {"pid": os.getpid(), "agy_pid": agy_pid,
-                                               "port": srv.getsockname()[1], "nonce": hub.nonce})
-        try:
-            os.chmod(record, 0o600)
-        except OSError:
-            pass
+        write_private_json(record, {"pid": os.getpid(), "agy_pid": agy_pid,
+                                    "port": srv.getsockname()[1], "nonce": hub.nonce})
         hub.upgrade_pending()
         serve(hub, srv, roster.pid_alive)
     finally:

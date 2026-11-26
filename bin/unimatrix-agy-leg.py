@@ -270,74 +270,7 @@ def stamp_proc_start():
         pass
 
 
-_PENDING = True  # module state: promote_if_handed flips it to False in place; respond reads it per request
-
-
-def _leg_state_dir() -> "str | None":
-    """The directory holding this leg's record, log and promote file (AGY_LEG_LOG's directory), or None."""
-    log_file = os.environ.get("AGY_LEG_LOG")
-    return os.path.dirname(os.path.abspath(log_file)) if log_file else None
-
-
-def _under(path, root) -> bool:
-    try:
-        a, b = os.path.normcase(os.path.abspath(path)), os.path.normcase(os.path.abspath(root))
-        return os.path.commonpath([a, b]) == b
-    except ValueError:
-        return False
-
-
-def promote_if_handed() -> bool:
-    """Switch to live in place when `<conv>.promote.json` hands over a language-server address and token.
-
-    Pending, or live with a file naming a different ls_address (agy restarted its server), takes the
-    values into the environment, deletes the file, rewrites this leg's own record as live (pid, agy_pid,
-    endpoint, procStart preserved; cwd copied only when the record's cwd lies under ~/.gemini) and drains
-    the spool. A live leg deletes a file naming its own address untouched. A malformed file is left and
-    ignored. Returns True when it promoted. The token is never logged or recorded.
-    """
-    global _PENDING
-    state = _leg_state_dir()
-    conv = os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
-    if not state or not conv:
-        return False
-    path = os.path.join(state, f"{conv}.promote.json")
-    try:
-        with open(path, encoding="utf-8") as fh:
-            body = json.load(fh)
-    except (OSError, ValueError):
-        return False
-    addr = body.get("ls_address") if isinstance(body, dict) else None
-    token = body.get("csrf_token") if isinstance(body, dict) else None
-    if not (isinstance(addr, str) and addr and isinstance(token, str) and token):
-        return False
-    current = os.environ.get("ANTIGRAVITY_LS_ADDRESS")
-    try:
-        os.unlink(path)
-    except OSError:
-        pass
-    if not _PENDING and addr == current:
-        return False
-    os.environ["ANTIGRAVITY_LS_ADDRESS"] = addr
-    os.environ["ANTIGRAVITY_CSRF_TOKEN"] = token
-    rec_path = os.path.splitext(os.environ["AGY_LEG_LOG"])[0] + ".json"
-    try:
-        with open(rec_path, encoding="utf-8") as fh:
-            old = json.load(fh)
-        rec = dict(old, mode="live", ls_address=addr)
-        cwd = body.get("cwd")
-        if isinstance(cwd, str) and cwd and (not old.get("cwd") or _under(old["cwd"], os.path.expanduser("~/.gemini"))):
-            rec["cwd"] = cwd
-        _roster().write_json_atomic(rec_path, rec)
-    except (OSError, ValueError, TypeError, AttributeError):
-        pass
-    _PENDING = False
-    try:
-        drain()
-    except (OSError, TimeoutError) as exc:
-        log("drain-failed", {"error": str(exc)})
-    log("promoted", {"pid": os.getpid(), "ls_address": addr, "conversation": conv})
-    return True
+_PENDING = True  # set once in main: a pending leg queues every send to its spool
 
 
 def respond(buf) -> bytes:
@@ -482,7 +415,6 @@ def main(sock) -> None:
             drain()  # second pass: lines a client queued while the pipe was still binding
         while t.is_alive():
             stamp_proc_start()
-            promote_if_handed()
             time.sleep(PARENT_POLL_SECS)
             if session_gone():
                 log("exit", {"reason": "agy parent gone"})
@@ -496,7 +428,6 @@ def main(sock) -> None:
             c, _ = srv.accept()
         except socket.timeout:
             stamp_proc_start()
-            promote_if_handed()
             if session_gone():
                 log("exit", {"reason": "agy parent gone"})
                 srv.close()

@@ -64,7 +64,32 @@ def read_request(argv):
     return req if isinstance(req, dict) else {}
 
 
-def start(req, roster, state):
+def ls_credentials(env=None) -> "tuple | None":
+    """(ls_address, token) from `env` (default os.environ), or None unless both are set."""
+    env = os.environ if env is None else env
+    ls, token = env.get("ANTIGRAVITY_LS_ADDRESS"), env.get("ANTIGRAVITY_CSRF_TOKEN")
+    return (ls, token) if ls and token else None
+
+
+def under_config_home(path) -> bool:
+    """True when `path` is the agy config home (~/.gemini) or inside it: agy runs hooks and its sidecar there, so it is no launch dir."""
+    try:
+        home = os.path.normcase(os.path.abspath(Path.home() / ".gemini"))
+        target = os.path.normcase(os.path.abspath(path))
+        return target == home or target.startswith(home + os.sep)
+    except (OSError, ValueError, TypeError, RuntimeError):
+        return False
+
+
+def launch_cwd(*candidates) -> "str | None":
+    """The first candidate that is a non-empty string outside the agy config home, else None (a record stores no cwd rather than the config home)."""
+    for cand in candidates:
+        if isinstance(cand, str) and cand and not under_config_home(cand):
+            return cand
+    return None
+
+
+def start(req, roster, state) -> None:
     """Start the leg: live when the env carries the token and LS address, else pending (queues messages)."""
     conv = req.get("conversationId") or os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
     if not isinstance(conv, str) or not CONV_RE.match(conv):
@@ -77,14 +102,19 @@ def start(req, roster, state):
     state.mkdir(parents=True, exist_ok=True)
     record = state / f"{conv}.json"
     try:
+        old_cwd = json.loads(record.read_text()).get("cwd")
+    except (OSError, ValueError, AttributeError):
+        old_cwd = None
+    cwd = launch_cwd(req.get("cwd"), os.getcwd(), old_cwd)  # the request, this process's dir, then what an earlier start recorded
+    try:
         old = json.loads(record.read_text())
         old_alive = roster.pid_alive(int(old["pid"]))
         old_live = old.get("mode", "live") == "live"
         old_ep = old.get("endpoint")
         old_ep_ok = os.name == "nt" or not (isinstance(old_ep, str) and os.path.isabs(old_ep)) or os.path.exists(old_ep)
         if old_alive and old_ep_ok and live and old_live and old.get("ls_address") == ls:
-            if old.get("agy_pid") != req.get("agyPid"):  # stamp it, or the hook asks again every call
-                write_record(record, dict(old, agy_pid=req.get("agyPid")))
+            if old.get("agy_pid") != req.get("agyPid") or old.get("cwd") != cwd:  # stamp it, or the hook asks again every call
+                write_record(record, dict(old, agy_pid=req.get("agyPid"), cwd=cwd))
             return  # already current for this language server
         if old_alive and old_ep_ok and not live and old.get("agy_pid") == req.get("agyPid"):
             return  # a pending start never replaces a leg of this agy process, live or pending
@@ -100,7 +130,7 @@ def start(req, roster, state):
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          **detach_kwargs())
     write_record(record, {"pid": p.pid, "conversation": conv, "endpoint": ep, "ls_address": ls,
-                          "cwd": req.get("cwd") or os.getcwd(), "agy_pid": req.get("agyPid"), "mode": "live" if live else "pending"})
+                          "cwd": cwd, "agy_pid": req.get("agyPid"), "mode": "live" if live else "pending"})
 
 
 def main(argv=None):

@@ -1365,7 +1365,8 @@ def reap_unbacked_agy_faces(say) -> None:
 
     The registry lists a file by its live face pid, so an unlisted-but-present face still shows in
     ListAgents. A face younger than `AGY_FACE_GRACE_SECONDS` is spared (its leg record may not exist
-    yet); the face process is signalled only while it is still the process its entry recorded."""
+    yet) unless its leg record proves both the leg pid and the agy session dead; the face process
+    is signalled only while it is still the process its entry recorded."""
     try:
         files = os.listdir(sessions_dir())
     except OSError:
@@ -1382,8 +1383,10 @@ def reap_unbacked_agy_faces(say) -> None:
         except (OSError, ValueError):
             continue
         pid = int(m.group(1))
-        if (not isinstance(d, dict) or d.get("pid") != pid or not local_agy_face_unbacked(d)
-                or liveness.stamp_fresh(d, "startedAt", AGY_FACE_GRACE_SECONDS)):
+        if not isinstance(d, dict) or d.get("pid") != pid or not local_agy_face_unbacked(d):
+            continue
+        if (liveness.stamp_fresh(d, "startedAt", AGY_FACE_GRACE_SECONDS)
+                and not liveness.agy_face_registration_dead(d)):
             continue
         if isinstance(d.get("procStart"), str) and d["procStart"] and entry_live(d):
             to_kill.append(pid)

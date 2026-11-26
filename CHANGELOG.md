@@ -4,6 +4,10 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.36] — 2026-11-26
+
+- **Agy:** a peer message to an agy CLI session reaches it at that session's next turn, proven on Windows and macOS. Messages are queued and injected when the turn starts. The sender is told the message is queued, not delivered. Replies from an agy session reach their sender. A session that is idle and has no turn running does not yet receive messages. Ships with claude-klabauter 9287d86ca.
+
 ## [4.6.35] — 2026-11-25
 
 - **Agy:** agy sessions on Windows receive peer messages. The message leg starts with the session and goes live in place after its first shell command, without respawning. Claude-to-agy and agy-to-agy delivery are both proven on a fresh session. Agy peers are named after their launch repository. Ships with claude-klabauter 04ea4eb04.

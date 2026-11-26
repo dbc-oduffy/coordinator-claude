@@ -5,8 +5,8 @@ agy's SessionStart env carries only ANTIGRAVITY_CONVERSATION_ID, not ANTIGRAVITY
 comes up live through the declared agy sidecar (unimatrix-agy-sidecar.py): this hook hands it the
 conversation id (never a token), and the sidecar starts the leg with the credentials agy gave it, whose
 drain delivers the spool. Only when no live sidecar answers does the leg start pending (the belt): it
-binds its endpoint and queues peer messages, a sidecar that comes up later makes it live, else the first
-run_command through the PreToolUse hook's rewrite (unimatrix-agy-hook-pretool.py) relaunches it live.
+binds its endpoint and queues peer messages, a sidecar that comes up later makes it live, and the
+PreInvocation spool (unimatrix-agy-hook-pretool.py) delivers a pending leg's messages at the next turn.
 
 Reads the payload's `conversationId`, takes the agy pid from the nearest agy.exe ancestor of this hook
 (agy launches hooks through a short-lived intermediate process, so getppid() is never used; none found
@@ -38,12 +38,7 @@ def load_sibling(name):
 
 def under_config_home(path) -> bool:
     """True when `path` is the agy config home (~/.gemini) or inside it: agy runs hooks there, so it is no launch dir."""
-    try:
-        home = os.path.normcase(os.path.abspath(Path.home() / ".gemini"))
-        target = os.path.normcase(os.path.abspath(path))
-        return target == home or target.startswith(home + os.sep)
-    except (OSError, ValueError, TypeError, RuntimeError):
-        return False
+    return load_sibling("unimatrix-agy-hook-launch").under_config_home(path)
 
 
 def payload_cwd(payload) -> "str | None":
@@ -75,7 +70,7 @@ def register(payload, agy_pid, engine_root=None) -> bool:
             handed = bool(sidecar.handoff(conv, cwd, agy_pid, roster.settings_home(), roster.pid_alive))
         except FileNotFoundError:  # no sidecar module beside this hook: the pending-leg belt applies
             handed = False
-    if not handed:  # the sidecar was not up: a pending leg, made live later by the sidecar or the first run_command
+    if not handed:  # the sidecar was not up: a pending leg, made live later by the sidecar
         launch.start({"conversationId": conv, "agyPid": agy_pid, "cwd": cwd}, roster, state)
     registered = isinstance(conv, str) and bool(launch.CONV_RE.match(conv)) and (state / f"{conv}.json").is_file()
     if registered:
@@ -231,8 +226,9 @@ def _refresh_vendored(here, engine_root) -> int:
     old or whole new file. A file with no engine counterpart is left alone; the set is `here`'s own
     contents, never the installer's closure. Never raises and never spawns; returns the count replaced.
 
-    Trap: a failed replace is silent, so a permanently failing refresh leaves the old copy running; the
-    cost is one size stat per file plus a full read of same-size files, unmeasured against the 500ms bar.
+    A failed replace is named on stderr (never stdout, which carries the hook reply) so a permanently
+    failing refresh is visible in the agy hook log. Cost: one size stat per file plus a full read of
+    same-size files; process time over the real vendored tree is pinned in test_unimatrix_agy_hook.py.
     A vendored hook that predates this function never refreshes itself: one installer run seeds it.
     """
     refreshed = 0
@@ -264,8 +260,11 @@ def _refresh_vendored(here, engine_root) -> int:
                     os.replace(tmp, dest)
                     tmp = None
                     refreshed += 1
-                except Exception:
-                    pass
+                except Exception as exc:
+                    try:
+                        print(f"unimatrix: vendored refresh of {fname} failed: {exc}", file=sys.stderr)
+                    except Exception:
+                        pass
                 finally:
                     if tmp is not None:
                         try:

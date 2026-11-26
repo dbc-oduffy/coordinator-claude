@@ -349,6 +349,7 @@ def main(argv=None) -> int:
         _print_rows([(name, agents.get(name, {}).get("box", "-"), _yes_no(agents.get(name, {}).get("this_box")),
                       agents.get(name, {}).get("vendor", "-"),
                       "stale" if agents.get(name, {}).get("stale") is True
+                      else "pending" if agents.get(name, {}).get("leg_mode") == "pending"
                       else "ready" if name in peers
                       else "mirror-only" if agents.get(name, {}).get("mirror_only") is True else "session",
                       _pending_cell(pend.get(name))) for name in reachable])

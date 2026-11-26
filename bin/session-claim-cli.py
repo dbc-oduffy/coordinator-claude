@@ -34,7 +34,9 @@
 # Subcommands (argv[1] selects; remaining argv forwarded to the mapped
 # coordinator_core.session function):
 #   claim-artifact <class> <basename> [baton_repo_root] -> claims.claim_artifact(...)
-#   release-artifact <class> <basename> [baton_repo_root] -> claims.release_artifact(...)
+#   release-artifact <class> <basename> [baton_repo_root] [--session-id <sid>] -> claims.release_artifact(...)
+#     --session-id (or --session-id=<sid>) is routed to release_artifact's my_sid;
+#     absent, the session resolves from the environment as before.
 #   release-artifact-bulk (--all | --stdin | <path>...) -> claims._release_path_claims_bulk(...)
 #     Releases this session's own path-touch claims in one pass over the claim
 #     sinks (paths from argv and/or newline-delimited stdin; --all = every own
@@ -557,6 +559,33 @@ def _reject_flag_like_positionals(usage: str, args: list) -> int | None:
     return None
 
 
+def _extract_session_id_flag(args: list) -> tuple[list, str | None, str | None]:
+    """`(remaining, sid, error)`: strips `--session-id <sid>` / `--session-id=<sid>`
+    from `args`, matching `baton-assemble apply --session-id`. `sid` is None
+    when the flag is absent; `error` is set for a missing or malformed value."""
+    remaining: list = []
+    sid: str | None = None
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--session-id" or (isinstance(arg, str) and arg.startswith("--session-id=")):
+            if arg == "--session-id":
+                if i + 1 >= len(args):
+                    return args, None, "--session-id requires a value"
+                value = args[i + 1]
+                i += 2
+            else:
+                value = arg.split("=", 1)[1]
+                i += 1
+            if not _sid_looks_valid(value):
+                return args, None, f"malformed session id {value!r}"
+            sid = value.strip()
+            continue
+        remaining.append(arg)
+        i += 1
+    return remaining, sid, None
+
+
 def _bool_to_exit(result: bool) -> int:
     return 0 if result else 1
 
@@ -734,9 +763,17 @@ def _dispatch(argv: list[str]) -> int:
         return _call_claim_bool("claim-artifact", mod.claim_artifact, class_, basename, baton_repo_root)
 
     if subcmd == "release-artifact":
+        _ra_usage = (
+            "session-claim-cli release-artifact <class> <basename> "
+            "[baton_repo_root] [--session-id <sid>]"
+        )
+        rest, my_sid, _sid_err = _extract_session_id_flag(rest)
+        if _sid_err:
+            print(f"session-claim-cli: release-artifact: {_sid_err}", file=sys.stderr)
+            return _usage(_ra_usage)
         if len(rest) < 2:
-            return _usage("session-claim-cli release-artifact <class> <basename> [baton_repo_root]")
-        _flagged = _reject_flag_like_positionals("session-claim-cli release-artifact <class> <basename> [baton_repo_root]", rest)
+            return _usage(_ra_usage)
+        _flagged = _reject_flag_like_positionals(_ra_usage, rest)
         if _flagged is not None:
             return _flagged
         class_, basename = rest[0], rest[1]
@@ -745,7 +782,11 @@ def _dispatch(argv: list[str]) -> int:
             claim_dir = _claim_lookup_dir(mod, class_, basename, baton_repo_root)
             if claim_dir is not None and not claim_dir.is_dir():
                 _emit_claim_not_found_note("release-artifact", class_, basename, claim_dir)
-        return _call_claim_bool("release-artifact", mod.release_artifact, class_, basename, baton_repo_root)
+        if my_sid is None:
+            return _call_claim_bool("release-artifact", mod.release_artifact, class_, basename, baton_repo_root)
+        return _call_claim_bool(
+            "release-artifact", mod.release_artifact, class_, basename, baton_repo_root, None, my_sid
+        )
 
     if subcmd == "release-artifact-bulk":
         return _cmd_release_artifact_bulk(mod, rest)

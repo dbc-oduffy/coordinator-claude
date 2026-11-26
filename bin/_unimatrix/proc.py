@@ -327,6 +327,16 @@ def agy_face_unbacked(d, home=None) -> bool:
     return agy_session_state(target, rec, home) == "dead"
 
 
+def agy_face_registration_dead(d, home=None) -> bool:
+    """True for an agy router face whose peers.json row names a leg record with both holders proven
+    gone. No face start stamp spares it: a router restart respawns a face with a fresh one. The
+    caller has already judged the face unbacked (`agy_face_unbacked`)."""
+    target = next((p.get("target") for p in _peer_rows(state_dir(home) / "peers.json")
+                   if p.get("name") == d.get("name")), None)
+    return isinstance(target, str) and bool(target) and "/" not in target and "\\" not in target \
+        and agy_registration_dead(target, home)
+
+
 def _peer_rows(peers_file):
     try:
         with open(peers_file, encoding="utf-8") as fh:
@@ -337,31 +347,53 @@ def _peer_rows(peers_file):
     return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
 
 
-def agy_peer_rows_orphaned(home=None) -> list:
-    """[(name, target)] for agy peers.json rows whose leg is gone.
+def _agy_leg_record(base, target) -> tuple:
+    """(exists, rec) for `agy-legs/<target>.json`; rec is None when the file is unreadable."""
+    record = base / "agy-legs" / f"{target}.json"
+    if not record.exists():
+        return False, {}
+    try:
+        rec = json.loads(record.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return True, None
+    return True, rec if isinstance(rec, dict) else None
 
-    Gone: `agy-legs/<target>.json` does not exist, or it records an int `pid` that is dead or no
+
+def _leg_proven_dead(rec) -> bool:
+    """True when `rec` carries an int leg `pid` that is dead or no longer the process stamped in `procStart`."""
+    pid = rec.get("pid") if isinstance(rec, dict) else None
+    return isinstance(pid, int) and not isinstance(pid, bool) and holder_proven_dead(rec)
+
+
+def agy_registration_dead(target, home=None) -> bool:
+    """True when `target`'s leg record exists and both holders are proven gone: its leg pid is dead
+    (or replaced) and its agy session reads dead. A missing or unreadable record is not proof."""
+    exists, rec = _agy_leg_record(state_dir(home), target)
+    return bool(exists and rec is not None and _leg_proven_dead(rec)
+                and agy_session_state(target, rec, home) == "dead")
+
+
+def agy_peer_rows_orphaned(home=None) -> list:
+    """[(name, target)] for agy peers.json rows whose leg is gone and whose agy session is not live.
+
+    Leg gone: `agy-legs/<target>.json` does not exist, or it records an int `pid` that is dead or no
     longer the process that stamped `procStart` (pid reused: the leg was replaced). A record that
-    is unreadable or carries no pid is not proof of death and keeps its row."""
+    is unreadable or carries no pid is not proof of death and keeps its row. A live agy session
+    (presence lock held, or its recorded agy pid alive) keeps the row whatever its leg."""
     base = state_dir(home)
     rows = _peer_rows(base / "peers.json")
 
-    def leg_gone(target) -> bool:
-        record = base / "agy-legs" / f"{target}.json"
-        if not record.exists():
-            return True
-        try:
-            rec = json.loads(record.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+    def orphaned(target) -> bool:
+        exists, rec = _agy_leg_record(base, target)
+        if exists and (rec is None or not _leg_proven_dead(rec)):
             return False
-        pid = rec.get("pid") if isinstance(rec, dict) else None
-        return isinstance(pid, int) and not isinstance(pid, bool) and holder_proven_dead(rec)
+        return agy_session_state(target, rec or {}, home) != "live"
 
     return [
         (r.get("name"), r["target"]) for r in rows
         if r.get("vendor") == "agy" and isinstance(r.get("target"), str) and r["target"]
         and "/" not in r["target"] and "\\" not in r["target"]
-        and leg_gone(r["target"])
+        and orphaned(r["target"])
     ]
 
 

@@ -17,8 +17,8 @@ _TRANSCRIPT_TAIL = Path(".system_generated") / "logs" / "transcript_full.jsonl"
 NO_LEG = ("[unimatrix-peer-agy] not delivered: this agy conversation has no leg endpoint. The SessionStart "
           "hook normally starts it; if this session predates the hook, ask the agy user to let it run any "
           "shell command (run_command), then resend.")
-QUEUED = ("[unimatrix-peer-agy] queued: the agy leg is not live yet and spooled the message; it is delivered "
-          "when the agy session's first shell command (run_command) brings the leg up. No reply is awaited.")
+QUEUED = ("[unimatrix-peer-agy] queued: the agy leg is not live; the message is spooled and delivered at "
+          "the agy session's next turn. No reply is awaited.")
 
 
 def own_session(env=None) -> str | None:

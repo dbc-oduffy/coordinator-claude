@@ -213,11 +213,20 @@ def default_legs_dir():
     return _roster().delivery_settings_home() / "unimatrix" / "agy-legs"
 
 
-def leg_record_live(rec):
+def leg_record_live(rec) -> bool:
     """True only when the record's leg pid is alive and still the process that stamped `procStart`.
 
     A record with no procStart is not shown live: a recycled pid must never revive a dead leg.
+    A `mode` other than live (a pending leg only spools) is not live either; an absent mode reads live.
     """
+    try:
+        return rec.get("mode", "live") == "live" and _leg_process_matches(rec)
+    except AttributeError:
+        return False
+
+
+def _leg_process_matches(rec) -> bool:
+    """True when the record's pid is alive and still the process that stamped `procStart`; mode is not read."""
     try:
         pid, stamp = int(rec["pid"]), rec.get("procStart")
         return stamp is not None and _roster().pid_alive(pid) and _roster().proc_start(pid) == stamp
@@ -239,12 +248,14 @@ def leg_target_live(legs_dir, target):
         return False
 
 
-def load_leg_peers(legs_dir, taken_names=(), taken_targets=()) -> list:
+def load_leg_peers(legs_dir, taken_names=(), taken_targets=(), pending_out=None) -> list:
     """Peers for every live agy leg record in `legs_dir`: name agy-<conversation>, target the conversation.
 
     A record whose leg is not live (`leg_record_live`), whose agy session reads dead
     (`agy_session_state`: a leaked leg must not revive its face), whose name or conversation is
     already `taken_*` (peers.json wins), or that is unreadable is skipped.
+    A `mode: pending` leg with a matching live process is never returned; when `pending_out` is a
+    dict it gains name -> peer for each (the leg only spools, so it is listed pending, never ready).
     """
     peers = []
     try:
@@ -260,7 +271,11 @@ def load_leg_peers(legs_dir, taken_names=(), taken_targets=()) -> list:
             conv = rec["conversation"]
         except (OSError, ValueError, KeyError, TypeError):
             continue
-        if not isinstance(conv, str) or not conv or conv in taken_targets or not leg_record_live(rec):
+        if not isinstance(conv, str) or not conv or conv in taken_targets:
+            continue
+        live = leg_record_live(rec)
+        pending = not live and pending_out is not None and rec.get("mode") == "pending" and _leg_process_matches(rec)
+        if not live and not pending:
             continue
         if _liveness().agy_session_state(conv, rec) == "dead":
             continue
@@ -268,9 +283,12 @@ def load_leg_peers(legs_dir, taken_names=(), taken_targets=()) -> list:
         if name in taken_names:
             continue
         peer = {"name": name, "vendor": "agy", "target": conv}
-        if rec.get("cwd"):
+        if rec.get("cwd") and not under_agy_config_home(rec["cwd"]):
             peer["cwd"] = rec["cwd"]
-        peers.append(peer)
+        if pending:
+            pending_out[name] = peer
+        else:
+            peers.append(peer)
     return peers
 
 
@@ -284,9 +302,24 @@ def default_presence_dir() -> Path:
     return _liveness().agy_presence_dir()
 
 
-def readable_peer_name(vendor, target, cwd=None):
-    """Stable routing name carrying vendor, repository, session identity and box."""
+def under_agy_config_home(path) -> bool:
+    """True when `path` is the agy config home (~/.gemini) or inside it: agy runs hooks there, so it is no launch dir."""
+    try:
+        home = os.path.normcase(os.path.abspath(Path.home() / ".gemini"))
+        target = os.path.normcase(os.path.abspath(os.fsdecode(path)))
+        return target == home or target.startswith(home + os.sep)
+    except (OSError, ValueError, TypeError, RuntimeError):
+        return False
+
+
+def readable_peer_name(vendor, target, cwd=None) -> str:
+    """Stable routing name carrying vendor, repository, session identity and box.
+
+    An agy cwd under the agy config home is no launch dir: it names the face as if no cwd were known.
+    """
     cwd = os.fsdecode(cwd) if isinstance(cwd, (str, os.PathLike)) else ""
+    if vendor == "agy" and cwd and under_agy_config_home(cwd):
+        cwd = ""
     def clean(value):
         return re.sub(r"[^A-Za-z0-9_-]+", "-", str(value)).strip("-")
     base = str(cwd or "").replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
@@ -965,7 +998,7 @@ class Router:
 
     def __init__(self, peers, sessions_dir=None, state_dir=None, endpoint_dir=None,
                  adapters=None, ready_seconds=READY_SECONDS, legs_dir=None,
-                 codex_locks_dir=None, presence_dir=None, grok_home=None, peers_file=None):
+                 codex_locks_dir=None, presence_dir=None, grok_home=None, peers_file=None) -> None:
         peers = list(peers)
         self.peers_file = str(peers_file) if peers_file else None
         self._peers_stamp = None  # (mtime_ns, size) of peers_file at the last adoption read
@@ -997,6 +1030,7 @@ class Router:
         self.presence_dir = str(presence_dir) if presence_dir else None
         self.grok_home = str(grok_home) if grok_home else None
         self.discovered = set()  # names found by a scan, not given at construction; only these retire
+        self.pending_legs = {}  # name -> agy peer whose leg runs pending (spool only); never in self.peers
         self.scanner = None
         self.transport_sources = {}  # infrastructure face name -> registered caller name or None
         self.transport_targets = {}  # each infrastructure face is one source/destination conversation
@@ -1156,7 +1190,7 @@ class Router:
             await self.stop()
             raise
 
-    def _live_discovered(self):
+    def _live_discovered(self) -> dict:
         """name -> peer for every live agy leg, agy presence lock and Codex writer lock.
 
         Peers given at construction (peers.json) are `taken`: they win a name or target clash.
@@ -1168,8 +1202,13 @@ class Router:
         owned = {p['target']: p for n, p in self.peers.items()
                  if n in self.discovered and p.get('vendor') == 'codex' and p.get('address_version') == 1}
         scans = []
+        pending = {}
         if self.legs_dir:
-            scans.append(lambda tn, tt: load_leg_peers(self.legs_dir, tn, tt))
+            def leg_scan(tn, tt) -> list:
+                found = load_leg_peers(self.legs_dir, tn, tt, pending)
+                tt.update(p["target"] for p in pending.values())  # a held presence lock must not list the pending leg ready
+                return found
+            scans.append(leg_scan)
         if self.presence_dir:
             scans.append(lambda tn, tt: load_lock_peers(self.presence_dir, "agy", tn, tt))
         if self.codex_locks_dir:
@@ -1198,6 +1237,7 @@ class Router:
                 # Rich leg records win over the same conversation's presence lock.
                 # Their cwd can produce a different display name for the same target.
                 targets.add(peer["target"])
+        self.pending_legs = {n: p for n, p in pending.items() if n not in live}
         return live
 
     async def refresh_discovered(self):
@@ -1491,7 +1531,7 @@ class Router:
         finally:
             writer.close()
 
-    async def _dispatch(self, req):
+    async def _dispatch(self, req) -> dict:
         op = req.get("op") if isinstance(req, dict) else None
         if op == "inbound":
             peer = req.get("peer")
@@ -1567,15 +1607,35 @@ class Router:
                     reply_to = by_target.get(root) or root
                     sender = f"codex-{as_target}"
                 else:
-                    sender = await asyncio.to_thread(self.shell_sender, as_target)
+                    # A pending agy leg is unlisted in self.peers, but the router owns its record: bind the
+                    # sender from it (conversation id == target) so CLI agy sessions can still send and reply.
+                    pending_self = next((n for n, p in self.pending_legs.items() if p.get("target") == as_target), None)
+                    sender = pending_self or await asyncio.to_thread(self.shell_sender, as_target)
                     if not sender:
                         return {"ok": False, "error": "no unique live sender binding; use native SendMessage"}
+            pending = next((p for n, p in self.pending_legs.items() if peer in (n, p["target"])), None) \
+                if peer not in self.peers and isinstance(peer, str) else None
+            if pending is not None:
+                if sender == pending["name"]:
+                    return {"ok": False, "error": f"cannot send to self ({peer})"}
+                if not isinstance(text, str) or is_ack(text):
+                    return {"ok": False, "error": "empty or acknowledgement text is not delivered"}
+                try:  # the pending leg spools the frame and acks queued; the adapter turns that into QUEUED
+                    reply = await self.adapters["agy"]({**pending, "deliver_only": True}, wrap_inbound(sender, text, reply_to))
+                except Exception as exc:
+                    self.log("TURN-FAILED", pending["name"], type(exc).__name__, exc)
+                    reply = f"delivery failed: {exc}"
+                if not_delivered(reply):
+                    return {"ok": False, "error": str(reply).strip()}
+                return {"ok": True, "reply": _contract().label(pending["name"], reply)}
             if peer not in self.peers and isinstance(peer, str):
                 if not isinstance(text, str) or is_ack(text):
                     return {"ok": False, "error": "empty or acknowledgement text is not delivered"}
                 if reply_to:
                     sender = reply_to
-                if sender in self.peers:
+                # A dead holder's face is stopped (an agy leg that dropped to pending), so its endpoint is
+                # gone: a send through it fails WinError 2. Its session still replies via a transport face.
+                if sender in self.peers and sender not in self.dead_holders:
                     return await self._peer_send_to_session(sender, peer, text)
                 return await self._transport_send_to_session(sender, peer, text)
             if peer not in self.peers:
@@ -1633,10 +1693,16 @@ class Router:
             return address
         return next(iter(matches), None)
 
-    def peer_readiness(self):
-        """peer name -> True when a send can reach it now; an agy peer is ready only while its leg endpoint exists."""
+    def peer_readiness(self) -> dict:
+        """peer name -> True when a send can reach it now; an agy peer is ready only while its leg endpoint exists.
+
+        The ListAgents liveness gates apply on every platform: an agy peer `agy_peer_rows_orphaned`
+        reports, or a Codex peer whose `codex_holder_live` is False, is never ready. An unrecorded
+        Codex holder (None) is unknown, not dead, and keeps its row.
+        """
         ready = {}
         metadata = codex_thread_metadata(self.codex_home) if any(p.get('vendor') == 'codex' for p in self.peers.values()) else {}
+        orphaned = self._orphaned_agy_targets() if any(p.get('vendor') == 'agy' for p in self.peers.values()) else set()
         for name, p in self.peers.items():
             if name in self.dead_holders:
                 continue
@@ -1644,8 +1710,20 @@ class Router:
             if p.get("vendor") == "agy" and os.name != "nt":
                 m = _sibling("unimatrix-peer-agy.py", "unimatrix_peer_agy_ready")
                 ok = os.path.exists(m.leg_endpoint(p["target"]))
+            if p.get("vendor") == "agy" and p.get("target") in orphaned:
+                ok = False
+            if ok and p.get("vendor") == "codex" and _liveness().codex_holder_live(p) is False:
+                ok = False
             ready[name] = ok
         return ready
+
+    @staticmethod
+    def _orphaned_agy_targets() -> set:
+        """Targets of the agy peers.json rows ListAgents drops as orphaned; empty when the probe cannot read."""
+        try:
+            return {target for _, target in _liveness().agy_peer_rows_orphaned()}
+        except OSError:
+            return set()
 
     def roster_rows(self, sender="cli", ready=None) -> tuple:
         """(reachable names, one {name, box, vendor} row per reachable name).
@@ -1688,7 +1766,7 @@ class Router:
             if name in entries and (entry.get("startedAt") or 0) < (entries[name].get("startedAt") or 0):
                 continue
             entries[name] = entry
-        names = {name for name, ok in ready.items() if ok}
+        names = {name for name, ok in ready.items() if ok} | set(self.pending_legs)
         for name, entry in entries.items():
             endpoint = entry.get("messagingSocketPath")
             if endpoint and _transport().endpoint_exists(endpoint):
@@ -1698,6 +1776,8 @@ class Router:
         box = contract.local_box()
         rows = [{"name": n, "box": box, "vendor": self.peers[n]["vendor"], "this_box": True,
                  **({"stale": True} if self.peer_stale(n) else {})} if n in self.peers
+                else {"name": n, "box": box, "vendor": "agy", "this_box": True, "leg_mode": "pending"}
+                if n in self.pending_legs
                 else {**contract.agent_row(entries[n], box),
                       **({"mirror_only": True} if n not in backed else {})} for n in sorted(names)]
         for n, marker in sorted(self.stale_mirror_markers().items()):

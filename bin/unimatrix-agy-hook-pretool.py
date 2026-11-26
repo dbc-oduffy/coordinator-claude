@@ -1,35 +1,23 @@
 #!/usr/bin/env python3
-"""agy PreToolUse hook: the Klabauter guard first, then keep a live agy leg for this conversation.
+"""agy PreToolUse hook: the Klabauter guard's answer, never a command rewrite.
 
 Order: unimatrix-host-guard.py (loaded as a sibling; `--engine-root <path>` selects the engine) answers
-first. A guard "deny" is returned unchanged with no rewrite. Guard-authored "allow" and "ask"
-answers fall through to the leg bootstrap below; any guard reason and the bootstrap rewrite share the
-decision. A peer reply (a run_command that is exactly this interpreter and the installed
+first and its answer is returned as is: the hook never rewrites a command. A peer reply (a run_command that is exactly this interpreter and the installed
 unimatrix-send.py beside this hook, plain arguments, no shell operator or expansion; mirrors the Codex
 unimatrix.rules send rule) answers "allow". A no-verdict answer (guard unrunnable, bad payload, worker
 exception, expired wall) is an allow whose reason keeps "guard did not run": an "ask" has no approver in
 a subagent conversation and reads as a hook failure (DR-402: irreversible denies stay with the backstop).
 
-Hooks do not receive agy's language-server address or token, but run_command children do. When no
-current leg exists, the hook prefixes the command the agent is about to run. posix: a detached start of
-unimatrix-agy-hook-launch.py, which inherits the token. Windows: agy's run_command job kills every
-descendant, so the hook itself starts the pending leg (outside the job) when none is alive, and the
-prefix only writes `<conv>.promote.json` (ls_address, csrf_token, cwd) for that leg to promote itself
-live in place. That rewrite answers "ask": the user sees and approves the exact command. agy fails
-closed on a non-zero exit, invalid JSON, or a reply without `decision`, so every path emits one JSON
-object with `decision`.
+A pending CLI leg is served by the PreInvocation spool below. agy fails closed on a non-zero exit,
+invalid JSON, or a reply without `decision`, so every path emits one JSON object with `decision`.
 
 `--event PreInvocation` runs the same script as the PreInvocation hook: it drains the advisories the
 adapter stashed at PreToolUse (agy documents no `injectSteps` on a PreToolUse answer) and injects them as
 `systemMessage` steps; stash format is `coordinator_core/host_hooks/agy_adapter.py :: stash_advisory`.
 
-A headless agy (`-p`/`--print` on the agy ancestor's command line) gets no rewrite and no launcher
-spawn: the guard's answer passes through so agy's own permissions.allow decides.
-
-A leg is current only if it is alive, was started under this same agy process (the nearest agy ancestor of the hook; none found is never current),
-and its language server still accepts connections. An agy restart changes the token and port, so a
-leg that survives one is stale even though its pid is alive. A `pending` leg (started by SessionStart
-without a token) is never current: the rewrite hands it the token to go live.
+PreInvocation also drains a pending leg's `<conv>.queue.jsonl` (the leg's spool, claimed by atomic rename
+before emit and deleted after) into the same `injectSteps`, each message with its sender's reply command;
+a live leg's spool is left to the leg. Every hook invocation appends one `hook <event>` line to `<conv>.log`.
 
 Leg record (STATE/<conversationId>.json, written by the launcher, read here and by the router):
   {"pid": <leg pid>, "conversation": <id>, "endpoint": <leg socket>, "ls_address": "host:port",
@@ -40,16 +28,15 @@ import json
 import os
 import re
 import shlex
-import socket
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 HOOK_WALL_SECS = 1.0
 _hard_exit = os._exit
 HERE = Path(__file__).resolve().parent
-LAUNCH = HERE / "unimatrix-agy-hook-launch.py"
 FAIL_OPEN_REASON = "coordinator: guard did not run, allowing"
 PASS = {"decision": "allow", "reason": FAIL_OPEN_REASON}
 CONV_RE = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -176,158 +163,6 @@ def agy_ancestor_pid(read=None, start=None, max_depth=MAX_ANCESTOR_DEPTH) -> int
     return daemon
 
 
-def _nt_cmdline(pid):
-    """Command line of a 64-bit Windows process read from its PEB (no subprocess); None on any failure."""
-    import ctypes
-    from ctypes import wintypes
-    if ctypes.sizeof(ctypes.c_void_p) != 8:
-        return None
-    try:
-        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        nt = ctypes.WinDLL("ntdll")
-        k32.OpenProcess.restype = ctypes.c_void_p
-        k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-        k32.ReadProcessMemory.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t,
-                                          ctypes.POINTER(ctypes.c_size_t)]
-        k32.CloseHandle.argtypes = [ctypes.c_void_p]
-        nt.NtQueryInformationProcess.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_void_p, ctypes.c_ulong,
-                                                 ctypes.POINTER(ctypes.c_ulong)]
-        handle = k32.OpenProcess(0x1010, False, pid)  # QUERY_INFORMATION | VM_READ
-        if not handle:
-            return None
-        try:
-            def read(addr, size):
-                buf = ctypes.create_string_buffer(size)
-                got = ctypes.c_size_t(0)
-                if not k32.ReadProcessMemory(handle, ctypes.c_void_p(addr), buf, size, ctypes.byref(got)):
-                    return None
-                return buf.raw[:got.value]
-
-            pbi = (ctypes.c_void_p * 6)()
-            if nt.NtQueryInformationProcess(handle, 0, pbi, ctypes.sizeof(pbi), None) != 0 or not pbi[1]:
-                return None
-            params = read(pbi[1] + 0x20, 8)  # PEB.ProcessParameters
-            if not params:
-                return None
-            ustr = read(int.from_bytes(params, "little") + 0x70, 16)  # RTL_USER_PROCESS_PARAMETERS.CommandLine
-            if not ustr:
-                return None
-            length, buf_addr = int.from_bytes(ustr[:2], "little"), int.from_bytes(ustr[8:16], "little")
-            text = read(buf_addr, length) if length and buf_addr else None
-            return text.decode("utf-16-le", "replace") if text else None
-        finally:
-            k32.CloseHandle(handle)
-    except (OSError, AttributeError, ValueError):
-        return None
-
-
-def process_cmdline(pid):
-    """Space-joined command line of `pid`, or None when it cannot be read."""
-    if os.name == "nt":
-        return _nt_cmdline(pid)
-    try:
-        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
-        return raw.replace(b"\0", b" ").decode("utf-8", "replace").strip() or None
-    except OSError:
-        pass
-    try:
-        out = subprocess.run(["ps", "-o", "args=", "-p", str(pid)], capture_output=True, text=True, timeout=2)
-        return out.stdout.strip() or None
-    except Exception:
-        return None
-
-
-PRINT_FLAG_RE = re.compile(r"\s(?:-p|--print)(?:[=\s]|$)")
-
-
-def child_pids(pid) -> list:
-    """Direct children of `pid` from one process-table read (Windows snapshot, Linux /proc, macOS one `ps`); [] on failure."""
-    if os.name == "nt":
-        return [p for p, (ppid, _n) in _nt_process_table().items() if ppid == pid]
-    out = []
-    if sys.platform == "darwin":
-        try:
-            table = subprocess.run(["ps", "-axo", "pid=,ppid="], capture_output=True, text=True, timeout=2,
-                                   stdin=subprocess.DEVNULL).stdout
-        except Exception:
-            return []
-        for row in (table or "").splitlines():
-            cols = row.split()
-            if len(cols) == 2 and cols[0].isdigit() and cols[1].isdigit() and int(cols[1]) == pid:
-                out.append(int(cols[0]))
-        return out
-    try:
-        for d in Path("/proc").iterdir():
-            if d.name.isdigit():
-                try:
-                    stat = (d / "stat").read_text(encoding="utf-8", errors="replace")
-                    if int(stat[stat.rindex(")") + 2:].split()[1]) == pid:
-                        out.append(int(d.name))
-                except (OSError, ValueError, IndexError):
-                    continue
-    except OSError:
-        pass
-    return out
-
-
-def _is_print_line(line) -> bool:
-    return bool(line and PRINT_FLAG_RE.search(" " + line))
-
-
-def agy_print_mode(agy_pid, read=None) -> bool:
-    """True when the agy process runs headless (`-p`/`--print`). Unknown agy pid or unreadable line: False.
-
-    A hook runs under agy's daemon, whose own argv carries no `-p`: when the pid's line is not a print
-    line, its child processes are read too, and any print-mode child makes the answer True (a wrong True
-    skips one leg bootstrap; a wrong False rewrites a headless run's command and breaks its permissions.allow match).
-    """
-    if agy_pid is None:
-        return False
-    read = read or process_cmdline
-    if _is_print_line(read(agy_pid)):
-        return True
-    return any(_is_print_line(read(c)) for c in child_pids(agy_pid))
-
-
-def _core_module(subname):
-    bin_dir = os.path.dirname(os.path.abspath(__file__))
-    if "_unimatrix" not in sys.modules and os.path.isdir(os.path.join(bin_dir, "_unimatrix")):
-        if bin_dir not in sys.path:
-            sys.path.insert(0, bin_dir)
-    import importlib
-    return importlib.import_module(f"_unimatrix.{subname}")
-
-
-def pid_alive(pid):
-    """True while `pid` runs (delegated to spawn-free _unimatrix.proc.pid_alive)."""
-    return _core_module("proc").pid_alive(pid)
-
-
-def ls_reachable(addr):
-    host, _, port = (addr or "").rpartition(":")
-    try:
-        with socket.create_connection((host or "localhost", int(port)), timeout=0.2):
-            return True
-    except (OSError, ValueError):
-        return False
-
-
-def leg_current(conv, agy_pid, state=None) -> bool:
-    try:
-        with open((state or state_dir()) / f"{conv}.json", encoding="utf-8") as f:
-            rec = json.load(f)
-        if not pid_alive(int(rec["pid"])):
-            return False
-    except (OSError, ValueError, KeyError, TypeError):
-        return False
-    if rec.get("mode", "live") != "live":
-        return False  # a pending leg only queues; the first run_command promotes it live
-    ep = rec.get("endpoint")
-    if os.name != "nt" and isinstance(ep, str) and os.path.isabs(ep) and not os.path.exists(ep):
-        return False
-    return agy_pid is not None and rec.get("agy_pid") == agy_pid and ls_reachable(rec.get("ls_address"))
-
-
 def _console_python():
     """A real console CPython; the running image only when no resolver is beside this script (the hook never raises)."""
     try:
@@ -338,71 +173,6 @@ def _console_python():
     except (OSError, ImportError, AttributeError):
         found = None
     return found or sys.executable
-
-
-def launcher_argv(conv, agy_pid):
-    """Launcher command line; --agy-pid is omitted when no agy ancestor was found."""
-    argv = [_console_python(), str(LAUNCH), "--conversation", conv]
-    return argv + ["--agy-pid", str(agy_pid)] if agy_pid is not None else argv
-
-
-def _ps_literal(text) -> str:
-    """One PowerShell single-quoted literal."""
-    return "'" + str(text).replace("'", "''") + "'"
-
-
-def promote_prefix(conv, state=None) -> str:
-    """PowerShell that hands the run_command shell's LS address and CSRF token to the pending leg.
-
-    Writes `<state>/<conv>.promote.json` ({"ls_address","csrf_token","cwd"}) in-process: an empty temp
-    file gets a protected ACL for the current user only, then the body, then an atomic Move-Item onto
-    the final name. The token comes from the shell's env, never from this text. Any failure is silent."""
-    final = str((state or state_dir()) / f"{conv}.promote.json")
-    return (
-        "try { if ($env:ANTIGRAVITY_LS_ADDRESS -and $env:ANTIGRAVITY_CSRF_TOKEN) { "
-        f"$f = {_ps_literal(final)}; "
-        "[void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($f)); "
-        "$t = $f + '.' + [guid]::NewGuid().ToString('N') + '.tmp'; "
-        "[IO.File]::Create($t).Dispose(); "
-        "$a = New-Object Security.AccessControl.FileSecurity; $a.SetAccessRuleProtection($true, $false); "
-        "$a.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule("
-        "[Security.Principal.WindowsIdentity]::GetCurrent().User, 'FullControl', 'Allow'))); "
-        "$i = New-Object IO.FileInfo $t; "
-        "if ($i.PSObject.Methods['SetAccessControl']) { $i.SetAccessControl($a) } "
-        "else { [IO.FileSystemAclExtensions]::SetAccessControl($i, $a) }; "
-        "[IO.File]::WriteAllText($t, (@{ ls_address = $env:ANTIGRAVITY_LS_ADDRESS; "
-        "csrf_token = $env:ANTIGRAVITY_CSRF_TOKEN; cwd = (Get-Location).Path } | ConvertTo-Json -Compress), "
-        "(New-Object Text.UTF8Encoding $false)); "
-        "Move-Item -LiteralPath $t -Destination $f -Force } } catch {}"
-    )
-
-
-def ensure_pending_leg(conv, agy_pid, state=None) -> None:
-    """Start the pending leg from this hook process (outside agy's run_command job) when the conversation's
-    record is absent or its pid is dead; never raises. The leg survives the command, so it is the one
-    leg promote_prefix hands the token to."""
-    state = state or state_dir()
-    try:
-        rec = json.loads((state / f"{conv}.json").read_text(encoding="utf-8"))
-        if pid_alive(int(rec["pid"])):
-            return
-    except (OSError, ValueError, KeyError, TypeError):
-        pass
-    try:
-        load_sibling("unimatrix-agy-hook-launch").start({"conversationId": conv, "agyPid": agy_pid},
-                                                        load_sibling("unimatrix-roster"), state)
-    except Exception:
-        pass
-
-
-def launch_prefix(conv, agy_pid) -> tuple:
-    """(start text, separator). posix: a detached sh start of the launcher, run inside the run_command
-    shell so the launcher inherits its ANTIGRAVITY_CSRF_TOKEN (the hook process has none). Windows: agy's
-    run_command job kills every descendant, so the prefix only writes the promote file (promote_prefix)."""
-    if os.name == "nt":
-        return promote_prefix(conv), "; "
-    argv = launcher_argv(conv, agy_pid)
-    return f"(nohup {' '.join(shlex.quote(a) for a in argv)} >/dev/null 2>&1 &)", "; "
 
 
 _SIBLINGS = {}
@@ -426,25 +196,6 @@ def run_guard(raw, engine_root) -> dict:
     except Exception:
         return dict(PASS)
     return answer if isinstance(answer, dict) and isinstance(answer.get("decision"), str) else dict(PASS)
-
-
-def bootstrap_rewrite(payload, agy_pid) -> dict | None:
-    """{"reason", "overwrite"} when a run_command needs the leg started, else None."""
-    conv = payload.get("conversationId")
-    call = payload.get("toolCall")
-    call = call if isinstance(call, dict) else {}
-    args = call.get("args")
-    cmd = args.get("CommandLine") if isinstance(args, dict) else None
-    if (not isinstance(conv, str) or not CONV_RE.match(conv) or call.get("name") != "run_command"
-            or not isinstance(cmd, str) or not cmd or leg_current(conv, agy_pid)):
-        return None
-    if agy_print_mode(agy_pid):
-        return None  # a headless run keeps no leg; a rewrite would break the user's permissions.allow match
-    if os.name == "nt":
-        ensure_pending_leg(conv, agy_pid)
-    start, sep = launch_prefix(conv, agy_pid)
-    return {"reason": "PM-installed unimatrix hook: also (re)starts the agy leg for Claude/Codex peer messaging in the background.",
-            "overwrite": {"CommandLine": f"{start}{sep}{cmd}"}}
 
 
 SEND_SCRIPT = HERE / "unimatrix-send.py"
@@ -507,7 +258,8 @@ def is_peer_reply(payload):
     return os.name == "nt" or not any(t and set(t) <= set("();<>|&") for t in tokens)
 
 
-def decide(payload, agy_pid, engine_root=None, raw=None):
+def decide(payload, agy_pid, engine_root=None, raw=None) -> dict:
+    """The guard's answer for `payload`, never a rewrite: deny as is, a peer reply's ask turned allow, no verdict an allow."""
     if not isinstance(payload, dict):
         return dict(PASS)
     guard = run_guard(json.dumps(payload) if raw is None else raw, engine_root)
@@ -515,15 +267,7 @@ def decide(payload, agy_pid, engine_root=None, raw=None):
     if decision == "deny":
         return guard
     if decision == "ask" and is_peer_reply(payload):
-        decision = "allow"
-        guard = {**guard, "decision": "allow"}
-    reason = guard.get("reason") if isinstance(guard.get("reason"), str) else ""
-    fail_open = decision == "allow" and "guard did not run" in reason
-    if decision in ("allow", "ask") and not fail_open:
-        rewrite = bootstrap_rewrite(payload, agy_pid)
-        if rewrite is not None:
-            reasons = [r for r in (reason, rewrite["reason"]) if r]
-            return {**guard, "decision": decision, "reason": " | ".join(reasons), "overwrite": rewrite["overwrite"]}
+        return {**guard, "decision": "allow"}
     return guard
 
 
@@ -539,11 +283,139 @@ def advisory_dir() -> Path:
     return settings_home() / "unimatrix" / "agy-advisories"
 
 
+CLAIM_STALE_SECS = 30
+SENDER_RE = re.compile(r"\[from ([A-Za-z0-9_.@-]+) on ")
+_CLAIM_SEQ = 0
+_CLAIMS = []  # claimed spool files already emitted by this process, unlinked by release_claims() after the reply is written
+
+
+def log_hook(conv, event, state=None) -> None:
+    """One `HH:MM:SS hook <event>` line in the conversation's leg log; never raises."""
+    try:
+        if isinstance(conv, str) and CONV_RE.match(conv):
+            folder = state or state_dir()
+            folder.mkdir(parents=True, exist_ok=True)
+            with open(folder / f"{conv}.log", "a", encoding="utf-8") as f:
+                f.write(time.strftime("%H:%M:%S ") + f"hook {event}\n")
+    except Exception:
+        pass
+
+
+def _leg_pending(conv, state) -> bool:
+    try:
+        return json.loads((state / f"{conv}.json").read_text(encoding="utf-8")).get("mode") == "pending"
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def _claim_path(state, conv) -> Path:
+    """A claim name no earlier claim in this process shares: time_ns alone repeats within one clock tick on Windows, and a repeat would overwrite a live claim."""
+    global _CLAIM_SEQ
+    _CLAIM_SEQ += 1
+    return state / f"{conv}.queue.claimed.{time.time_ns()}-{os.getpid()}-{_CLAIM_SEQ}.jsonl"
+
+
+def claim_spool(conv, state=None) -> list:
+    """Claimed spool files for `conv`: stale claims left by a crash, plus the spool itself when the leg record reads pending.
+
+    The spool (`<conv>.queue.jsonl`, the leg's own rule and line format) is renamed to a unique
+    `<conv>.queue.claimed.<ns>-<pid>.jsonl` before anything is emitted, so a second hook finds nothing to take.
+    A live leg owns its spool: it is never claimed here. A claim younger than CLAIM_STALE_SECS belongs to a
+    hook still emitting it."""
+    state = state or state_dir()
+    claimed = []
+    try:
+        for old in state.glob(f"{conv}.queue.claimed.*.jsonl"):
+            try:
+                if time.time() - old.stat().st_mtime < CLAIM_STALE_SECS:
+                    continue
+                mine = _claim_path(state, conv)
+                os.replace(old, mine)
+                claimed.append(mine)
+            except OSError:
+                continue
+    except OSError:
+        pass
+    spool = state / f"{conv}.queue.jsonl"
+    if not _leg_pending(conv, state) or not spool.exists():
+        return claimed
+    mine = _claim_path(state, conv)
+    try:
+        if os.name == "nt":
+            with load_sibling("unimatrix-agy-leg").nt_spool_lock(str(spool)):
+                os.replace(spool, mine)
+                os.close(os.open(spool, os.O_WRONLY | os.O_CREAT | getattr(os, "O_BINARY", 0), 0o600))
+        else:
+            import fcntl
+            fd = os.open(spool, os.O_RDWR)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX)  # an enqueue waiting on this lock reopens onto the fresh spool below
+                os.replace(spool, mine)
+                os.close(os.open(spool, os.O_WRONLY | os.O_CREAT, 0o600))
+            finally:
+                os.close(fd)
+        claimed.append(mine)
+    except (OSError, TimeoutError):
+        pass
+    return claimed
+
+
+def reply_hint(sender) -> str:
+    """The run_command that answers `sender` (the installed unimatrix-send.py, plain arguments)."""
+    prefix = [_console_python(), str(SEND_SCRIPT), "--to", sender]
+    quoted = subprocess.list2cmdline(prefix) if os.name == "nt" else " ".join(shlex.quote(a) for a in prefix)
+    return f"Reply to {sender}: run `{quoted} <your reply words>`"
+
+
+def spool_steps(conv, state=None) -> list:
+    """`injectSteps` entries for a pending leg's queued messages, each naming the sender's reply command; claims are released after the reply is written."""
+    steps = []
+    for path in claim_spool(conv, state):
+        try:
+            lines = path.read_bytes().splitlines()
+        except OSError:
+            continue
+        _CLAIMS.append(path)
+        for line in lines:
+            try:
+                text = json.loads(line)["text"]
+            except (ValueError, KeyError, TypeError):
+                continue
+            if not isinstance(text, str) or not text.strip():
+                continue
+            m = SENDER_RE.search(text)
+            if m:
+                text = f"{text}\n{reply_hint(m.group(1))}"
+            steps.append({"systemMessage": {"systemMessage": text}})
+    return steps
+
+
+def release_claims() -> None:
+    """Delete the claimed spool files this process emitted; a crash before this leaves them for the next hook."""
+    while _CLAIMS:
+        try:
+            _CLAIMS.pop().unlink()
+        except OSError:
+            pass
+
+
 def pre_invocation_reply(payload) -> dict:
-    """`injectSteps` carrying each distinct stashed advisory for the payload's conversation, then drained; {} when none."""
+    """`injectSteps` for a pending leg's queued messages, then each distinct stashed advisory for the payload's conversation, all drained; {} when none."""
     conv = payload.get("conversationId") if isinstance(payload, dict) else None
     if not isinstance(conv, str) or not CONV_RE.match(conv):
         return {}
+    log_hook(conv, "PreInvocation")
+    try:
+        queued = spool_steps(conv)
+    except Exception:
+        queued = []
+    reply = _advisory_reply(conv)
+    if queued:
+        reply = {"injectSteps": queued + reply.get("injectSteps", [])}
+    return reply
+
+
+def _advisory_reply(conv) -> dict:
     folder = advisory_dir() / conv
     texts = []
     try:
@@ -615,7 +487,10 @@ def _lifecycle_reply(event: str, payload, engine_root=None) -> dict:
 
 def _lifecycle_main(event: str, argv) -> int:
     try:
-        out = _lifecycle_reply(event, json.loads(sys.stdin.read()), engine_root_arg(argv))
+        payload = json.loads(sys.stdin.read())
+        if isinstance(payload, dict):
+            log_hook(payload.get("conversationId") or os.environ.get("ANTIGRAVITY_CONVERSATION_ID"), event)
+        out = _lifecycle_reply(event, payload, engine_root_arg(argv))
     except Exception:
         out = {}
     print(json.dumps(out))
@@ -630,6 +505,7 @@ def _pre_invocation_main() -> int:
         out = {}
     print(json.dumps(out))
     sys.stdout.flush()
+    release_claims()
     return 0
 
 
@@ -637,7 +513,10 @@ def _answer(argv, result) -> None:
     """Worker body: the decision into `result["out"]`; any failure is the fail-open allow."""
     try:
         raw = sys.stdin.read()
-        result["out"] = decide(json.loads(raw), agy_ancestor_pid(), engine_root_arg(argv), raw)
+        payload = json.loads(raw)
+        if isinstance(payload, dict):
+            log_hook(payload.get("conversationId"), "PreToolUse")
+        result["out"] = decide(payload, agy_ancestor_pid(), engine_root_arg(argv), raw)
     except Exception:
         result["out"] = dict(PASS)
 
