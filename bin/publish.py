@@ -7007,6 +7007,7 @@ def run_pre_sync_gates(
         if isinstance(source_shadow, (str, os.PathLike))
         else dict(source_shadow or {})
     )
+    _materialize_block_start = time.perf_counter()
     try:
         for root in contributing_roots:
             if root in supplied_shadow:
@@ -7033,6 +7034,12 @@ def run_pre_sync_gates(
         print(f"  Error: cannot materialize a contributing root from its committed ref — {exc}", file=err)
         _print_row_refusal(target.name, err=err)
         return GateResult(proceed=False, source_dir=target.source_dir, shadow_roots=tuple(shadow_toplevels))
+    finally:
+        print(
+            f"  [timing] {target.name}: run_pre_sync_gates: git_materialize: "
+            f"{time.perf_counter() - _materialize_block_start:.3f}s",
+            file=out,
+        )
     effective_source_dir = shadow[target.source_dir]
 
     # Irreversible-harm refusal: reads committed fix-row records at the materialized
@@ -9584,16 +9591,132 @@ def _extract_git_archive(toplevel: Path, sha: str) -> Path:
 # carrying a withheld overlay is not the commit's bytes and records "withheld": never a seed.
 _SHADOW_SOURCE_NAME = ".source"
 _SHADOW_SEED_MAX_CHANGES = 500
+# A process reading a stored tree in place leaves `.hold-<pid>` at its root; a seed never renames
+# a tree whose hold names a live pid.
+_HOLD_PREFIX = ".hold-"
+
+
+def _pid_is_alive(pid: int) -> bool:
+    """Stdlib-only liveness: runs before `_bootstrap_engine`, when `coordinator_core` must not be imported."""
+    if pid <= 0:
+        return False
+    if os.name != "nt":
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except OSError:
+            return True
+        return True
+    import ctypes  # noqa: PLC0415
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = ctypes.c_void_p
+    kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    handle = kernel32.OpenProcess(0x1000, 0, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return ctypes.get_last_error() == 5  # ERROR_ACCESS_DENIED: exists, not ours
+    try:
+        code = ctypes.c_uint32()
+        kernel32.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
+        return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259  # STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _hold_tree(root: Path) -> None:
+    """Best effort: mark `root` as read in place by this process.
+
+    The hold lives until the process dies (`_release_tree` is called only for shadows, by
+    `_cleanup_shadow_roots`; an export hold is never released), so a long-lived process makes the
+    tree unseedable and the next round falls back to a full extraction. The file sits at the tree
+    root: every consumer is pathspec-bounded, and a seed strips it."""
+    try:
+        (root / f"{_HOLD_PREFIX}{os.getpid()}").write_bytes(b"")
+    except OSError:
+        pass
+
+
+def _release_tree(root: Path) -> None:
+    try:
+        (root / f"{_HOLD_PREFIX}{os.getpid()}").unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _tree_is_held(root: Path) -> bool:
+    """True when a top-level `.hold-<pid>` names a live pid. One scandir of the root, never a walk."""
+    try:
+        with os.scandir(root) as scan:
+            for entry in scan:
+                if not entry.name.startswith(_HOLD_PREFIX):
+                    continue
+                tail = entry.name[len(_HOLD_PREFIX):]
+                if tail.isdigit() and _pid_is_alive(int(tail)):
+                    return True
+    except OSError:
+        return True
+    return False
+
+
+def _claim_tree(src: Path, dest: Path) -> bool:
+    """Rename the stored tree `src` to the absent `dest` (one directory rename, O(1)).
+
+    False when the rename fails: a peer claimed `src` first, or an open handle in it refuses the
+    rename (Windows). `dest` must not exist: a directory cannot replace one on Windows."""
+    try:
+        os.replace(src, dest)
+    except OSError:
+        return False
+    return True
+
+
+def _claim_unheld_tree(src: Path, dest: Path) -> bool:
+    """`_claim_tree`, then re-check for a hold taken between the caller's `_tree_is_held` and the rename.
+
+    A hold seen after the claim means a reader had `src` open; the tree goes back to `src` and the
+    claim reports False. Windows refuses the rename under an open handle; POSIX does not."""
+    if not _claim_tree(src, dest):
+        return False
+    if not _tree_is_held(dest):
+        return True
+    _claim_tree(dest, src)
+    return False
+
+
+def _strip_top_level(root: Path, is_residue: "Callable[[str], bool]") -> None:
+    """Unlink the top-level bookkeeping files of a claimed tree (store marker, hold files, ...)."""
+    with os.scandir(root) as scan:
+        names = [e.name for e in scan if e.is_file(follow_symlinks=False) and is_residue(e.name)]
+    for name in names:
+        (root / name).unlink(missing_ok=True)
+
+
+def _unlink_pruning(root: Path, rel: str) -> None:
+    """Unlink `root/rel`, then remove the directories it leaves empty: a full extraction holds none."""
+    target = root / rel
+    target.unlink(missing_ok=True)
+    parent = target.parent
+    while parent != root:
+        try:
+            parent.rmdir()
+        except OSError:
+            break
+        parent = parent.parent
 
 
 def _seed_shadow_from_store(store: Any, toplevel: Path, sha: str, pathspec: "Sequence[str]") -> Optional[Path]:
     """A shadow of `sha` built from the newest stored shadow of the same toplevel and pathspec.
 
     A full extraction writes every file of the pathspec (~12 min of the C14f publish under
-    on-access scanning); consecutive stamps differ by a handful. Hardlinks every file of the
-    stored shadow, unlinks each path `git diff` names, and extracts the added/modified ones from
-    `_materialize_tree_paths` of just those paths, with `_extract_git_archive`'s eol flags. Returns None,
-    leaving nothing behind, when no stored shadow qualifies or any step fails."""
+    on-access scanning); consecutive stamps differ by a handful. Claims the stored shadow with one
+    directory rename (it leaves the store; the caller's `store.adopt` records the result under the
+    new key), unlinks each path `git diff` names, and extracts the added/modified ones from
+    `_materialize_tree_paths` of just those paths, with `_extract_git_archive`'s eol flags. Work is
+    O(changes), never O(tree). An entry a live process holds in place (`_tree_is_held`) is never
+    claimed. Returns None, leaving nothing behind, when no stored shadow qualifies or any step
+    fails; a failure after the claim discards the claimed tree."""
     from coordinator_core.percolate.shadow_store import COMPLETE_MARKER  # noqa: PLC0415
     from coordinator_core.temp_layout import managed_tempdir  # noqa: PLC0415
 
@@ -9612,6 +9735,8 @@ def _seed_shadow_from_store(store: Any, toplevel: Path, sha: str, pathspec: "Seq
             continue
         if source.get("withheld") or source.get("sha") == sha or sorted(source.get("pathspec") or []) != want:
             continue
+        if _tree_is_held(prev):
+            continue
         git = ["git", "-C", str(toplevel), "-c", "core.autocrlf=false", "-c", "core.eol=lf"]
         diff = subprocess.run(
             [*git, "diff", "--name-status", "--no-renames", "-z", source["sha"], sha, "--", *pathspec],
@@ -9624,18 +9749,17 @@ def _seed_shadow_from_store(store: Any, toplevel: Path, sha: str, pathspec: "Seq
         if len(changes) > _SHADOW_SEED_MAX_CHANGES:
             continue
         start = time.perf_counter()
-        shadow_dir = Path(tempfile.mkdtemp(prefix=f"claude-klabauter-publish-materialize-{os.getpid()}-", dir=managed_tempdir()))
+        shadow_dir = managed_tempdir() / f"claude-klabauter-publish-materialize-{os.getpid()}-{os.urandom(6).hex()}"
+        if not _claim_unheld_tree(prev, shadow_dir):
+            continue
         try:
-            for root, dirs, files in os.walk(prev):
-                out = shadow_dir / os.path.relpath(root, prev)
-                out.mkdir(parents=True, exist_ok=True)
-                for name in files:
-                    if root == str(prev) and (name == _SHADOW_SOURCE_NAME or name.startswith(COMPLETE_MARKER)):
-                        continue
-                    os.link(os.path.join(root, name), out / name)
+            _strip_top_level(
+                shadow_dir,
+                lambda n: n == _SHADOW_SOURCE_NAME or n.startswith((COMPLETE_MARKER, _HOLD_PREFIX)),
+            )
             wanted = []
             for status, rel in changes:
-                (shadow_dir / rel).unlink(missing_ok=True)
+                _unlink_pruning(shadow_dir, rel)
                 if status != "D":
                     wanted.append(rel)
             if wanted:
@@ -9851,6 +9975,7 @@ def _export_engine_at_ref(repo_root: Path, ref: str) -> Path:
     base = _engine_export_base()
     dest = base / sha
     if _export_is_complete(dest, sha):
+        _hold_tree(dest)
         return dest
     if dest.exists():
         shutil.rmtree(dest, ignore_errors=True)
@@ -9873,6 +9998,7 @@ def _export_engine_at_ref(repo_root: Path, ref: str) -> Path:
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
+    _hold_tree(dest)
     return dest
 
 
@@ -9925,11 +10051,12 @@ def _export_is_complete(root: Path, sha: str) -> bool:
 def _seed_export_from_cache(git: Callable[..., "subprocess.CompletedProcess[bytes]"], base: Path, sha: str, staging: Path) -> bool:
     """Fill empty `staging` with the export of `sha` from a cached export of a nearby commit.
 
-    Every file of the cached export is hardlinked (no content write, so no scan), then each path
-    the diff names is unlinked first -- writing through a hardlink would change the cached copy
-    -- and the added/modified ones are extracted from one `git archive` of just those paths.
-    Returns False, leaving `staging` empty, when no cached export is within
-    `_EXPORT_SEED_MAX_CHANGES` or a link fails; the caller then does the full export."""
+    The cached export is claimed with one directory rename onto `staging` (it leaves the cache; the
+    caller renames the result to its own sha), each path the diff names is unlinked, and the
+    added/modified ones are extracted from `git archive` of just those paths: O(changes), never
+    O(tree). An export a live process holds in place (`_tree_is_held`) is never claimed. Returns
+    False, leaving `staging` empty, when no cached export is within `_EXPORT_SEED_MAX_CHANGES` or
+    the claim or apply fails; the caller then does the full export."""
     try:
         cached = []
         for d in base.iterdir():
@@ -9948,22 +10075,24 @@ def _seed_export_from_cache(git: Callable[..., "subprocess.CompletedProcess[byte
             continue
         fields = [f for f in diff.stdout.decode("utf-8", "surrogateescape").split("\0") if f]
         changes = list(zip(fields[0::2], fields[1::2]))
-        if len(changes) > _EXPORT_SEED_MAX_CHANGES:
+        if len(changes) > _EXPORT_SEED_MAX_CHANGES or _tree_is_held(prev):
             continue
         try:
-            for root, dirs, files in os.walk(prev):
-                dirs[:] = [d for d in dirs if d != "__pycache__"]
-                out = staging / os.path.relpath(root, prev)
-                out.mkdir(parents=True, exist_ok=True)
-                for name in files:
-                    if name == _EXPORT_MARKER_NAME and root == str(prev):
-                        continue
-                    os.link(os.path.join(root, name), out / name)
+            staging.rmdir()
+        except OSError:
+            return False
+        if not _claim_unheld_tree(prev, staging):
+            if staging.exists():
+                # Rollback failed: the held tree sits at `staging`. Move it aside under a name no
+                # seed candidate matches, so `staging` is empty for the full export.
+                os.replace(staging, base / f"orphan-held-{os.getpid()}-{os.urandom(4).hex()}")
+            staging.mkdir(parents=True, exist_ok=True)
+            continue
+        try:
+            _strip_top_level(staging, lambda n: n == _EXPORT_MARKER_NAME or n.startswith(_HOLD_PREFIX))
             wanted = []
             for status, rel in changes:
-                target = staging / rel
-                if target.exists():
-                    target.unlink()
+                _unlink_pruning(staging, rel)
                 if status != "D":
                     wanted.append(rel)
             # Batched: Windows caps a command line at 32k chars.
@@ -9974,7 +10103,7 @@ def _seed_export_from_cache(git: Callable[..., "subprocess.CompletedProcess[byte
                 with tarfile.open(fileobj=io.BytesIO(arc.stdout)) as tar:
                     tar.extractall(path=staging, filter="tar")
             return True
-        except OSError:
+        except (OSError, tarfile.TarError):
             shutil.rmtree(staging, ignore_errors=True)
             staging.mkdir(parents=True, exist_ok=True)
             return False
@@ -10617,6 +10746,7 @@ def _git_materialize_ref(root: Path, ref: str = "HEAD", withheld: "Optional[Mapp
         if stored is not None:
             print("  [timing] _git_materialize_ref: store HIT", file=sys.stdout)
             _STORE_SHADOWS[stored] = (store, store_key)
+            _hold_tree(stored)
             _MATERIALIZED_REF_CACHE[cache_key] = stored
             return stored / prefix
         # a single post-extraction line carries the same MISS signal as
@@ -10645,6 +10775,7 @@ def _git_materialize_ref(root: Path, ref: str = "HEAD", withheld: "Optional[Mapp
         try:
             shadow_toplevel = store.adopt(store_key, shadow_toplevel)
             _STORE_SHADOWS[shadow_toplevel] = (store, store_key)
+            _hold_tree(shadow_toplevel)
         except ShadowStoreError as exc:
             print(f"  [timing] _git_materialize_ref: store adopt skipped ({exc})", file=sys.stdout)
         _MATERIALIZED_REF_CACHE[cache_key] = shadow_toplevel
@@ -10684,6 +10815,7 @@ def _cleanup_shadow_roots(shadow_roots: "tuple[Path, ...]") -> None:
             if cached_path == shadow_root:
                 del _MATERIALIZED_REF_CACHE[cache_key]
         if owned is not None:
+            _release_tree(shadow_root)
             owned[0].retain(owned[1])
 
 

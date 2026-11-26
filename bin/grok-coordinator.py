@@ -159,10 +159,61 @@ def _hold_inbox(mod, child_pid: int, stop: threading.Event) -> None:
         stop.wait(0.4)
 
 
+def bind_kill_on_close(pid: int) -> int | None:
+    """Windows: put `pid` in a job that kills it when this process's last handle to the job closes.
+
+    Returns the job handle (keep it referenced for the process lifetime) or None off Windows or
+    when the job cannot be made. The OS closes the handle when this process dies, however it dies,
+    so grok never outlives the python that holds its inbox.
+    """
+    if os.name != "nt":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    class _Basic(ctypes.Structure):
+        _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                    ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                    ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD),
+                    ("SchedulingClass", wintypes.DWORD)]
+
+    class _Extended(ctypes.Structure):
+        _fields_ = [("BasicLimitInformation", _Basic), ("IoInfo", ctypes.c_uint64 * 6),
+                    ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateJobObjectW.restype = wintypes.HANDLE
+    k32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+    k32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    job = k32.CreateJobObjectW(None, None)
+    if not job:
+        return None
+    info = _Extended()
+    info.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    proc = k32.OpenProcess(0x0001 | 0x0100, 0, pid)  # PROCESS_TERMINATE | PROCESS_SET_QUOTA
+    ok = bool(proc) and k32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info)) \
+        and k32.AssignProcessToJobObject(job, proc)
+    if proc:
+        k32.CloseHandle(proc)
+    if not ok:
+        k32.CloseHandle(job)
+        return None
+    return job
+
+
 def run_interactive(extra: list[str]) -> int:
     mod = load_grok_adapter()
     ensure_stop_hook(mod.grok_home())
     child = subprocess.Popen(interactive_argv(grok_binary(), extra))
+    job = bind_kill_on_close(child.pid)  # the handle must outlive this call: closing it kills grok
+    if job is None and os.name == "nt":
+        print("grok-coordinator: kill-on-exit job not bound; grok may outlive its inbox holder", file=sys.stderr)
     stop = threading.Event()
     watcher = threading.Thread(target=_hold_inbox, args=(mod, child.pid, stop), daemon=True)
     watcher.start()

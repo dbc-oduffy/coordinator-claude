@@ -4,6 +4,11 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.37] — 2026-11-26
+
+- **Codex:** the Codex footer shows the session's Unimatrix name again under codex-cli 0.172, which gives hooks a session id that differs from the thread id. The status hook now names the thread recorded in the session's rollout.
+- **Publish:** a coordinator-claude publish round runs faster. Ships with claude-klabauter 4143567b1.
+
 ## [4.6.36] — 2026-11-26
 
 - **Agy:** a peer message to an agy CLI session reaches it at that session's next turn, proven on Windows and macOS. Messages are queued and injected when the turn starts. The sender is told the message is queued, not delivered. Replies from an agy session reach their sender. A session that is idle and has no turn running does not yet receive messages. Ships with claude-klabauter 9287d86ca.

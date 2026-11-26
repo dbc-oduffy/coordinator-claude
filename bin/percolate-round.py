@@ -474,13 +474,88 @@ def _resolve_clone_sha(repo_root: Path, source_ref: Optional[str]) -> str:
     raise RuntimeError("HEAD does not resolve to a commit")
 
 
-def _delegate_to_commit_clone(argv: List[str], source_ref: Optional[str]) -> int:
+def _phase_accounting() -> Any:
+    """`bin/lib/phase_accounting`: stdlib-only, loaded on first use."""
+    bin_lib = str(_BIN_DIR / "lib")
+    if bin_lib not in sys.path:
+        sys.path.insert(0, bin_lib)
+    import phase_accounting  # noqa: PLC0415
+
+    return phase_accounting
+
+
+def _emit_step_timing(round_label: str, step: str, wall: float, cpu: float, cost: Any = None) -> None:
+    """One `[timing]` line on stderr per driver step. The `wall=`/`cpu=` prefix is parsed by the
+    round benchmark's step reader and must stay distinct from publish.py's `<s>s wall / <s>s cpu`
+    phase lines. `cpu` is this process only; the appended `cpu_total= spawns= files= engine=`
+    fields (a `PhaseCost`) carry the whole tree, `unavailable` where unreadable."""
+    tail = f" {cost.fields()}" if cost is not None else ""
+    print(f"  [timing] {round_label}: step:{step}: wall={wall:.3f}s cpu={cpu:.3f}s{tail}", file=sys.stderr, flush=True)
+
+
+class _RoundTimer:
+    """Times the driver's steps one at a time: opening a step closes the one still open, and
+    `close()` closes any open step then emits `step:total` and the unattributed remainder, so an
+    early return still reports."""
+
+    def __init__(self, round_label: str) -> None:
+        self.round_label = round_label
+        self._t0 = time.perf_counter()
+        self._c0 = time.process_time()
+        self._acct = _phase_accounting().get_account()
+        self._m0 = self._acct.mark()
+        self._open: Optional[Tuple[str, float, float, Any]] = None
+        self._parts_cpu = 0.0
+        self._parts_spawns = 0
+        self._parts_ok = True
+
+    def begin(self, step: str) -> None:
+        self.end()
+        self._open = (step, time.perf_counter(), time.process_time(), self._acct.mark())
+
+    def end(self) -> None:
+        if self._open is None:
+            return
+        step, wall0, cpu0, mark = self._open
+        self._open = None
+        pa = _phase_accounting()
+        cost = pa.attach_engine([self._acct.cost_since(mark)], self._acct.session_id)[0]
+        if cost.cpu_total is None:
+            self._parts_ok = False
+        else:
+            self._parts_cpu += cost.cpu_total
+            self._parts_spawns += cost.spawns or 0
+        _emit_step_timing(self.round_label, step, time.perf_counter() - wall0, time.process_time() - cpu0, cost)
+
+    @contextlib.contextmanager
+    def step(self, step: str) -> Iterator[None]:
+        self.begin(step)
+        try:
+            yield
+        finally:
+            self.end()
+
+    def close(self) -> None:
+        self.end()
+        pa = _phase_accounting()
+        total = pa.attach_engine([self._acct.cost_since(self._m0)], self._acct.session_id)[0]
+        _emit_step_timing(
+            self.round_label, "total", time.perf_counter() - self._t0, time.process_time() - self._c0, total
+        )
+        print(
+            pa.unattributed_line(self.round_label, total, self._parts_cpu, self._parts_spawns, self._parts_ok),
+            file=sys.stderr, flush=True,
+        )
+
+
+def _delegate_to_commit_clone(argv: List[str], source_ref: Optional[str], round_label: str = "round") -> int:
     """Run this same entry from a shared clone at the round's commit, so uncommitted edits in the
     live tree never reach the round's code and never refuse it."""
     commit_clone = _commit_clone_module()
     try:
         sha = _resolve_clone_sha(_REPO_ROOT, source_ref)
-        clone = commit_clone.materialise_commit_clone(_REPO_ROOT, sha, commit_clone.default_cache_root())
+        with _RoundTimer(round_label).step("commit_clone_materialise"):
+            clone = commit_clone.materialise_commit_clone(_REPO_ROOT, sha, commit_clone.default_cache_root())
     except Exception as exc:  # RuntimeError, OSError: a refusal naming the cause, never a crash
         retry = "" if "Retry:" in str(exc) else (
             f' Retry: python "{_BIN_DIR / "lib" / "commit_clone.py"}" materialise <full-sha> --repo "{_REPO_ROOT}"'
@@ -3693,15 +3768,23 @@ def _cmd_round_default(
     override: "Optional[DestRootOverride]" = None,
     withholding: "Any" = None,
     engine_import_probed_sha: Optional[str] = None,
+    timer: Optional[_RoundTimer] = None,
 ) -> int:
-    """Run the round, then reap doomed shadow trees on every exit path, after any push."""
+    """Run the round, then reap doomed shadow trees on every exit path, after any push.
+    A caller-supplied `timer` is closed by that caller; otherwise this call owns one."""
+    owned = timer is None
+    if timer is None:
+        timer = _RoundTimer(target)
     try:
         return _round_default_body(
             args, target, percolate_root, source_dir, dest, tmp, override=override,
             withholding=withholding, engine_import_probed_sha=engine_import_probed_sha,
+            timer=timer,
         )
     finally:
         _reap_shadow_store(dest)
+        if owned:
+            timer.close()
 
 
 def _round_default_body(
@@ -3715,6 +3798,7 @@ def _round_default_body(
     override: "Optional[DestRootOverride]" = None,
     withholding: "Any" = None,
     engine_import_probed_sha: Optional[str] = None,
+    timer: Optional[_RoundTimer] = None,
 ) -> int:
     """The round, PM ruling 2026-08-15: one sync, not two. Step 2's dry run
     is dropped entirely -- Step 1 IS the real `publish.py` run, and it
@@ -3746,6 +3830,8 @@ def _round_default_body(
     dry-run-optional dispatch).
     """
     _bootstrap_engine()
+    if timer is None:
+        timer = _RoundTimer(target)
     open_only = getattr(args, "open_only", False)
     _notice_kwargs = {"clone_root": str(override.clone_root)} if override is not None else {}
     real_stdout_path = tmp / "real-stdout.txt"
@@ -3759,14 +3845,8 @@ def _round_default_body(
         ), _hold_round_slot(dest) as slot:
             # --- Step 1: real run (sync) -- no dry run by default ----------
             print(f"=== percolate-round {target} — Step 1: real run (sync) ===")
-            # `--no-commit`: this round owns the commit itself, as Step 5
-            # below, so that DR-301's commit -> CI smoke -> push order holds
-            # (§ this module's header). `publish.py` commits its own
-            # successful percolation by default — correct for a bare
-            # `coordinator-publish`, which otherwise exits 0 with green gates
-            # and leaves the mirror dirty, but here it would move the commit
-            # ahead of `_run_ci_smoke` and make this round's own commit leg a
-            # no-op.
+            # `--no-commit`: `publish.py` commits its own percolation by
+            # default; here it would make this round's own commit leg a no-op.
             progress_path = tmp / "publish-progress.json"
             real_cmd = [
                 sys.executable, str(_PUBLISH), target, "--no-commit",
@@ -3821,8 +3901,9 @@ def _round_default_body(
             )
             _write_driver_progress(progress_path, {"phase": "publish-running", "driver_pid": _os.getpid()})
             try:
-                real = _run(real_cmd, timeout=_PUBLISH_LEG_TIMEOUT_SECS, env=real_env,
-                            creationflags=_PUBLISH_CHILD_CREATIONFLAGS)
+                with timer.step("real_run"):
+                    real = _run(real_cmd, timeout=_PUBLISH_LEG_TIMEOUT_SECS, env=real_env,
+                                creationflags=_PUBLISH_CHILD_CREATIONFLAGS)
             except BaseException as exc:
                 _write_driver_progress(
                     progress_path, {"phase": "publish-failed", "error": type(exc).__name__}, only_if_driver_owned=True
@@ -3911,7 +3992,8 @@ def _round_default_body(
             ]
             if peer_repos_file is not None:
                 scan_cmd += ["--peer-repos-file", str(peer_repos_file)]
-            scan = _run_step(_PERCOLATE_GATE, scan_cmd)
+            with timer.step("scan_secrets"):
+                scan = _run_step(_PERCOLATE_GATE, scan_cmd)
             if scan.returncode not in (0, 2):
                 _print_step_failure("Step 2 (scan-secrets)", list(scan.args), scan.stderr)
                 return _EXIT_FAIL
@@ -3946,7 +4028,8 @@ def _round_default_body(
                 "--source-dir",
                 source_dir,
             ]
-            drift = _run_step(_PERCOLATE_GATE, drift_cmd)
+            with timer.step("inverse_drift"):
+                drift = _run_step(_PERCOLATE_GATE, drift_cmd)
             print(drift.stdout)
             if drift.returncode != 0:
                 _print_step_failure("Step 2b (inverse-drift)", list(drift.args), drift.stderr)
@@ -4017,23 +4100,25 @@ def _round_default_body(
                 encoding="utf-8",
                 newline="\n",
             )
-            parse2 = _run_step(
-                _PARSE_DRYRUN,
-                [
-                    "parse-dryrun",
-                    "--stdout-file",
-                    str(real_stdout_path),
-                    "--medium-leak-count",
-                    str(medium_count),
-                    "--inverse-drift-count",
-                    str(drift_count),
-                    "--changes-file",
-                    str(changes_path),
-                ],
-            )
+            with timer.step("parse"):
+                parse2 = _run_step(
+                    _PARSE_DRYRUN,
+                    [
+                        "parse-dryrun",
+                        "--stdout-file",
+                        str(real_stdout_path),
+                        "--medium-leak-count",
+                        str(medium_count),
+                        "--inverse-drift-count",
+                        str(drift_count),
+                        "--changes-file",
+                        str(changes_path),
+                    ],
+                )
             if parse2.returncode != 0:
                 _print_step_failure("percolate-parse-dryrun (pass 2)", [], parse2.stderr)
                 return _EXIT_FAIL
+            timer.begin("step3_gate")
             try:
                 envelope2 = json.loads(parse2.stdout)
                 gate_fires = bool(envelope2["gates"]["step3_gate_fires"])
@@ -4091,6 +4176,7 @@ def _round_default_body(
                     return _EXIT_CONFIRM_REQUIRED
 
             # --- pathspec build ----------------------------------------------
+            timer.begin("commit")
             pathspec, filter_drops = (
                 _pathspec_from_manifest(manifest, repo_root, _live_repo_root())
                 if manifest is not None
@@ -4152,7 +4238,8 @@ def _round_default_body(
                 if not _confirm_round_slot(slot):
                     return _EXIT_FAIL
                 _clear_round_failure_marker(target, percolate_root)
-                push = _push_dest(dest)
+                with timer.step("push"):
+                    push = _push_dest(dest)
                 print("")
                 if push.returncode != 0:
                     print("percolate-round: push failed:", file=sys.stderr)
@@ -4239,11 +4326,7 @@ def _round_default_body(
             # the-pipeline-can-go.md): repointed off the killed
             # `commit_pipeline.run_commit_pipeline` onto the sanctioned
             # zero-spawn shape, `coordinator_core.git.commit.commit_paths`.
-            # No `push_mode` to carry any more -- this round always owned its
-            # own commit -> CI-smoke -> push sequence (DR-301) and ended this
-            # step at a local commit; `commit_paths` has no push leg at all,
-            # so `_push_dest` below still drives the push once CI smoke is
-            # green, unchanged.
+            # `commit_paths` has no push leg; `_push_dest` below drives the push.
             from functools import partial  # noqa: PLC0415
 
             from coordinator_core.git.commit import (  # noqa: PLC0415
@@ -4435,13 +4518,14 @@ def _round_default_body(
                 sha,
             )
 
-            engine_import_failure = (
-                None
-                if args.no_publish or _early_import_probe_covers_late_gate(
-                    engine_import_probed_sha, withholding
+            with timer.step("engine_import_gate"):
+                engine_import_failure = (
+                    None
+                    if args.no_publish or _early_import_probe_covers_late_gate(
+                        engine_import_probed_sha, withholding
+                    )
+                    else _engine_import_failures(repo_root, pathspec)
                 )
-                else _engine_import_failures(repo_root, pathspec)
-            )
             refusal_reason = _round_refusal_reason(
                 real_returncode=real.returncode,
                 declined_paths=declined_paths,
@@ -4494,7 +4578,8 @@ def _round_default_body(
 
             if not _confirm_round_slot(slot):
                 return _EXIT_FAIL
-            push = _push_dest(dest)
+            with timer.step("push"):
+                push = _push_dest(dest)
             if push.returncode != 0:
                 print("")
                 print("percolate-round: push failed:", file=sys.stderr)
@@ -4807,6 +4892,14 @@ def _round_tempdir() -> Iterator[Path]:
 
 
 def _cmd_round(args: argparse.Namespace) -> int:
+    timer = _RoundTimer(args.target)
+    try:
+        return _cmd_round_timed(args, timer)
+    finally:
+        timer.close()
+
+
+def _cmd_round_timed(args: argparse.Namespace, timer: _RoundTimer) -> int:
     target = args.target
 
     refusal = _unresolved_root_flag(args)
@@ -4879,14 +4972,15 @@ def _cmd_round(args: argparse.Namespace) -> int:
         return _EXIT_FAIL
 
     early_probed: List[str] = []
-    early_import_refusal = (
-        None
-        if args.no_publish
-        else _early_engine_import_refusal(
-            source_dir, shipped_sha, withholding,
-            mirror=Path(dest), passed=early_probed,
+    with timer.step("engine_import_probe"):
+        early_import_refusal = (
+            None
+            if args.no_publish
+            else _early_engine_import_refusal(
+                source_dir, shipped_sha, withholding,
+                mirror=Path(dest), passed=early_probed,
+            )
         )
-    )
     if early_import_refusal is not None:
         print(f"percolate-round: refused, nothing synced: {early_import_refusal}", file=sys.stderr)
         return _EXIT_FAIL
@@ -4909,6 +5003,7 @@ def _cmd_round(args: argparse.Namespace) -> int:
             args, target, percolate_root, source_dir, dest, tmp, override=override,
             withholding=withholding,
             engine_import_probed_sha=early_probed[0] if early_probed else None,
+            timer=timer,
         )
 
 
@@ -5028,7 +5123,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             # The last option wins, so place the verified pin after the original options.
             end = forwarded.index("--") if "--" in forwarded else len(forwarded)
             forwarded[end:end] = ["--source-ref", pinned_ref]
-        return _delegate_to_commit_clone(forwarded, pinned_ref)
+        with _phase_accounting().tee_round_log(_live_repo_root(), args.target):
+            return _delegate_to_commit_clone(forwarded, pinned_ref, args.target)
     _bootstrap_engine()
 
     # A round once sat idle after its commit (0 CPU, no children) holding the
@@ -5036,7 +5132,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     # finishes well inside this window, so a dump here names the blocked frame
     # the next time it recurs instead of leaving a silent lock-holder.
     faulthandler.dump_traceback_later(_HANG_DUMP_SECONDS, repeat=False)
-    return args.func(args)
+    with _phase_accounting().tee_round_log(_live_repo_root(), args.target):
+        return args.func(args)
 
 
 if __name__ == "__main__":

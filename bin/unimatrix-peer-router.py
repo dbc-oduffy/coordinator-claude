@@ -173,11 +173,11 @@ def __getattr__(name):
 
 
 _ROUTER_NAME = "unimatrix-peer-router.py"
-_SCRIPT_REF = re.compile(r"unimatrix-[a-z0-9-]+\.py")
+_SCRIPT_REF = r"unimatrix-[a-z0-9-]+\.py"  # a pattern string, not compiled: import must compile nothing (peer contract)
 DRAIN_SECONDS = 30
 
 
-def code_digest(root=None):
+def code_digest(root=None) -> str:
     """sha256 over the router's script closure and lib/*.py in `root`, the same bytes the installer digests.
 
     Recorded in router.pid.json at start so an installer can tell a router started on older code from the
@@ -191,8 +191,9 @@ def code_digest(root=None):
         seen.add(name)
         path = root / name
         if path.is_file():
-            todo.extend(_SCRIPT_REF.findall(path.read_text(encoding="utf-8")))
+            todo.extend(re.findall(_SCRIPT_REF, path.read_text(encoding="utf-8")))
     names = sorted(seen) + [f"lib/{p.name}" for p in sorted((root / "lib").glob("*.py"))]
+    names += sorted(p.relative_to(root).as_posix() for p in (root / "_unimatrix").rglob("*.py") if "__pycache__" not in p.parts)
     h = hashlib.sha256()
     for name in sorted(names):
         try:
@@ -729,7 +730,7 @@ MAX_GRACE_S = 3600
 class Registration:
     """A registry entry plus its 0600 key file for one endpoint, keyed by the writing pid."""
 
-    def __init__(self, name, endpoint, sessions_dir, cwd=None, vendor=None, peer=None):
+    def __init__(self, name, endpoint, sessions_dir, cwd=None, vendor=None, peer=None, leg_mode=None) -> None:
         native_target = None
         if vendor == 'codex':
             native_target = peer.get('target') if isinstance(peer, dict) else None
@@ -756,6 +757,8 @@ class Registration:
             "statusUpdatedAt": now,
             "vendor": vendor or "unknown", "box": _contract().local_box(),
         }
+        if leg_mode:
+            self.data["leg_mode"] = leg_mode
         if native_target is not None:
             # Explicit router-owned binding, also for legacy display names.
             # Do not invent an engine-owned alias, role or parent identity.
@@ -859,12 +862,13 @@ def sweep_pid_files(sessions_dir, pid):
 # ------------------------------------------------------------------ face (registration child)
 
 async def run_face(name, endpoint, forward, sessions_dir, cwd=None, transport=False, vendor=None, peer=None,
-                   owner_pid=None, owner_start=None):
+                   owner_pid=None, owner_start=None, leg_mode=None) -> None:
     """Register `name`, take inbound frames on `endpoint`, forward each to the router.
 
     `owner_pid`/`owner_start` stamp the owning router's identity so a later router can reap this face.
+    `leg_mode` is stamped into the registry row (a pending agy leg's face carries "pending").
     """
-    reg = Registration(name, endpoint, sessions_dir, cwd=cwd, vendor=vendor, peer=peer)
+    reg = Registration(name, endpoint, sessions_dir, cwd=cwd, vendor=vendor, peer=peer, leg_mode=leg_mode)
     if owner_pid and owner_start:
         reg.data.update(unimatrixRouterPid=owner_pid, unimatrixRouterStart=owner_start)
     if transport:
@@ -1031,9 +1035,11 @@ class Router:
         self.grok_home = str(grok_home) if grok_home else None
         self.discovered = set()  # names found by a scan, not given at construction; only these retire
         self.pending_legs = {}  # name -> agy peer whose leg runs pending (spool only); never in self.peers
+        self.pending_faces = set()  # pending_legs names whose face this router spawned; a pending face never enters self.peers
         self.scanner = None
         self.transport_sources = {}  # infrastructure face name -> registered caller name or None
         self.transport_targets = {}  # each infrastructure face is one source/destination conversation
+        self.transport_origins = {}  # face name -> the sender name it carried, registered or not
         self.transport_lock = asyncio.Lock()
         self.lease = None  # open router.lock handle, locked for the router lifetime
         self.stop_requested = asyncio.Event()  # set by the shutdown op and by stop signals; serve waits on it
@@ -1240,11 +1246,12 @@ class Router:
         self.pending_legs = {n: p for n, p in pending.items() if n not in live}
         return live
 
-    async def refresh_discovered(self):
+    async def refresh_discovered(self) -> None:
         """Register a face for each newly live discovered peer and retire the ones whose record or lock went."""
         await self.adopt_peers_file()
         await self._drop_dead_holders()
         live = await asyncio.to_thread(self._live_discovered)
+        await self._sync_pending_faces()
         for name in sorted(self.discovered - set(live)):
             await self._retire(name)
         for name, peer in live.items():
@@ -1260,6 +1267,31 @@ class Router:
             except Exception as e:
                 self.log("DISCOVER-REGISTER-FAILED", name, type(e).__name__, e)
                 await self._retire(name)
+
+    async def _sync_pending_faces(self) -> None:
+        """One face per pending leg: stop the ones whose leg left `pending_legs` (gone, or promoted to a live peer, whose face takes the same endpoint); spawn or repair the rest.
+
+        The face registers `leg_mode: pending`, so the registry mirror carries the row far; a frame
+        sent to it spools through the pending branch and never invokes a live turn adapter.
+        """
+        for name in sorted(self.pending_faces - set(self.pending_legs)):
+            if name in self.faces:
+                await self._stop_face(name)
+            self.pending_faces.discard(name)
+        for name in sorted(self.pending_legs):
+            if name in self.peers:
+                continue
+            proc = self.faces.get(name)
+            if proc is not None and proc.poll() is None:
+                continue
+            try:
+                if proc is not None:
+                    await self._stop_face(name)
+                await self._spawn_face(name)
+            except Exception as exc:
+                self.log("PENDING-FACE-FAILED", name, type(exc).__name__, exc)
+                if name in self.faces:
+                    await self._stop_face(name)
 
     async def adopt_peers_file(self) -> None:
         """Adopt Codex rows peers.json gained or changed since the last read; one stat per tick.
@@ -1390,17 +1422,22 @@ class Router:
             except (OSError, ValueError, TypeError):
                 continue
 
-    async def _spawn_face(self, name):
+    async def _spawn_face(self, name) -> None:
         ep = self.endpoint_of(name)
+        pending = name not in self.peers and name in self.pending_legs
+        peer = self.pending_legs[name] if pending else self.peers.get(name, {})
         proc = _roster().spawn([_roster().console_python(), str(Path(__file__).resolve()), "face",
                                 "--name", name, "--endpoint", ep, "--forward", self.ctl,
                                 "--sessions-dir", self.sessions_dir,
-                                "--vendor", self.peers.get(name, {}).get("vendor") or "transport",
-                                "--peer-json", json.dumps(self.peers.get(name, {})),
-                                "--cwd", self.peers.get(name, {}).get("cwd") or os.getcwd(),
+                                "--vendor", peer.get("vendor") or "transport",
+                                "--peer-json", json.dumps(peer),
+                                "--cwd", peer.get("cwd") or os.getcwd(),
                                 "--owner-pid", str(os.getpid()),
                                 "--owner-start", _roster().proc_start(os.getpid())]
-                               + (["--transport"] if name in self.transport_sources else []))
+                               + (["--transport"] if name in self.transport_sources else [])
+                               + (["--leg-mode", "pending"] if pending else []))
+        if pending:
+            self.pending_faces.add(name)
         self.faces[name] = proc
         await self._wait(f"face {name}",
                          lambda p=proc: os.path.exists(os.path.join(self.sessions_dir, f"{p.pid}.json")),
@@ -1416,8 +1453,9 @@ class Router:
         await self._stop_face(name)
         await self._spawn_face(name)
 
-    async def _stop_face(self, name):
+    async def _stop_face(self, name) -> None:
         old = self.faces.pop(name)
+        self.pending_faces.discard(name)
         if old.poll() is None:
             old.terminate()
         try:
@@ -1541,6 +1579,8 @@ class Router:
                 handler = self.handle_transport_inbound
             elif peer in self.peers:
                 handler = self.handle_inbound
+            elif peer in self.pending_legs:
+                handler = self.handle_pending_inbound
             else:
                 return {"ok": False, "error": "unknown peer or frame"}
             if peer in self.peers and self.peer_stale(peer):
@@ -1591,6 +1631,13 @@ class Router:
             if picked is None and refusal:
                 return {"ok": False, "error": refusal}
             peer = picked or peer
+            if isinstance(peer, str) and peer in self.transport_sources:
+                # A transport face is never a delivery target: a reply to it goes to the session it carried.
+                origin = self.transport_origins.get(peer) or self.transport_sources.get(peer)
+                if not (origin and self.transport_sources.get(peer)):
+                    return {"ok": False, "error": f"{peer} is a transport face, not a session; its origin "
+                            f"{origin or 'is unknown'} has no registered session to reply to"}
+                peer = origin
             # A peer's own shell knows its thread/conversation id, not the name the router gave it.
             sender = by_target.get(req.get("as_target")) or str(req.get("as") or "cli")
             as_session = req.get("as_session")
@@ -2022,12 +2069,13 @@ class Router:
             details[name] = {**_roster().session_identity(entry), "status": entry.get("status") or "unknown"}
         return details
 
-    async def _transport_face(self, source, destination):
+    async def _transport_face(self, source, destination) -> str:
         """Lazily register a genuine transport sender for one source/destination conversation."""
         name = readable_peer_name("unimatrix", source + "\0" + destination, "transport")
         async with self.transport_lock:
             self.transport_sources[name] = source if self.resolve_sender(source) else None
             self.transport_targets[name] = destination
+            self.transport_origins[name] = source
             process = self.faces.get(name)
             if process is not None and process.poll() is not None:
                 await self._stop_face(name)
@@ -2038,6 +2086,7 @@ class Router:
                 except BaseException:
                     self.transport_sources.pop(name, None)
                     self.transport_targets.pop(name, None)
+                    self.transport_origins.pop(name, None)
                     raise
         return name
 
@@ -2410,6 +2459,23 @@ class Router:
             return next(iter(matches))
         return fallback
 
+    async def handle_pending_inbound(self, peer, frame) -> None:
+        """A frame at a pending leg's face: spool it through the agy leg (deliver_only); no turn runs and no reply routes back."""
+        pending = self.pending_legs.get(peer)
+        if pending is None:
+            self.log("PENDING-LEG-GONE", peer)
+            return
+        _, sender_name, body = _contract().parse_inbound(frame)
+        if is_ack(body) or body.lstrip().lower().startswith("[reply]"):
+            self.log("DROPPED-ACK", sender_name, "->", peer)
+            return
+        try:
+            reply = await self.adapters["agy"]({**pending, "deliver_only": True}, wrap_inbound(sender_name, body))
+        except Exception as exc:
+            self.log("TURN-FAILED", peer, type(exc).__name__, exc)
+            return
+        self.log("PENDING-QUEUED" if not not_delivered(reply) else "PENDING-NOT-DELIVERED", peer, "<-", sender_name)
+
     async def handle_inbound(self, peer, frame):
         sender_ep, sender_name, body = _contract().parse_inbound(frame)
         if is_ack(body) or body.lstrip().lower().startswith("[reply]"):
@@ -2566,7 +2632,7 @@ def cmd_send(argv):
     return 0
 
 
-def cmd_face(argv):
+def cmd_face(argv) -> int:
     p = argparse.ArgumentParser(prog="unimatrix-peer-router.py face")
     p.add_argument("--name", required=True)
     p.add_argument("--endpoint", required=True)
@@ -2578,9 +2644,10 @@ def cmd_face(argv):
     p.add_argument("--peer-json", default='{}')
     p.add_argument("--owner-pid", type=int, default=None)
     p.add_argument("--owner-start", default=None)
+    p.add_argument("--leg-mode", default=None)
     a = p.parse_args(argv)
     asyncio.run(run_face(a.name, a.endpoint, a.forward, a.sessions_dir, a.cwd, a.transport, a.vendor,
-                         json.loads(a.peer_json), a.owner_pid, a.owner_start))
+                         json.loads(a.peer_json), a.owner_pid, a.owner_start, a.leg_mode))
     return 0
 
 

@@ -217,12 +217,17 @@ def stamp(frame, peer, vendor, target, router_pid, from_box=None):
     return out
 
 
-def agent_row(entry, local_box_name):
-    """Roster row {name, box, vendor, this_box} from one session entry."""
+def agent_row(entry, local_box_name) -> dict:
+    """Roster row {name, box, vendor, this_box} from one session entry.
+
+    leg_mode: carried only when the entry stamps `pending` (a spool-only agy face)."""
     sid = str(entry.get("sessionId") or "")
     vendor = entry.get(VENDOR_FIELD) or ("peer" if sid.startswith("peer-") else "claude")
     box = entry.get(BOX_FIELD) or local_box_name
-    return {"name": entry.get("name"), "box": box, "vendor": vendor, "this_box": box == local_box_name}
+    row = {"name": entry.get("name"), "box": box, "vendor": vendor, "this_box": box == local_box_name}
+    if entry.get("leg_mode") == "pending":
+        row["leg_mode"] = "pending"
+    return row
 
 
 def self_row(entries, session_id, local_box_name):

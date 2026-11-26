@@ -343,13 +343,14 @@ PIPE_MARKER = "PipeServer"
 ROUTER_RESTART_REFUSED_RC = 8
 
 
-def router_closure_digest(src_dir):
+def router_closure_digest(src_dir) -> "str | None":
     """sha256 over the sorted (name, bytes) of the router's script closure and lib/*.py in src_dir; None without the
     router script. The router records the same digest of its own directory as `codeDigest` in router.pid.json."""
     root = Path(src_dir)
     if not (root / ROUTER_SCRIPT).is_file():
         return None
     names = sorted(script_closure(root, ROUTER_SCRIPT)) + [f"lib/{p.name}" for p in sorted((root / "lib").glob("*.py"))]
+    names += sorted(p.relative_to(root).as_posix() for p in (root / "_unimatrix").rglob("*.py") if "__pycache__" not in p.parts)
     h = hashlib.sha256()
     for name in sorted(names):
         try:

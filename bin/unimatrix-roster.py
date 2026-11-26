@@ -286,7 +286,39 @@ def local_agy_face_unbacked(d) -> bool:
     far session's liveness is `mirror_unbacked`'s question."""
     if isinstance(d, dict) and (d.get(FAR_SOCKET_FIELD) or d.get("unimatrixMirror")):
         return False
+    if pending_agy_face_backed(d):
+        return False
     return _liveness().agy_face_unbacked(d)
+
+
+def pending_agy_face_backed(d) -> bool:
+    """True for a `leg_mode: pending` agy face whose conversation still has a pending leg record
+    (`agy-legs/<conversation>.json`, `mode: pending`) held by its stamped process, with an agy
+    session that does not read dead. The face's name carries `sha256(conversation)[:10]`."""
+    name = d.get("name") if isinstance(d, dict) else None
+    if not isinstance(name, str) or d.get("leg_mode") != "pending" or d.get("vendor") != "agy":
+        return False
+    legs = delivery_settings_home() / "unimatrix" / "agy-legs"
+    liveness = _liveness()
+    try:
+        files = sorted(os.listdir(legs))
+    except OSError:
+        return False
+    for f in files:
+        try:
+            with open(legs / f, encoding="utf-8") as fh:
+                rec = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        conv = rec.get("conversation") if isinstance(rec, dict) else None
+        if (not isinstance(conv, str) or not conv or rec.get("mode") != "pending"
+                or not isinstance(rec.get("procStart"), str) or not rec["procStart"]
+                or f"-{hashlib.sha256(conv.encode()).hexdigest()[:10]}-on-" not in name
+                or not entry_live(rec)):
+            continue
+        if liveness.agy_session_state(conv, rec) != "dead":
+            return True
+    return False
 
 
 def far_codex_unbacked(entry):
@@ -1424,7 +1456,7 @@ def engine_fields(row):
     return {k: row[k] for k in ENGINE_FIELDS if k in row}
 
 
-def session_identity(entry, box=None):
+def session_identity(entry, box=None) -> dict:
     """Add display metadata without changing the address owned by the harness."""
     vendor = entry.get("vendor")
     if vendor not in ("codex", "agy", "grok", "claude", "transport"):
@@ -1442,6 +1474,8 @@ def session_identity(entry, box=None):
     far = entry.get(FAR_SOCKET_FIELD) or entry.get("unimatrixMirror")
     origin = entry.get("box") or box or ("unknown" if far else _contract().local_box())
     out = {"vendor": vendor, "box": str(origin), "cwd": entry.get("cwd") or ""}
+    if entry.get("leg_mode") == "pending":
+        out["leg_mode"] = "pending"
     holder = _liveness().codex_face_holder(entry) if box is None and vendor == "codex" else None
     if holder:
         out["codexHolder"] = holder
@@ -1581,7 +1615,7 @@ def far_identity_crossed(d, row, sock):
     return not (isinstance(sid, str) and sid and sid == row["entry"].get("sessionId"))
 
 
-def rename_live_mirror(pid, sock, row, cfg, say, scan=None):
+def rename_live_mirror(pid, sock, row, cfg, say, scan=None) -> None:
     """Refresh a live bridge's far identity when its stable remote socket is reused.
 
     The bridge's local pid/process identity stays its own. The relay destination must
@@ -1606,11 +1640,15 @@ def rename_live_mirror(pid, sock, row, cfg, say, scan=None):
         updates[REMOTE_IP_FIELD] = ip
     elif not ip and REMOTE_IP_FIELD in d and "unimatrixRemote" in updates:
         d.pop(REMOTE_IP_FIELD)
-    for field, value in mirror_identity(row["entry"], cfg.remote).items():
+    identity = mirror_identity(row["entry"], cfg.remote)
+    for field, value in identity.items():
         if field == "cwd" and not value:
             continue
         if d.get(field) != value:
             updates[field] = value
+    left_pending = "leg_mode" in d and "leg_mode" not in identity  # promoted to live: the stamp must not outlive it
+    if left_pending:
+        d.pop("leg_mode")
     contract = _contract()
     if not d.get(contract.BOX_FIELD):
         updates[contract.BOX_FIELD] = contract.box_id(cfg.remote)
@@ -1631,10 +1669,10 @@ def rename_live_mirror(pid, sock, row, cfg, say, scan=None):
             updates["unimatrixFarName"] = name
         if d.get("name") != want:
             updates["name"] = want
-    if updates:
+    if updates or left_pending:
         d.update(updates)
         write_json_atomic(path, d)
-        if set(updates) != {FAR_SEEN_FIELD}:
+        if left_pending or set(updates) != {FAR_SEEN_FIELD}:
             say(f"refresh mirror {sock} -> {d.get('name')} far pid {d.get('farPid')}")
 
 
